@@ -31,6 +31,60 @@ typedef struct {
     size_t column_index;
 } OmniSnapResult;
 
+typedef enum {
+    OMNI_NIRI_ORIENTATION_HORIZONTAL = 0,
+    OMNI_NIRI_ORIENTATION_VERTICAL = 1
+} OmniNiriOrientation;
+
+typedef enum {
+    OMNI_NIRI_SIZING_NORMAL = 0,
+    OMNI_NIRI_SIZING_FULLSCREEN = 1
+} OmniNiriSizingMode;
+
+typedef enum {
+    OMNI_NIRI_HIDE_NONE = 0,
+    OMNI_NIRI_HIDE_LEFT = 1,
+    OMNI_NIRI_HIDE_RIGHT = 2
+} OmniNiriHideSide;
+
+typedef struct {
+    double span;
+    double render_offset_x;
+    double render_offset_y;
+    uint8_t is_tabbed;
+    double tab_indicator_width;
+    size_t window_start;
+    size_t window_count;
+} OmniNiriColumnInput;
+
+typedef struct {
+    double weight;
+    double min_constraint;
+    double max_constraint;
+    uint8_t has_max_constraint;
+    uint8_t is_constraint_fixed;
+    uint8_t has_fixed_value;
+    double fixed_value;
+    uint8_t sizing_mode;
+    double render_offset_x;
+    double render_offset_y;
+} OmniNiriWindowInput;
+
+typedef struct {
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+    double animated_x;
+    double animated_y;
+    double animated_width;
+    double animated_height;
+    double resolved_span;
+    uint8_t was_constrained;
+    uint8_t hide_side;
+    size_t column_index;
+} OmniNiriWindowOutput;
+
 enum {
     OMNI_OK = 0,
     OMNI_ERR_INVALID_ARGS = -1,
@@ -84,3 +138,30 @@ int32_t omni_viewport_find_snap_target(
     uint8_t center_mode,
     uint8_t always_center_single_column,
     OmniSnapResult *out_result);
+
+int32_t omni_niri_layout_pass(
+    const OmniNiriColumnInput *columns,
+    size_t column_count,
+    const OmniNiriWindowInput *windows,
+    size_t window_count,
+    double working_x,
+    double working_y,
+    double working_width,
+    double working_height,
+    double view_x,
+    double view_y,
+    double view_width,
+    double view_height,
+    double fullscreen_x,
+    double fullscreen_y,
+    double fullscreen_width,
+    double fullscreen_height,
+    double primary_gap,
+    double secondary_gap,
+    double view_start,
+    double viewport_span,
+    double workspace_offset,
+    double scale,
+    uint8_t orientation,
+    OmniNiriWindowOutput *out_windows,
+    size_t out_window_count);
