@@ -18,6 +18,55 @@ pub const OmniSnapResult = extern struct {
     column_index: usize,
 };
 
+pub const OmniViewportGestureState = extern struct {
+    is_trackpad: u8,
+    history_count: usize,
+    history_head: usize,
+    tracker_position: f64,
+    current_view_offset: f64,
+    stationary_view_offset: f64,
+    delta_from_tracker: f64,
+    history_deltas: [OMNI_VIEWPORT_GESTURE_HISTORY_CAP]f64,
+    history_timestamps: [OMNI_VIEWPORT_GESTURE_HISTORY_CAP]f64,
+};
+
+pub const OmniViewportTransitionResult = extern struct {
+    resolved_column_index: usize,
+    offset_delta: f64,
+    adjusted_target_offset: f64,
+    target_offset: f64,
+    snap_delta: f64,
+    snap_to_target_immediately: u8,
+};
+
+pub const OmniViewportEnsureVisibleResult = extern struct {
+    target_offset: f64,
+    offset_delta: f64,
+    is_noop: u8,
+};
+
+pub const OmniViewportScrollResult = extern struct {
+    applied: u8,
+    new_offset: f64,
+    selection_progress: f64,
+    has_selection_steps: u8,
+    selection_steps: i64,
+};
+
+pub const OmniViewportGestureUpdateResult = extern struct {
+    current_view_offset: f64,
+    selection_progress: f64,
+    has_selection_steps: u8,
+    selection_steps: i64,
+};
+
+pub const OmniViewportGestureEndResult = extern struct {
+    resolved_column_index: usize,
+    spring_from: f64,
+    spring_to: f64,
+    initial_velocity: f64,
+};
+
 pub const OmniNiriColumnInput = extern struct {
     span: f64,
     render_offset_x: f64,
@@ -254,6 +303,8 @@ pub const OMNI_ERR_OUT_OF_RANGE: i32 = -2;
 pub const OMNI_CENTER_NEVER: u8 = 0;
 pub const OMNI_CENTER_ALWAYS: u8 = 1;
 pub const OMNI_CENTER_ON_OVERFLOW: u8 = 2;
+
+pub const OMNI_VIEWPORT_GESTURE_HISTORY_CAP: usize = 64;
 
 pub const OMNI_NIRI_ORIENTATION_HORIZONTAL: u8 = 0;
 pub const OMNI_NIRI_ORIENTATION_VERTICAL: u8 = 1;

@@ -1,8 +1,6 @@
 import AppKit
 import Foundation
 
-private let VIEW_GESTURE_WORKING_AREA_MOVEMENT: Double = 1200.0
-
 extension ViewportState {
     mutating func beginGesture(isTrackpad: Bool) {
         let currentOffset = viewOffsetPixels.current()
@@ -21,41 +19,26 @@ extension ViewportState {
             return nil
         }
 
-        gesture.tracker.push(delta: Double(deltaPixels), timestamp: timestamp)
-
-        let normFactor = gesture.isTrackpad
-            ? Double(viewportWidth) / VIEW_GESTURE_WORKING_AREA_MOVEMENT
-            : 1.0
-        let pos = gesture.tracker.position * normFactor
-        let viewOffset = pos + gesture.deltaFromTracker
-
-        guard !columns.isEmpty else {
-            gesture.currentViewOffset = viewOffset
-            return nil
+        let spans = columns.map { Double($0.cachedWidth) }
+        let normalizedActiveIndex: Int = if columns.isEmpty {
+            0
+        } else {
+            activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
         }
 
-        let activeColX = Double(columnX(at: activeColumnIndex, columns: columns, gap: gap))
-        let totalW = Double(totalWidth(columns: columns, gap: gap))
-        var leftmost = 0.0
-        var rightmost = max(0, totalW - Double(viewportWidth))
-        leftmost -= activeColX
-        rightmost -= activeColX
+        let result = NiriViewportZigMath.gestureUpdate(
+            state: &gesture.gestureState,
+            spans: spans,
+            activeContainerIndex: normalizedActiveIndex,
+            deltaPixels: deltaPixels,
+            timestamp: timestamp,
+            gap: gap,
+            viewportSpan: viewportWidth,
+            selectionProgress: selectionProgress
+        )
 
-        let minOffset = min(leftmost, rightmost)
-        let maxOffset = max(leftmost, rightmost)
-        let clampedOffset = Swift.min(Swift.max(viewOffset, minOffset), maxOffset)
-
-        gesture.deltaFromTracker += clampedOffset - viewOffset
-        gesture.currentViewOffset = clampedOffset
-
-        let avgColumnWidth = Double(totalWidth(columns: columns, gap: gap)) / Double(columns.count)
-        selectionProgress += deltaPixels
-        let steps = Int((selectionProgress / CGFloat(avgColumnWidth)).rounded(.towardZero))
-        if steps != 0 {
-            selectionProgress -= CGFloat(steps) * CGFloat(avgColumnWidth)
-            return steps
-        }
-        return nil
+        selectionProgress = result.selectionProgress
+        return result.selectionSteps
     }
 
     mutating func endGesture(
@@ -69,80 +52,37 @@ extension ViewportState {
             return
         }
 
-        let velocity = gesture.currentVelocity()
-        let currentOffset = gesture.current()
+        let spans = columns.map { Double($0.cachedWidth) }
+        let normalizedActiveIndex: Int = if columns.isEmpty {
+            0
+        } else {
+            activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+        }
 
-        let normFactor = gesture.isTrackpad
-            ? Double(viewportWidth) / VIEW_GESTURE_WORKING_AREA_MOVEMENT
-            : 1.0
-        let projectedTrackerPos = gesture.tracker.projectedEndPosition() * normFactor
-        let projectedOffset = projectedTrackerPos + gesture.deltaFromTracker
-
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-        let currentViewPos = Double(activeColX) + currentOffset
-        let projectedViewPos = Double(activeColX) + projectedOffset
-
-        let result = findSnapPointsAndTarget(
-            projectedViewPos: projectedViewPos,
-            currentViewPos: currentViewPos,
-            columns: columns,
+        let result = NiriViewportZigMath.gestureEnd(
+            state: gesture.gestureState,
+            spans: spans,
+            activeContainerIndex: normalizedActiveIndex,
             gap: gap,
-            viewportWidth: viewportWidth,
+            viewportSpan: viewportWidth,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
-        let newColX = columnX(at: result.columnIndex, columns: columns, gap: gap)
-        let offsetDelta = activeColX - newColX
-
-        activeColumnIndex = result.columnIndex
-
-        let targetOffset = result.viewPos - Double(newColX)
-
-        let totalW = totalWidth(columns: columns, gap: gap)
-        let maxOffset: Double = 0
-        let minOffset = Double(viewportWidth - totalW)
-        let clampedTarget = min(max(targetOffset, minOffset), maxOffset)
-
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let animation = SpringAnimation(
-            from: currentOffset + Double(offsetDelta),
-            to: clampedTarget,
-            initialVelocity: velocity,
+            from: result.springFrom,
+            to: result.springTo,
+            initialVelocity: result.initialVelocity,
             startTime: now,
             config: springConfig,
             displayRefreshRate: displayRefreshRate
         )
+        activeColumnIndex = result.resolvedColumnIndex
         viewOffsetPixels = .spring(animation)
 
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
         selectionProgress = 0.0
-    }
-
-    struct SnapResult {
-        let viewPos: Double
-        let columnIndex: Int
-    }
-
-    private func findSnapPointsAndTarget(
-        projectedViewPos: Double,
-        currentViewPos: Double,
-        columns: [NiriContainer],
-        gap: CGFloat,
-        viewportWidth: CGFloat,
-        centerMode: CenterFocusedColumn,
-        alwaysCenterSingleColumn: Bool = false
-    ) -> SnapResult {
-        let spans = columns.map { Double($0.cachedWidth) }
-        return NiriViewportZigMath.findSnapTarget(
-            spans: spans,
-            gap: gap,
-            viewportSpan: viewportWidth,
-            projectedViewPos: projectedViewPos,
-            currentViewPos: currentViewPos,
-            centerMode: centerMode,
-            alwaysCenterSingleColumn: alwaysCenterSingleColumn
-        )
     }
 }

@@ -403,3 +403,166 @@ export fn omni_viewport_find_snap_target(
         out_result,
     );
 }
+
+/// Build transition plan values for switching active viewport container.
+export fn omni_viewport_transition_to_column(
+    spans: [*c]const f64,
+    span_count: usize,
+    current_active_index: usize,
+    requested_index: usize,
+    gap: f64,
+    viewport_span: f64,
+    current_target_offset: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    from_container_index: i64,
+    scale: f64,
+    out_result: [*c]abi.OmniViewportTransitionResult,
+) i32 {
+    return viewport.omni_viewport_transition_to_column_impl(
+        spans,
+        span_count,
+        current_active_index,
+        requested_index,
+        gap,
+        viewport_span,
+        current_target_offset,
+        center_mode,
+        always_center_single_column,
+        from_container_index,
+        scale,
+        out_result,
+    );
+}
+
+/// Build ensure-visible plan for a viewport container target.
+export fn omni_viewport_ensure_visible(
+    spans: [*c]const f64,
+    span_count: usize,
+    active_container_index: usize,
+    target_container_index: usize,
+    gap: f64,
+    viewport_span: f64,
+    current_offset: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    from_container_index: i64,
+    epsilon: f64,
+    out_result: [*c]abi.OmniViewportEnsureVisibleResult,
+) i32 {
+    return viewport.omni_viewport_ensure_visible_impl(
+        spans,
+        span_count,
+        active_container_index,
+        target_container_index,
+        gap,
+        viewport_span,
+        current_offset,
+        center_mode,
+        always_center_single_column,
+        from_container_index,
+        epsilon,
+        out_result,
+    );
+}
+
+/// Apply one scroll delta in viewport space.
+export fn omni_viewport_scroll_step(
+    spans: [*c]const f64,
+    span_count: usize,
+    delta_pixels: f64,
+    viewport_span: f64,
+    gap: f64,
+    current_offset: f64,
+    selection_progress: f64,
+    change_selection: u8,
+    out_result: [*c]abi.OmniViewportScrollResult,
+) i32 {
+    return viewport.omni_viewport_scroll_step_impl(
+        spans,
+        span_count,
+        delta_pixels,
+        viewport_span,
+        gap,
+        current_offset,
+        selection_progress,
+        change_selection,
+        out_result,
+    );
+}
+
+/// Initialize viewport gesture tracking state.
+export fn omni_viewport_gesture_begin(
+    current_view_offset: f64,
+    is_trackpad: u8,
+    out_state: [*c]abi.OmniViewportGestureState,
+) i32 {
+    return viewport.omni_viewport_gesture_begin_impl(
+        current_view_offset,
+        is_trackpad,
+        out_state,
+    );
+}
+
+/// Compute current gesture velocity from tracker history.
+export fn omni_viewport_gesture_velocity(
+    gesture_state: [*c]const abi.OmniViewportGestureState,
+    out_velocity: [*c]f64,
+) i32 {
+    return viewport.omni_viewport_gesture_velocity_impl(
+        gesture_state,
+        out_velocity,
+    );
+}
+
+/// Update viewport gesture tracking state with one delta sample.
+export fn omni_viewport_gesture_update(
+    gesture_state: [*c]abi.OmniViewportGestureState,
+    spans: [*c]const f64,
+    span_count: usize,
+    active_container_index: usize,
+    delta_pixels: f64,
+    timestamp: f64,
+    gap: f64,
+    viewport_span: f64,
+    selection_progress: f64,
+    out_result: [*c]abi.OmniViewportGestureUpdateResult,
+) i32 {
+    return viewport.omni_viewport_gesture_update_impl(
+        gesture_state,
+        spans,
+        span_count,
+        active_container_index,
+        delta_pixels,
+        timestamp,
+        gap,
+        viewport_span,
+        selection_progress,
+        out_result,
+    );
+}
+
+/// Resolve viewport gesture end snap target and spring endpoints.
+export fn omni_viewport_gesture_end(
+    gesture_state: [*c]const abi.OmniViewportGestureState,
+    spans: [*c]const f64,
+    span_count: usize,
+    active_container_index: usize,
+    gap: f64,
+    viewport_span: f64,
+    center_mode: u8,
+    always_center_single_column: u8,
+    out_result: [*c]abi.OmniViewportGestureEndResult,
+) i32 {
+    return viewport.omni_viewport_gesture_end_impl(
+        gesture_state,
+        spans,
+        span_count,
+        active_container_index,
+        gap,
+        viewport_span,
+        center_mode,
+        always_center_single_column,
+        out_result,
+    );
+}

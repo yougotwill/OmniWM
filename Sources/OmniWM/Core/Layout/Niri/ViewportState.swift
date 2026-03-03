@@ -1,27 +1,34 @@
+import CZigLayout
 import AppKit
 import Foundation
 
 final class ViewGesture {
-    let tracker: SwipeTracker
-    let isTrackpad: Bool
-
-    var currentViewOffset: Double
+    var gestureState: OmniViewportGestureState
+    var currentViewOffset: Double {
+        get { gestureState.current_view_offset }
+        set { gestureState.current_view_offset = newValue }
+    }
     var animation: SpringAnimation?
-    var stationaryViewOffset: Double
-    var deltaFromTracker: Double
+    var stationaryViewOffset: Double {
+        get { gestureState.stationary_view_offset }
+        set { gestureState.stationary_view_offset = newValue }
+    }
+    var deltaFromTracker: Double {
+        get { gestureState.delta_from_tracker }
+        set { gestureState.delta_from_tracker = newValue }
+    }
 
     init(currentViewOffset: Double, isTrackpad: Bool) {
-        self.tracker = SwipeTracker()
-        self.currentViewOffset = currentViewOffset
-        self.stationaryViewOffset = currentViewOffset
-        self.deltaFromTracker = currentViewOffset
-        self.isTrackpad = isTrackpad
+        gestureState = NiriViewportZigMath.gestureBegin(
+            currentViewOffset: CGFloat(currentViewOffset),
+            isTrackpad: isTrackpad
+        )
     }
 
     func applyDelta(_ delta: Double) {
-        currentViewOffset += delta
-        stationaryViewOffset += delta
-        deltaFromTracker += delta
+        gestureState.current_view_offset += delta
+        gestureState.stationary_view_offset += delta
+        gestureState.delta_from_tracker += delta
     }
 
     func current() -> Double {
@@ -42,14 +49,14 @@ final class ViewGesture {
         if let anim = animation {
             return anim.velocity(at: CACurrentMediaTime())
         }
-        return tracker.velocity()
+        return NiriViewportZigMath.gestureVelocity(state: gestureState)
     }
 
     func velocity(at time: TimeInterval) -> Double {
         if let anim = animation {
             return anim.velocity(at: time)
         }
-        return tracker.velocity()
+        return NiriViewportZigMath.gestureVelocity(state: gestureState)
     }
 }
 

@@ -10,30 +10,19 @@ extension ViewportState {
         animate: Bool = false
     ) {
         guard !columns.isEmpty else { return }
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
         let clampedIndex = index.clamped(to: 0 ... (columns.count - 1))
-
-        let oldActiveColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-        let newActiveColX = columnX(at: clampedIndex, columns: columns, gap: gap)
-        let offsetDelta = oldActiveColX - newActiveColX
-
-        viewOffsetPixels.offset(delta: Double(offsetDelta))
-
-        let targetOffset = computeCenteredOffset(
-            columnIndex: clampedIndex,
+        transitionToColumn(
+            clampedIndex,
             columns: columns,
             gap: gap,
-            viewportWidth: viewportWidth
+            viewportWidth: viewportWidth,
+            animate: animate,
+            centerMode: .always,
+            alwaysCenterSingleColumn: true,
+            fromColumnIndex: safeCurrentIndex,
+            scale: 2.0
         )
-
-        if animate {
-            animateToOffset(targetOffset)
-        } else {
-            viewOffsetPixels = .static(targetOffset)
-        }
-
-        activeColumnIndex = clampedIndex
-        activatePrevColumnOnRemoval = nil
-        viewOffsetToRestore = nil
     }
 
     mutating func transitionToColumn(
@@ -48,42 +37,42 @@ extension ViewportState {
         scale: CGFloat = 2.0
     ) {
         guard !columns.isEmpty else { return }
-        let clampedIndex = newIndex.clamped(to: 0 ... (columns.count - 1))
-
-        let oldActiveColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-
-        let prevActiveColumn = activeColumnIndex
-        activeColumnIndex = clampedIndex
-
-        let newActiveColX = columnX(at: clampedIndex, columns: columns, gap: gap)
-        let offsetDelta = oldActiveColX - newActiveColX
-
-        viewOffsetPixels.offset(delta: Double(offsetDelta))
-
-        let targetOffset = computeVisibleOffset(
-            columnIndex: clampedIndex,
-            columns: columns,
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+        let requestedNonNegative = max(newIndex, 0)
+        let resolvedFromColumnIndex: Int = if let fromColumnIndex,
+                                              (0 ..< columns.count).contains(fromColumnIndex) {
+            fromColumnIndex
+        } else {
+            safeCurrentIndex
+        }
+        let spans = columns.map { Double($0.cachedWidth) }
+        let plan = NiriViewportZigMath.transitionPlan(
+            spans: spans,
+            currentActiveIndex: safeCurrentIndex,
+            requestedIndex: requestedNonNegative,
             gap: gap,
-            viewportWidth: viewportWidth,
-            currentOffset: viewOffsetPixels.target(),
+            viewportSpan: viewportWidth,
+            currentTargetOffset: viewOffsetPixels.target(),
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
-            fromColumnIndex: fromColumnIndex ?? prevActiveColumn
+            fromContainerIndex: resolvedFromColumnIndex,
+            scale: scale
         )
 
-        let pixel: CGFloat = 1.0 / scale
-        let toDiff = targetOffset - viewOffsetPixels.target()
-        if abs(toDiff) < pixel {
-            viewOffsetPixels.offset(delta: Double(toDiff))
+        activeColumnIndex = plan.resolvedColumnIndex
+        viewOffsetPixels.offset(delta: Double(plan.offsetDelta))
+
+        if plan.snapToTargetImmediately {
+            viewOffsetPixels.offset(delta: Double(plan.snapDelta))
             activatePrevColumnOnRemoval = nil
             viewOffsetToRestore = nil
             return
         }
 
         if animate {
-            animateToOffset(targetOffset)
+            animateToOffset(plan.targetOffset)
         } else {
-            viewOffsetPixels = .static(targetOffset)
+            viewOffsetPixels = .static(plan.targetOffset)
         }
 
         activatePrevColumnOnRemoval = nil
@@ -103,23 +92,31 @@ extension ViewportState {
         fromContainerIndex: Int? = nil
     ) {
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return }
-
+        let safeActiveIndex = activeColumnIndex.clamped(to: 0 ... (containers.count - 1))
+        let normalizedFromContainerIndex: Int? = if let fromContainerIndex {
+            if (0 ..< containers.count).contains(fromContainerIndex) {
+                fromContainerIndex
+            } else {
+                safeActiveIndex
+            }
+        } else {
+            nil
+        }
+        let spans = containers.map { Double($0[keyPath: sizeKeyPath]) }
         let currentOffset = viewOffsetPixels.current()
-        let activePos = containerPosition(at: activeColumnIndex, containers: containers, gap: gap, sizeKeyPath: sizeKeyPath)
-
-        let targetOffset = computeVisibleOffset(
-            containerIndex: containerIndex,
-            containers: containers,
+        let plan = NiriViewportZigMath.ensureVisiblePlan(
+            spans: spans,
+            activeContainerIndex: safeActiveIndex,
+            targetContainerIndex: containerIndex,
             gap: gap,
             viewportSpan: viewportSpan,
-            sizeKeyPath: sizeKeyPath,
-            currentViewStart: activePos + currentOffset,
+            currentOffset: currentOffset,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
-            fromContainerIndex: fromContainerIndex
+            fromContainerIndex: normalizedFromContainerIndex
         )
 
-        if abs(targetOffset - currentOffset) < 0.001 {
+        if plan.isNoop {
             return
         }
 
@@ -129,7 +126,7 @@ extension ViewportState {
             let config = animationConfig ?? springConfig
             let animation = SpringAnimation(
                 from: Double(currentOffset),
-                to: Double(targetOffset),
+                to: Double(plan.targetOffset),
                 initialVelocity: currentVelocity,
                 startTime: now,
                 config: config,
@@ -137,7 +134,7 @@ extension ViewportState {
             )
             viewOffsetPixels = .spring(animation)
         } else {
-            viewOffsetPixels = .static(targetOffset)
+            viewOffsetPixels = .static(plan.targetOffset)
         }
     }
 
@@ -148,16 +145,24 @@ extension ViewportState {
         viewportWidth: CGFloat
     ) {
         guard !columns.isEmpty else { return }
-        let clampedIndex = columnIndex.clamped(to: 0 ... (columns.count - 1))
-        activeColumnIndex = clampedIndex
-
-        let targetOffset = computeCenteredOffset(
-            columnIndex: clampedIndex,
-            columns: columns,
+        let safeCurrentIndex = activeColumnIndex.clamped(to: 0 ... (columns.count - 1))
+        let requestedNonNegative = max(columnIndex, 0)
+        let spans = columns.map { Double($0.cachedWidth) }
+        let plan = NiriViewportZigMath.transitionPlan(
+            spans: spans,
+            currentActiveIndex: safeCurrentIndex,
+            requestedIndex: requestedNonNegative,
             gap: gap,
-            viewportWidth: viewportWidth
+            viewportSpan: viewportWidth,
+            currentTargetOffset: viewOffsetPixels.target(),
+            centerMode: .always,
+            alwaysCenterSingleColumn: true,
+            fromContainerIndex: safeCurrentIndex,
+            scale: 2.0
         )
-        viewOffsetPixels = .static(targetOffset)
+
+        activeColumnIndex = plan.resolvedColumnIndex
+        viewOffsetPixels = .static(plan.targetOffset)
         selectionProgress = 0
     }
 
@@ -168,36 +173,23 @@ extension ViewportState {
         viewportWidth: CGFloat,
         changeSelection: Bool
     ) -> Int? {
-        guard abs(deltaPixels) > CGFloat.ulpOfOne else { return nil }
-        guard !columns.isEmpty else { return nil }
+        let spans = columns.map { Double($0.cachedWidth) }
+        let result = NiriViewportZigMath.scrollStep(
+            spans: spans,
+            deltaPixels: deltaPixels,
+            viewportSpan: viewportWidth,
+            gap: gap,
+            currentOffset: viewOffsetPixels.current(),
+            selectionProgress: selectionProgress,
+            changeSelection: changeSelection
+        )
 
-        let totalW = totalWidth(columns: columns, gap: gap)
-        guard totalW > 0 else { return nil }
-
-        let currentOffset = viewOffsetPixels.current()
-        var newOffset = currentOffset + deltaPixels
-
-        let maxOffset: CGFloat = 0
-        let minOffset = viewportWidth - totalW
-
-        if minOffset < maxOffset {
-            newOffset = newOffset.clamped(to: minOffset ... maxOffset)
-        } else {
-            newOffset = 0
+        guard result.applied else {
+            return nil
         }
 
-        viewOffsetPixels = .static(newOffset)
-
-        if changeSelection {
-            selectionProgress += deltaPixels
-            let avgColumnWidth = totalW / CGFloat(columns.count)
-            let steps = Int((selectionProgress / avgColumnWidth).rounded(.towardZero))
-            if steps != 0 {
-                selectionProgress -= CGFloat(steps) * avgColumnWidth
-                return steps
-            }
-        }
-
-        return nil
+        viewOffsetPixels = .static(result.newOffset)
+        selectionProgress = result.selectionProgress
+        return result.selectionSteps
     }
 }

@@ -139,6 +139,12 @@ final class SpringAnimation {
         displacement = to - from
     }
 
+    #if DEBUG
+    var initialVelocityForTesting: Double {
+        initialVelocity
+    }
+    #endif
+
     func value(at time: TimeInterval) -> Double {
         let elapsed = max(0, time - startTime)
 

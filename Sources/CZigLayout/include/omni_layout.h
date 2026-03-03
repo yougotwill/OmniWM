@@ -31,6 +31,59 @@ typedef struct {
     size_t column_index;
 } OmniSnapResult;
 
+enum {
+    OMNI_VIEWPORT_GESTURE_HISTORY_CAP = 64
+};
+
+typedef struct {
+    uint8_t is_trackpad;
+    size_t history_count;
+    size_t history_head;
+    double tracker_position;
+    double current_view_offset;
+    double stationary_view_offset;
+    double delta_from_tracker;
+    double history_deltas[OMNI_VIEWPORT_GESTURE_HISTORY_CAP];
+    double history_timestamps[OMNI_VIEWPORT_GESTURE_HISTORY_CAP];
+} OmniViewportGestureState;
+
+typedef struct {
+    size_t resolved_column_index;
+    double offset_delta;
+    double adjusted_target_offset;
+    double target_offset;
+    double snap_delta;
+    uint8_t snap_to_target_immediately;
+} OmniViewportTransitionResult;
+
+typedef struct {
+    double target_offset;
+    double offset_delta;
+    uint8_t is_noop;
+} OmniViewportEnsureVisibleResult;
+
+typedef struct {
+    uint8_t applied;
+    double new_offset;
+    double selection_progress;
+    uint8_t has_selection_steps;
+    int64_t selection_steps;
+} OmniViewportScrollResult;
+
+typedef struct {
+    double current_view_offset;
+    double selection_progress;
+    uint8_t has_selection_steps;
+    int64_t selection_steps;
+} OmniViewportGestureUpdateResult;
+
+typedef struct {
+    size_t resolved_column_index;
+    double spring_from;
+    double spring_to;
+    double initial_velocity;
+} OmniViewportGestureEndResult;
+
 typedef enum {
     OMNI_NIRI_ORIENTATION_HORIZONTAL = 0,
     OMNI_NIRI_ORIENTATION_VERTICAL = 1
@@ -230,6 +283,91 @@ int32_t omni_viewport_find_snap_target(
     uint8_t center_mode,
     uint8_t always_center_single_column,
     OmniSnapResult *out_result);
+
+/// Compute transition plan values for switching active container to requested index.
+/// Returns 0 on success, -1 for invalid args, -2 for range errors.
+int32_t omni_viewport_transition_to_column(
+    const double *spans,
+    size_t span_count,
+    size_t current_active_index,
+    size_t requested_index,
+    double gap,
+    double viewport_span,
+    double current_target_offset,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    int64_t from_container_index,
+    double scale,
+    OmniViewportTransitionResult *out_result);
+
+/// Compute offset plan to ensure a target container is visible.
+/// Returns 0 on success, -1 for invalid args, -2 for range errors.
+int32_t omni_viewport_ensure_visible(
+    const double *spans,
+    size_t span_count,
+    size_t active_container_index,
+    size_t target_container_index,
+    double gap,
+    double viewport_span,
+    double current_offset,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    int64_t from_container_index,
+    double epsilon,
+    OmniViewportEnsureVisibleResult *out_result);
+
+/// Apply one viewport scroll delta and report clamped offset/selection-step effects.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_viewport_scroll_step(
+    const double *spans,
+    size_t span_count,
+    double delta_pixels,
+    double viewport_span,
+    double gap,
+    double current_offset,
+    double selection_progress,
+    uint8_t change_selection,
+    OmniViewportScrollResult *out_result);
+
+/// Initialize gesture tracker/kernel state for a new gesture sequence.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_viewport_gesture_begin(
+    double current_view_offset,
+    uint8_t is_trackpad,
+    OmniViewportGestureState *out_state);
+
+/// Compute current gesture velocity from tracker history.
+/// Returns 0 on success, -1 for invalid args.
+int32_t omni_viewport_gesture_velocity(
+    const OmniViewportGestureState *gesture_state,
+    double *out_velocity);
+
+/// Advance gesture tracker state with one delta event.
+/// Returns 0 on success, -1 for invalid args, -2 for range errors.
+int32_t omni_viewport_gesture_update(
+    OmniViewportGestureState *gesture_state,
+    const double *spans,
+    size_t span_count,
+    size_t active_container_index,
+    double delta_pixels,
+    double timestamp,
+    double gap,
+    double viewport_span,
+    double selection_progress,
+    OmniViewportGestureUpdateResult *out_result);
+
+/// Resolve gesture end target and spring endpoints from the current gesture state.
+/// Returns 0 on success, -1 for invalid args, -2 for range errors.
+int32_t omni_viewport_gesture_end(
+    const OmniViewportGestureState *gesture_state,
+    const double *spans,
+    size_t span_count,
+    size_t active_container_index,
+    double gap,
+    double viewport_span,
+    uint8_t center_mode,
+    uint8_t always_center_single_column,
+    OmniViewportGestureEndResult *out_result);
 
 /// Run tiled layout pass and emit window frames.
 /// Returns 0 on success, -1 for invalid args, -2 for range/assignment errors.
