@@ -341,26 +341,132 @@ final class MenuDividerView: NSView {
     }
 }
 
-final class MenuToggleRowView: NSView {
+final class MenuToggleSwitchView: NSView {
     var isOn: Bool {
-        get { toggle.state == .on }
-        set { toggle.state = newValue ? .on : .off }
+        didSet {
+            guard oldValue != isOn else { return }
+            updateAppearance(animated: true)
+        }
     }
 
-    private let toggle: NSSwitch
+    var onToggle: ((Bool) -> Void)?
+
+    private let trackLayer = CALayer()
+    private let thumbLayer = CALayer()
+    private var trackingAreaRef: NSTrackingArea?
+    private var isHovered: Bool = false
+
+    override var isFlipped: Bool { true }
+
+    init(isOn: Bool) {
+        self.isOn = isOn
+        super.init(frame: NSRect(x: 0, y: 0, width: 42, height: 22))
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+
+        trackLayer.cornerCurve = .continuous
+        thumbLayer.cornerCurve = .continuous
+        thumbLayer.backgroundColor = NSColor.white.cgColor
+        thumbLayer.shadowColor = NSColor.black.withAlphaComponent(0.18).cgColor
+        thumbLayer.shadowOpacity = 1
+        thumbLayer.shadowRadius = 1.8
+        thumbLayer.shadowOffset = CGSize(width: 0, height: 0.6)
+
+        layer?.addSublayer(trackLayer)
+        layer?.addSublayer(thumbLayer)
+        updateAppearance(animated: false)
+        updateTrackingAreas()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        updateAppearance(animated: false)
+    }
+
+    override func updateTrackingAreas() {
+        if let existing = trackingAreaRef {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingAreaRef = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateAppearance(animated: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateAppearance(animated: true)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isOn.toggle()
+        onToggle?(isOn)
+    }
+
+    private func updateAppearance(animated: Bool) {
+        let inset: CGFloat = 2
+        let thumbSize = max(0, bounds.height - inset * 2)
+        let thumbX = isOn
+            ? bounds.width - inset - thumbSize
+            : inset
+
+        let onColor = NSColor.systemGreen.withAlphaComponent(isHovered ? 1.0 : 0.95).cgColor
+        let offColor = NSColor(white: isHovered ? 0.32 : 0.26, alpha: 1.0).cgColor
+        let targetTrack = isOn ? onColor : offColor
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        CATransaction.setAnimationDuration(animated ? 0.14 : 0)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        trackLayer.frame = bounds
+        trackLayer.cornerRadius = bounds.height / 2
+        trackLayer.backgroundColor = targetTrack
+
+        thumbLayer.frame = NSRect(x: thumbX, y: inset, width: thumbSize, height: thumbSize)
+        thumbLayer.cornerRadius = thumbSize / 2
+        CATransaction.commit()
+    }
+}
+
+final class MenuToggleRowView: NSView {
+    var isOn: Bool {
+        get { toggle.isOn }
+        set {
+            toggle.isOn = newValue
+        }
+    }
+
+    private let toggle: MenuToggleSwitchView
     private let onChange: (Bool) -> Void
     private var trackingArea: NSTrackingArea?
     private var backgroundLayer: CALayer?
+    private var iconView: NSImageView?
+    private var labelField: NSTextField?
 
     init(icon: String, label: String, isOn: Bool, onChange: @escaping (Bool) -> Void) {
         self.onChange = onChange
-        self.toggle = NSSwitch()
+        self.toggle = MenuToggleSwitchView(isOn: isOn)
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
 
         wantsLayer = true
 
         backgroundLayer = CALayer()
         backgroundLayer?.cornerRadius = 6
+        backgroundLayer?.cornerCurve = .continuous
         backgroundLayer?.backgroundColor = .clear
         layer?.addSublayer(backgroundLayer!)
 
@@ -370,6 +476,7 @@ final class MenuToggleRowView: NSView {
             iconView.image = iconImage.withSymbolConfiguration(config)
             iconView.contentTintColor = .secondaryLabelColor
             addSubview(iconView)
+            self.iconView = iconView
         }
 
         let labelField = NSTextField(labelWithString: label)
@@ -377,12 +484,12 @@ final class MenuToggleRowView: NSView {
         labelField.textColor = .labelColor
         labelField.frame = NSRect(x: 38, y: 5, width: menuWidth - 100, height: 18)
         addSubview(labelField)
+        self.labelField = labelField
 
-        toggle.controlSize = .small
-        toggle.state = isOn ? .on : .off
-        toggle.target = self
-        toggle.action = #selector(toggleChanged)
-        toggle.frame = NSRect(x: menuWidth - 50, y: 4, width: 40, height: 20)
+        toggle.frame = NSRect(x: menuWidth - 54, y: 3, width: 42, height: 22)
+        toggle.onToggle = { [weak self] newValue in
+            self?.onChange(newValue)
+        }
         addSubview(toggle)
 
         updateTrackingAreas()
@@ -391,10 +498,6 @@ final class MenuToggleRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func toggleChanged() {
-        onChange(toggle.state == .on)
     }
 
     override func updateTrackingAreas() {
@@ -411,17 +514,32 @@ final class MenuToggleRowView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
-        backgroundLayer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        setHovered(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        backgroundLayer?.backgroundColor = .clear
+        setHovered(false)
     }
 
     override func layout() {
         super.layout()
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
+    }
+
+    private func setHovered(_ hovered: Bool) {
+        backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
+        let targetBackground = hovered
+            ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+            : NSColor.clear.cgColor
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.14)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        backgroundLayer?.backgroundColor = targetBackground
+        CATransaction.commit()
+
+        iconView?.contentTintColor = hovered ? .labelColor : .secondaryLabelColor
+        labelField?.textColor = .labelColor
     }
 }
 
@@ -512,21 +630,12 @@ final class MenuActionRowView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
-        backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
-        if isDestructive {
-            backgroundLayer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.1).cgColor
-            iconView?.contentTintColor = .systemRed
-            labelField?.textColor = .systemRed
-        } else {
-            backgroundLayer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
-        }
+        setHoveredStyle(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovered = false
-        backgroundLayer?.backgroundColor = .clear
-        iconView?.contentTintColor = .secondaryLabelColor
-        labelField?.textColor = .labelColor
+        setHoveredStyle(false)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -544,5 +653,34 @@ final class MenuActionRowView: NSView {
     override func layout() {
         super.layout()
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
+    }
+
+    private func setHoveredStyle(_ hovered: Bool) {
+        backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
+
+        let background: CGColor
+        if hovered {
+            if isDestructive {
+                background = NSColor.systemRed.withAlphaComponent(0.14).cgColor
+            } else {
+                background = NSColor.controlAccentColor.withAlphaComponent(0.13).cgColor
+            }
+        } else {
+            background = NSColor.clear.cgColor
+        }
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.14)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        backgroundLayer?.backgroundColor = background
+        CATransaction.commit()
+
+        if isDestructive && hovered {
+            iconView?.contentTintColor = .systemRed
+            labelField?.textColor = .systemRed
+        } else {
+            iconView?.contentTintColor = hovered ? .labelColor : .secondaryLabelColor
+            labelField?.textColor = .labelColor
+        }
     }
 }
