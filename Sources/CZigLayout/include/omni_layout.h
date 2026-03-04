@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 typedef struct OmniNiriLayoutContext OmniNiriLayoutContext;
+typedef struct OmniDwindleLayoutContext OmniDwindleLayoutContext;
 
 /// Input descriptor for one window on a single axis.
 /// Zig struct OmniAxisInput must match this layout exactly.
@@ -944,3 +945,238 @@ int32_t omni_niri_ctx_apply_workspace(
     const OmniNiriLayoutContext *target_context,
     const OmniNiriWorkspaceApplyRequest *request,
     OmniNiriWorkspaceApplyResult *out_result);
+
+typedef enum {
+    OMNI_DWINDLE_NODE_SPLIT = 0,
+    OMNI_DWINDLE_NODE_LEAF = 1
+} OmniDwindleNodeKind;
+
+typedef enum {
+    OMNI_DWINDLE_ORIENTATION_HORIZONTAL = 0,
+    OMNI_DWINDLE_ORIENTATION_VERTICAL = 1
+} OmniDwindleOrientation;
+
+typedef enum {
+    OMNI_DWINDLE_DIRECTION_LEFT = 0,
+    OMNI_DWINDLE_DIRECTION_RIGHT = 1,
+    OMNI_DWINDLE_DIRECTION_UP = 2,
+    OMNI_DWINDLE_DIRECTION_DOWN = 3
+} OmniDwindleDirection;
+
+typedef enum {
+    OMNI_DWINDLE_OP_ADD_WINDOW = 0,
+    OMNI_DWINDLE_OP_REMOVE_WINDOW = 1,
+    OMNI_DWINDLE_OP_SYNC_WINDOWS = 2,
+    OMNI_DWINDLE_OP_MOVE_FOCUS = 3,
+    OMNI_DWINDLE_OP_SWAP_WINDOWS = 4,
+    OMNI_DWINDLE_OP_TOGGLE_FULLSCREEN = 5,
+    OMNI_DWINDLE_OP_TOGGLE_ORIENTATION = 6,
+    OMNI_DWINDLE_OP_RESIZE_SELECTED = 7,
+    OMNI_DWINDLE_OP_BALANCE_SIZES = 8,
+    OMNI_DWINDLE_OP_CYCLE_SPLIT_RATIO = 9,
+    OMNI_DWINDLE_OP_MOVE_SELECTION_TO_ROOT = 10,
+    OMNI_DWINDLE_OP_SWAP_SPLIT = 11,
+    OMNI_DWINDLE_OP_SET_PRESELECTION = 12,
+    OMNI_DWINDLE_OP_CLEAR_PRESELECTION = 13,
+    OMNI_DWINDLE_OP_VALIDATE_SELECTION = 14
+} OmniDwindleOp;
+
+enum {
+    /// Equivalent to (MAX_WINDOWS * 2) - 1 where MAX_WINDOWS is 512 in Zig ABI.
+    OMNI_DWINDLE_MAX_NODES = 1023
+};
+
+typedef struct {
+    OmniUuid128 node_id;
+    int64_t parent_index;
+    int64_t first_child_index;
+    int64_t second_child_index;
+    uint8_t kind;
+    uint8_t orientation;
+    double ratio;
+    uint8_t has_window_id;
+    OmniUuid128 window_id;
+    uint8_t is_fullscreen;
+} OmniDwindleSeedNode;
+
+typedef struct {
+    int64_t root_node_index;
+    int64_t selected_node_index;
+    uint8_t has_preselection;
+    uint8_t preselection_direction;
+} OmniDwindleSeedState;
+
+typedef struct {
+    double screen_x;
+    double screen_y;
+    double screen_width;
+    double screen_height;
+    double inner_gap;
+    double outer_gap_top;
+    double outer_gap_bottom;
+    double outer_gap_left;
+    double outer_gap_right;
+    double single_window_aspect_width;
+    double single_window_aspect_height;
+    double single_window_aspect_tolerance;
+} OmniDwindleLayoutRequest;
+
+typedef struct {
+    OmniUuid128 window_id;
+    double min_width;
+    double min_height;
+    double max_width;
+    double max_height;
+    uint8_t has_max_width;
+    uint8_t has_max_height;
+    uint8_t is_fixed;
+} OmniDwindleWindowConstraint;
+
+typedef struct {
+    OmniUuid128 window_id;
+    double frame_x;
+    double frame_y;
+    double frame_width;
+    double frame_height;
+} OmniDwindleWindowFrame;
+
+typedef struct {
+    OmniUuid128 window_id;
+} OmniDwindleAddWindowPayload;
+
+typedef struct {
+    OmniUuid128 window_id;
+} OmniDwindleRemoveWindowPayload;
+
+typedef struct {
+    const OmniUuid128 *window_ids;
+    size_t window_count;
+} OmniDwindleSyncWindowsPayload;
+
+typedef struct {
+    uint8_t direction;
+} OmniDwindleMoveFocusPayload;
+
+typedef struct {
+    uint8_t direction;
+} OmniDwindleSwapWindowsPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleToggleFullscreenPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleToggleOrientationPayload;
+
+typedef struct {
+    double delta;
+    uint8_t direction;
+} OmniDwindleResizeSelectedPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleBalanceSizesPayload;
+
+typedef struct {
+    uint8_t forward;
+} OmniDwindleCycleSplitRatioPayload;
+
+typedef struct {
+    uint8_t stable;
+} OmniDwindleMoveSelectionToRootPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleSwapSplitPayload;
+
+typedef struct {
+    uint8_t direction;
+} OmniDwindleSetPreselectionPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleClearPreselectionPayload;
+
+typedef struct {
+    uint8_t unused;
+} OmniDwindleValidateSelectionPayload;
+
+typedef union {
+    OmniDwindleAddWindowPayload add_window;
+    OmniDwindleRemoveWindowPayload remove_window;
+    OmniDwindleSyncWindowsPayload sync_windows;
+    OmniDwindleMoveFocusPayload move_focus;
+    OmniDwindleSwapWindowsPayload swap_windows;
+    OmniDwindleToggleFullscreenPayload toggle_fullscreen;
+    OmniDwindleToggleOrientationPayload toggle_orientation;
+    OmniDwindleResizeSelectedPayload resize_selected;
+    OmniDwindleBalanceSizesPayload balance_sizes;
+    OmniDwindleCycleSplitRatioPayload cycle_split_ratio;
+    OmniDwindleMoveSelectionToRootPayload move_selection_to_root;
+    OmniDwindleSwapSplitPayload swap_split;
+    OmniDwindleSetPreselectionPayload set_preselection;
+    OmniDwindleClearPreselectionPayload clear_preselection;
+    OmniDwindleValidateSelectionPayload validate_selection;
+} OmniDwindleOpPayload;
+
+typedef struct {
+    uint8_t op;
+    OmniDwindleOpPayload payload;
+} OmniDwindleOpRequest;
+
+typedef struct {
+    uint8_t applied;
+    uint8_t has_selected_window_id;
+    OmniUuid128 selected_window_id;
+    uint8_t has_focused_window_id;
+    OmniUuid128 focused_window_id;
+    uint8_t has_preselection;
+    uint8_t preselection_direction;
+    size_t removed_window_count;
+} OmniDwindleOpResult;
+
+/// Create a reusable Dwindle layout context.
+/// Returns NULL on allocation failure.
+OmniDwindleLayoutContext *omni_dwindle_layout_context_create(void);
+
+/// Destroy a reusable Dwindle layout context.
+void omni_dwindle_layout_context_destroy(OmniDwindleLayoutContext *context);
+
+/// Seed deterministic Dwindle state topology into context.
+/// Returns 0 on success, -1 for invalid args, -2 for range/topology failures.
+int32_t omni_dwindle_ctx_seed_state(
+    OmniDwindleLayoutContext *context,
+    const OmniDwindleSeedNode *nodes,
+    size_t node_count,
+    const OmniDwindleSeedState *seed_state);
+
+/// Apply one deterministic Dwindle operation request.
+/// Returns 0 on success, -1 for invalid args, -2 for range failures.
+int32_t omni_dwindle_ctx_apply_op(
+    OmniDwindleLayoutContext *context,
+    const OmniDwindleOpRequest *request,
+    OmniDwindleOpResult *out_result,
+    OmniUuid128 *out_removed_window_ids,
+    size_t out_removed_window_capacity);
+
+/// Calculate Dwindle layout outputs for current deterministic context state.
+/// Returns 0 on success, -1 for invalid args, -2 for range failures.
+int32_t omni_dwindle_ctx_calculate_layout(
+    OmniDwindleLayoutContext *context,
+    const OmniDwindleLayoutRequest *request,
+    const OmniDwindleWindowConstraint *constraints,
+    size_t constraint_count,
+    OmniDwindleWindowFrame *out_frames,
+    size_t out_frame_capacity,
+    size_t *out_frame_count);
+
+/// Find directional geometric neighbor for a window in current context state.
+/// Returns 0 on success, -1 for invalid args, -2 for range failures.
+int32_t omni_dwindle_ctx_find_neighbor(
+    const OmniDwindleLayoutContext *context,
+    OmniUuid128 window_id,
+    uint8_t direction,
+    double inner_gap,
+    uint8_t *out_has_neighbor,
+    OmniUuid128 *out_neighbor_window_id);

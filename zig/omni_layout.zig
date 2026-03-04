@@ -12,6 +12,7 @@
 /// - `layout_pass.zig`: tiled layout pass
 /// - `interaction.zig`: hit-testing/dropzone/resize math
 /// - `viewport.zig`: viewport offset/snap math
+/// - `dwindle.zig`: Dwindle context ABI scaffolding
 
 const abi = @import("omni/abi_types.zig");
 const axis_solver = @import("omni/axis_solver.zig");
@@ -23,6 +24,7 @@ const layout_pass = @import("omni/layout_pass.zig");
 const interaction = @import("omni/interaction.zig");
 const layout_context = @import("omni/layout_context.zig");
 const viewport = @import("omni/viewport.zig");
+const dwindle = @import("omni/dwindle.zig");
 
 /// Solve axis layout for `window_count` windows.
 ///
@@ -569,6 +571,88 @@ export fn omni_niri_ctx_apply_workspace(
         target_context,
         request,
         out_result,
+    );
+}
+
+/// Create a reusable Dwindle layout context.
+export fn omni_dwindle_layout_context_create() [*c]dwindle.OmniDwindleLayoutContext {
+    return dwindle.omni_dwindle_layout_context_create_impl();
+}
+
+/// Destroy a reusable Dwindle layout context.
+export fn omni_dwindle_layout_context_destroy(context: [*c]dwindle.OmniDwindleLayoutContext) void {
+    dwindle.omni_dwindle_layout_context_destroy_impl(context);
+}
+
+/// Seed deterministic Dwindle state topology into a context.
+export fn omni_dwindle_ctx_seed_state(
+    context: [*c]dwindle.OmniDwindleLayoutContext,
+    nodes: [*c]const abi.OmniDwindleSeedNode,
+    node_count: usize,
+    seed_state: [*c]const abi.OmniDwindleSeedState,
+) i32 {
+    return dwindle.omni_dwindle_ctx_seed_state_impl(
+        context,
+        nodes,
+        node_count,
+        seed_state,
+    );
+}
+
+/// Apply a single Dwindle operation to context state.
+export fn omni_dwindle_ctx_apply_op(
+    context: [*c]dwindle.OmniDwindleLayoutContext,
+    request: [*c]const abi.OmniDwindleOpRequest,
+    out_result: [*c]abi.OmniDwindleOpResult,
+    out_removed_window_ids: [*c]abi.OmniUuid128,
+    out_removed_window_capacity: usize,
+) i32 {
+    return dwindle.omni_dwindle_ctx_apply_op_impl(
+        context,
+        request,
+        out_result,
+        out_removed_window_ids,
+        out_removed_window_capacity,
+    );
+}
+
+/// Calculate Dwindle output frames for current context state.
+export fn omni_dwindle_ctx_calculate_layout(
+    context: [*c]dwindle.OmniDwindleLayoutContext,
+    request: [*c]const abi.OmniDwindleLayoutRequest,
+    constraints: [*c]const abi.OmniDwindleWindowConstraint,
+    constraint_count: usize,
+    out_frames: [*c]abi.OmniDwindleWindowFrame,
+    out_frame_capacity: usize,
+    out_frame_count: [*c]usize,
+) i32 {
+    return dwindle.omni_dwindle_ctx_calculate_layout_impl(
+        context,
+        request,
+        constraints,
+        constraint_count,
+        out_frames,
+        out_frame_capacity,
+        out_frame_count,
+    );
+}
+
+/// Resolve directional Dwindle neighbor from cached context state.
+export fn omni_dwindle_ctx_find_neighbor(
+    context: [*c]const dwindle.OmniDwindleLayoutContext,
+    window_id: abi.OmniUuid128,
+    direction: u8,
+    inner_gap: f64,
+    out_has_neighbor: [*c]u8,
+    out_neighbor_window_id: [*c]abi.OmniUuid128,
+) i32 {
+    return dwindle.omni_dwindle_ctx_find_neighbor_impl(
+        context,
+        window_id,
+        direction,
+        inner_gap,
+        out_has_neighbor,
+        out_neighbor_window_id,
     );
 }
 

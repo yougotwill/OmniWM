@@ -387,6 +387,156 @@ pub const OmniNiriWorkspaceApplyResult = extern struct {
     moved_window_id: OmniUuid128,
 };
 
+pub const OmniDwindleSeedNode = extern struct {
+    node_id: OmniUuid128,
+    parent_index: i64,
+    first_child_index: i64,
+    second_child_index: i64,
+    kind: u8,
+    orientation: u8,
+    ratio: f64,
+    has_window_id: u8,
+    window_id: OmniUuid128,
+    is_fullscreen: u8,
+};
+
+pub const OmniDwindleSeedState = extern struct {
+    root_node_index: i64,
+    selected_node_index: i64,
+    has_preselection: u8,
+    preselection_direction: u8,
+};
+
+pub const OmniDwindleLayoutRequest = extern struct {
+    screen_x: f64,
+    screen_y: f64,
+    screen_width: f64,
+    screen_height: f64,
+    inner_gap: f64,
+    outer_gap_top: f64,
+    outer_gap_bottom: f64,
+    outer_gap_left: f64,
+    outer_gap_right: f64,
+    single_window_aspect_width: f64,
+    single_window_aspect_height: f64,
+    single_window_aspect_tolerance: f64,
+};
+
+pub const OmniDwindleWindowConstraint = extern struct {
+    window_id: OmniUuid128,
+    min_width: f64,
+    min_height: f64,
+    max_width: f64,
+    max_height: f64,
+    has_max_width: u8,
+    has_max_height: u8,
+    is_fixed: u8,
+};
+
+pub const OmniDwindleWindowFrame = extern struct {
+    window_id: OmniUuid128,
+    frame_x: f64,
+    frame_y: f64,
+    frame_width: f64,
+    frame_height: f64,
+};
+
+pub const OmniDwindleAddWindowPayload = extern struct {
+    window_id: OmniUuid128,
+};
+
+pub const OmniDwindleRemoveWindowPayload = extern struct {
+    window_id: OmniUuid128,
+};
+
+pub const OmniDwindleSyncWindowsPayload = extern struct {
+    window_ids: [*c]const OmniUuid128,
+    window_count: usize,
+};
+
+pub const OmniDwindleMoveFocusPayload = extern struct {
+    direction: u8,
+};
+
+pub const OmniDwindleSwapWindowsPayload = extern struct {
+    direction: u8,
+};
+
+pub const OmniDwindleToggleFullscreenPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleToggleOrientationPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleResizeSelectedPayload = extern struct {
+    delta: f64,
+    direction: u8,
+};
+
+pub const OmniDwindleBalanceSizesPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleCycleSplitRatioPayload = extern struct {
+    forward: u8,
+};
+
+pub const OmniDwindleMoveSelectionToRootPayload = extern struct {
+    stable: u8,
+};
+
+pub const OmniDwindleSwapSplitPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleSetPreselectionPayload = extern struct {
+    direction: u8,
+};
+
+pub const OmniDwindleClearPreselectionPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleValidateSelectionPayload = extern struct {
+    unused: u8,
+};
+
+pub const OmniDwindleOpPayload = extern union {
+    add_window: OmniDwindleAddWindowPayload,
+    remove_window: OmniDwindleRemoveWindowPayload,
+    sync_windows: OmniDwindleSyncWindowsPayload,
+    move_focus: OmniDwindleMoveFocusPayload,
+    swap_windows: OmniDwindleSwapWindowsPayload,
+    toggle_fullscreen: OmniDwindleToggleFullscreenPayload,
+    toggle_orientation: OmniDwindleToggleOrientationPayload,
+    resize_selected: OmniDwindleResizeSelectedPayload,
+    balance_sizes: OmniDwindleBalanceSizesPayload,
+    cycle_split_ratio: OmniDwindleCycleSplitRatioPayload,
+    move_selection_to_root: OmniDwindleMoveSelectionToRootPayload,
+    swap_split: OmniDwindleSwapSplitPayload,
+    set_preselection: OmniDwindleSetPreselectionPayload,
+    clear_preselection: OmniDwindleClearPreselectionPayload,
+    validate_selection: OmniDwindleValidateSelectionPayload,
+};
+
+pub const OmniDwindleOpRequest = extern struct {
+    op: u8,
+    payload: OmniDwindleOpPayload,
+};
+
+pub const OmniDwindleOpResult = extern struct {
+    applied: u8,
+    has_selected_window_id: u8,
+    selected_window_id: OmniUuid128,
+    has_focused_window_id: u8,
+    focused_window_id: OmniUuid128,
+    has_preselection: u8,
+    preselection_direction: u8,
+    removed_window_count: usize,
+};
+
 pub const MAX_WINDOWS: usize = 512;
 
 pub const OMNI_OK: i32 = 0;
@@ -497,3 +647,32 @@ pub const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_WINDOW: u8 = 7;
 pub const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_COLUMN_FIRST_WINDOW: u8 = 8;
 
 pub const OMNI_NIRI_WORKSPACE_MAX_EDITS: usize = 16;
+
+pub const OMNI_DWINDLE_MAX_NODES: usize = (MAX_WINDOWS * 2) - 1;
+
+pub const OMNI_DWINDLE_NODE_SPLIT: u8 = 0;
+pub const OMNI_DWINDLE_NODE_LEAF: u8 = 1;
+
+pub const OMNI_DWINDLE_ORIENTATION_HORIZONTAL: u8 = 0;
+pub const OMNI_DWINDLE_ORIENTATION_VERTICAL: u8 = 1;
+
+pub const OMNI_DWINDLE_DIRECTION_LEFT: u8 = 0;
+pub const OMNI_DWINDLE_DIRECTION_RIGHT: u8 = 1;
+pub const OMNI_DWINDLE_DIRECTION_UP: u8 = 2;
+pub const OMNI_DWINDLE_DIRECTION_DOWN: u8 = 3;
+
+pub const OMNI_DWINDLE_OP_ADD_WINDOW: u8 = 0;
+pub const OMNI_DWINDLE_OP_REMOVE_WINDOW: u8 = 1;
+pub const OMNI_DWINDLE_OP_SYNC_WINDOWS: u8 = 2;
+pub const OMNI_DWINDLE_OP_MOVE_FOCUS: u8 = 3;
+pub const OMNI_DWINDLE_OP_SWAP_WINDOWS: u8 = 4;
+pub const OMNI_DWINDLE_OP_TOGGLE_FULLSCREEN: u8 = 5;
+pub const OMNI_DWINDLE_OP_TOGGLE_ORIENTATION: u8 = 6;
+pub const OMNI_DWINDLE_OP_RESIZE_SELECTED: u8 = 7;
+pub const OMNI_DWINDLE_OP_BALANCE_SIZES: u8 = 8;
+pub const OMNI_DWINDLE_OP_CYCLE_SPLIT_RATIO: u8 = 9;
+pub const OMNI_DWINDLE_OP_MOVE_SELECTION_TO_ROOT: u8 = 10;
+pub const OMNI_DWINDLE_OP_SWAP_SPLIT: u8 = 11;
+pub const OMNI_DWINDLE_OP_SET_PRESELECTION: u8 = 12;
+pub const OMNI_DWINDLE_OP_CLEAR_PRESELECTION: u8 = 13;
+pub const OMNI_DWINDLE_OP_VALIDATE_SELECTION: u8 = 14;
