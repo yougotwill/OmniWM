@@ -1119,4 +1119,212 @@ private func runNavigationApply(
             #expect(exported.columns[0].active_tile_idx == 1)
         }
     }
+
+    @Test func swiftUuidEncodingRoundTripsThroughOmniUuid() {
+        let original = UUID()
+        let encoded = NiriStateZigKernel.omniUUID(from: original)
+        let decoded = NiriStateZigKernel.uuid(from: encoded)
+        let nodeId = NiriStateZigKernel.nodeId(from: encoded)
+
+        #expect(decoded == original)
+        #expect(nodeId.uuid == original)
+    }
+
+    @Test func mutationApplyWrapperRejectsMissingDeterministicIncomingWindowId() {
+        guard let context = NiriLayoutZigKernel.LayoutContext() else {
+            Issue.record("failed to allocate layout context")
+            return
+        }
+
+        let columnId = NodeId(uuid: UUID())
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: columnId,
+                        windowStart: 0,
+                        windowCount: 0,
+                        activeTileIdx: 0,
+                        isTabbed: false,
+                        sizeValue: 1.0
+                    )
+                ],
+                windows: []
+            )
+        )
+        #expect(seedRC == abiOK)
+
+        let request = NiriStateZigKernel.MutationApplyRequest(
+            request: .init(op: .addWindow)
+        )
+        let outcome = NiriStateZigKernel.applyMutation(context: context, request: request)
+        #expect(outcome.rc == abiErrInvalidArgs)
+    }
+
+    @Test func workspaceApplyWrapperRejectsMissingCreatedColumnId() {
+        guard let sourceContext = NiriLayoutZigKernel.LayoutContext(),
+              let targetContext = NiriLayoutZigKernel.LayoutContext()
+        else {
+            Issue.record("failed to allocate layout contexts")
+            return
+        }
+
+        let sourceColumnId = NodeId(uuid: UUID())
+        let sourceWindowId = NodeId(uuid: UUID())
+        let sourceSeedRC = NiriStateZigKernel.seedRuntimeState(
+            context: sourceContext,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: sourceColumnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: false,
+                        sizeValue: 1.0
+                    )
+                ],
+                windows: [
+                    .init(
+                        windowId: sourceWindowId,
+                        columnId: sourceColumnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0
+                    )
+                ]
+            )
+        )
+        #expect(sourceSeedRC == abiOK)
+
+        let targetColumnId = NodeId(uuid: UUID())
+        let targetWindowId = NodeId(uuid: UUID())
+        let targetSeedRC = NiriStateZigKernel.seedRuntimeState(
+            context: targetContext,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: targetColumnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: false,
+                        sizeValue: 1.0
+                    )
+                ],
+                windows: [
+                    .init(
+                        windowId: targetWindowId,
+                        columnId: targetColumnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0
+                    )
+                ]
+            )
+        )
+        #expect(targetSeedRC == abiOK)
+
+        let request = NiriStateZigKernel.WorkspaceApplyRequest(
+            request: .init(
+                op: .moveWindowToWorkspace,
+                sourceWindowIndex: 0,
+                maxVisibleColumns: 3
+            )
+        )
+        let outcome = NiriStateZigKernel.applyWorkspace(
+            sourceContext: sourceContext,
+            targetContext: targetContext,
+            request: request
+        )
+        #expect(outcome.rc == abiErrInvalidArgs)
+    }
+
+    @Test func navigationApplyWrapperRejectsOutOfRangeSelection() {
+        guard let context = NiriLayoutZigKernel.LayoutContext() else {
+            Issue.record("failed to allocate layout context")
+            return
+        }
+
+        let columnId = NodeId(uuid: UUID())
+        let windowId = NodeId(uuid: UUID())
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: columnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: true,
+                        sizeValue: 1.0
+                    )
+                ],
+                windows: [
+                    .init(
+                        windowId: windowId,
+                        columnId: columnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0
+                    )
+                ]
+            )
+        )
+        #expect(seedRC == abiOK)
+
+        let request = NiriStateZigKernel.NavigationApplyRequest(
+            request: .init(
+                op: .moveVertical,
+                selection: .init(
+                    selectedWindowIndex: 10,
+                    selectedColumnIndex: 10,
+                    selectedRowIndex: 10
+                ),
+                direction: .up
+            )
+        )
+        let outcome = NiriStateZigKernel.applyNavigation(context: context, request: request)
+        #expect(outcome.rc == abiErrOutOfRange)
+    }
+
+    @Test func exportRuntimeStateWrapperDecodesSeededRuntimeState() {
+        guard let context = NiriLayoutZigKernel.LayoutContext() else {
+            Issue.record("failed to allocate layout context")
+            return
+        }
+
+        let columnId = NodeId(uuid: UUID())
+        let windowId = NodeId(uuid: UUID())
+        let seedRC = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            export: .init(
+                columns: [
+                    .init(
+                        columnId: columnId,
+                        windowStart: 0,
+                        windowCount: 1,
+                        activeTileIdx: 0,
+                        isTabbed: false,
+                        sizeValue: 1.0
+                    )
+                ],
+                windows: [
+                    .init(
+                        windowId: windowId,
+                        columnId: columnId,
+                        columnIndex: 0,
+                        sizeValue: 1.0
+                    )
+                ]
+            )
+        )
+        #expect(seedRC == abiOK)
+
+        let export = NiriStateZigKernel.exportRuntimeState(context: context)
+        #expect(export.rc == abiOK)
+        #expect(export.export.columns.count == 1)
+        #expect(export.export.windows.count == 1)
+        #expect(export.export.columns[0].columnId == columnId)
+        #expect(export.export.windows[0].windowId == windowId)
+    }
 }

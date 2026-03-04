@@ -157,6 +157,7 @@ extension NiriLayoutEngine {
         guard !containers.isEmpty else {
             interactionIndexes.removeValue(forKey: workspaceId)
             layoutContexts.removeValue(forKey: workspaceId)
+            clearRuntimeMirrorState(for: workspaceId)
             return
         }
 

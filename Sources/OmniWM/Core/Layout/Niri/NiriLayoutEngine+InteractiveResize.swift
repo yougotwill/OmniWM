@@ -145,6 +145,10 @@ extension NiriLayoutEngine {
             changed = true
         }
 
+        if changed {
+            _ = syncRuntimeStateNow(workspaceId: resize.workspaceId)
+        }
+
         return changed
     }
 

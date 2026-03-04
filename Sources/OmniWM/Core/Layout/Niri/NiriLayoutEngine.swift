@@ -98,6 +98,12 @@ struct NiriRenderStyle {
 }
 
 final class NiriLayoutEngine {
+    struct RuntimeMirrorState {
+        var isSeeded: Bool
+        var columnCount: Int
+        var windowCount: Int
+    }
+
     var monitors: [Monitor.ID: NiriMonitor] = [:]
 
     var roots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
@@ -132,6 +138,7 @@ final class NiriLayoutEngine {
     var moveConfiguration = MoveConfiguration.default
     var layoutContexts: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.LayoutContext] = [:]
     var interactionIndexes: [WorkspaceDescriptor.ID: NiriLayoutZigKernel.InteractionIndex] = [:]
+    var runtimeMirrorStates: [WorkspaceDescriptor.ID: RuntimeMirrorState] = [:]
 
     var windowMovementAnimationConfig: SpringConfig = .balanced.with(
         epsilon: 0.0001,
@@ -215,6 +222,29 @@ final class NiriLayoutEngine {
             return nil
         }
         return (context, index)
+    }
+
+    @discardableResult
+    func syncRuntimeStateNow(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let context = ensureLayoutContext(for: workspaceId) else { return false }
+
+        let snapshot = NiriStateZigKernel.makeSnapshot(columns: columns(in: workspaceId))
+        let rc = NiriStateZigKernel.seedRuntimeState(
+            context: context,
+            snapshot: snapshot
+        )
+        guard rc == 0 else { return false }
+
+        runtimeMirrorStates[workspaceId] = RuntimeMirrorState(
+            isSeeded: true,
+            columnCount: snapshot.columns.count,
+            windowCount: snapshot.windows.count
+        )
+        return true
+    }
+
+    func clearRuntimeMirrorState(for workspaceId: WorkspaceDescriptor.ID) {
+        runtimeMirrorStates.removeValue(forKey: workspaceId)
     }
 
     func wrapIndex(_ idx: Int, total: Int) -> Int? {

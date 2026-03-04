@@ -21,6 +21,11 @@ enum NiriLayoutZigKernel {
             self.raw = raw
         }
 
+        @inline(__always)
+        func withRawContext<T>(_ body: (OpaquePointer) -> T) -> T {
+            body(raw)
+        }
+
         deinit {
             omni_niri_layout_context_destroy(raw)
         }

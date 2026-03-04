@@ -30,6 +30,9 @@ extension NiriLayoutEngine {
         let windows = column.windowNodes
         guard !windows.isEmpty else {
             column.displayMode = mode
+            if let workspaceId = column.findRoot()?.workspaceId {
+                _ = syncRuntimeStateNow(workspaceId: workspaceId)
+            }
             return true
         }
 
@@ -63,6 +66,9 @@ extension NiriLayoutEngine {
 
         column.displayMode = mode
         updateTabbedColumnVisibility(column: column)
+        if let workspaceId = column.findRoot()?.workspaceId {
+            _ = syncRuntimeStateNow(workspaceId: workspaceId)
+        }
 
         return true
     }
@@ -94,6 +100,9 @@ extension NiriLayoutEngine {
 
         if prevIdx != column.activeTileIdx {
             updateTabbedColumnVisibility(column: column)
+            if let workspaceId = column.findRoot()?.workspaceId {
+                _ = syncRuntimeStateNow(workspaceId: workspaceId)
+            }
             return true
         }
         return false

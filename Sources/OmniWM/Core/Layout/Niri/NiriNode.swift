@@ -161,6 +161,10 @@ struct NodeId: Hashable, Equatable {
     init() {
         uuid = UUID()
     }
+
+    init(uuid: UUID) {
+        self.uuid = uuid
+    }
 }
 
 class NiriNode {
@@ -174,8 +178,8 @@ class NiriNode {
 
     var frame: CGRect?
 
-    init() {
-        id = NodeId()
+    init(id: NodeId = NodeId()) {
+        self.id = id
     }
 
     func invalidateChildrenCache() {
@@ -327,8 +331,8 @@ class NiriContainer: NiriNode {
 
     private var _cachedWindowNodes: [NiriWindow]?
 
-    override init() {
-        super.init()
+    override init(id: NodeId = NodeId()) {
+        super.init(id: id)
     }
 
     override func invalidateChildrenCache() {
@@ -561,9 +565,9 @@ class NiriWindow: NiriNode {
     var moveXAnimation: MoveAnimation?
     var moveYAnimation: MoveAnimation?
 
-    init(handle: WindowHandle) {
+    init(handle: WindowHandle, id: NodeId = NodeId()) {
         self.handle = handle
-        super.init()
+        super.init(id: id)
     }
 
     override var size: CGFloat {

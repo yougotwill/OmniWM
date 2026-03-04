@@ -47,6 +47,9 @@ extension NiriLayoutEngine {
         }
 
         window.sizingMode = mode
+        if let workspaceId = window.findRoot()?.workspaceId {
+            _ = syncRuntimeStateNow(workspaceId: workspaceId)
+        }
     }
 
     func toggleFullscreen(
@@ -133,6 +136,8 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
         }
+
+        _ = syncRuntimeStateNow(workspaceId: workspaceId)
     }
 
     func toggleFullWidth(
@@ -180,9 +185,14 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
         }
+
+        _ = syncRuntimeStateNow(workspaceId: workspaceId)
     }
 
     func setWindowHeight(_ window: NiriWindow, height: WeightedSize) {
         window.height = height
+        if let workspaceId = window.findRoot()?.workspaceId {
+            _ = syncRuntimeStateNow(workspaceId: workspaceId)
+        }
     }
 }
