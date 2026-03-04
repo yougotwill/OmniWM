@@ -92,6 +92,33 @@ enum DwindleZigKernel {
         let neighborWindowId: UUID?
     }
 
+    enum Op {
+        case addWindow(windowId: UUID)
+        case removeWindow(windowId: UUID)
+        case syncWindows(windowIds: [UUID])
+        case moveFocus(direction: Direction)
+        case swapWindows(direction: Direction)
+        case toggleFullscreen
+        case toggleOrientation
+        case resizeSelected(delta: CGFloat, direction: Direction)
+        case balanceSizes
+        case cycleSplitRatio(forward: Bool)
+        case moveSelectionToRoot(stable: Bool)
+        case swapSplit
+        case setPreselection(direction: Direction)
+        case clearPreselection
+        case validateSelection
+    }
+
+    struct OpResult {
+        let rc: Int32
+        let applied: Bool
+        let selectedWindowId: UUID?
+        let focusedWindowId: UUID?
+        let preselection: Direction?
+        let removedWindowIds: [UUID]
+    }
+
     final class LayoutContext {
         fileprivate let raw: OpaquePointer
 
@@ -262,6 +289,155 @@ enum DwindleZigKernel {
         return NeighborResult(rc: rc, neighborWindowId: uuid(from: neighborId))
     }
 
+    static func applyOp(
+        context: LayoutContext,
+        op: Op
+    ) -> OpResult {
+        var removedRaw = [OmniUuid128](repeating: zeroUUID(), count: 512)
+        var rawResult = OmniDwindleOpResult(
+            applied: 0,
+            has_selected_window_id: 0,
+            selected_window_id: zeroUUID(),
+            has_focused_window_id: 0,
+            focused_window_id: zeroUUID(),
+            has_preselection: 0,
+            preselection_direction: directionCode(.left),
+            removed_window_count: 0
+        )
+
+        func invoke(opCode: UInt8, configure: (inout OmniDwindleOpPayload) -> Void) -> Int32 {
+            var payload = OmniDwindleOpPayload()
+            configure(&payload)
+            var request = OmniDwindleOpRequest(op: opCode, payload: payload)
+            return removedRaw.withUnsafeMutableBufferPointer { removedBuf in
+                withUnsafePointer(to: &request) { requestPtr in
+                    withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                        omni_dwindle_ctx_apply_op(
+                            context.raw,
+                            requestPtr,
+                            resultPtr,
+                            removedBuf.baseAddress,
+                            removedBuf.count
+                        )
+                    }
+                }
+            }
+        }
+
+        let rc: Int32
+        switch op {
+        case let .addWindow(windowId):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_ADD_WINDOW.rawValue)) { payload in
+                payload.add_window = OmniDwindleAddWindowPayload(window_id: omniUUID(from: windowId))
+            }
+        case let .removeWindow(windowId):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_REMOVE_WINDOW.rawValue)) { payload in
+                payload.remove_window = OmniDwindleRemoveWindowPayload(window_id: omniUUID(from: windowId))
+            }
+        case let .syncWindows(windowIds):
+            let rawWindowIds = windowIds.map(omniUUID(from:))
+            rc = rawWindowIds.withUnsafeBufferPointer { idBuf in
+                invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_SYNC_WINDOWS.rawValue)) { payload in
+                    payload.sync_windows = OmniDwindleSyncWindowsPayload(
+                        window_ids: idBuf.baseAddress,
+                        window_count: idBuf.count
+                    )
+                }
+            }
+        case let .moveFocus(direction):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_MOVE_FOCUS.rawValue)) { payload in
+                payload.move_focus = OmniDwindleMoveFocusPayload(direction: directionCode(direction))
+            }
+        case let .swapWindows(direction):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_SWAP_WINDOWS.rawValue)) { payload in
+                payload.swap_windows = OmniDwindleSwapWindowsPayload(direction: directionCode(direction))
+            }
+        case .toggleFullscreen:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_TOGGLE_FULLSCREEN.rawValue)) { payload in
+                payload.toggle_fullscreen = OmniDwindleToggleFullscreenPayload(unused: 0)
+            }
+        case .toggleOrientation:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_TOGGLE_ORIENTATION.rawValue)) { payload in
+                payload.toggle_orientation = OmniDwindleToggleOrientationPayload(unused: 0)
+            }
+        case let .resizeSelected(delta, direction):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_RESIZE_SELECTED.rawValue)) { payload in
+                payload.resize_selected = OmniDwindleResizeSelectedPayload(
+                    delta: Double(delta),
+                    direction: directionCode(direction)
+                )
+            }
+        case .balanceSizes:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_BALANCE_SIZES.rawValue)) { payload in
+                payload.balance_sizes = OmniDwindleBalanceSizesPayload(unused: 0)
+            }
+        case let .cycleSplitRatio(forward):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_CYCLE_SPLIT_RATIO.rawValue)) { payload in
+                payload.cycle_split_ratio = OmniDwindleCycleSplitRatioPayload(forward: forward ? 1 : 0)
+            }
+        case let .moveSelectionToRoot(stable):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_MOVE_SELECTION_TO_ROOT.rawValue)) { payload in
+                payload.move_selection_to_root = OmniDwindleMoveSelectionToRootPayload(stable: stable ? 1 : 0)
+            }
+        case .swapSplit:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_SWAP_SPLIT.rawValue)) { payload in
+                payload.swap_split = OmniDwindleSwapSplitPayload(unused: 0)
+            }
+        case let .setPreselection(direction):
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_SET_PRESELECTION.rawValue)) { payload in
+                payload.set_preselection = OmniDwindleSetPreselectionPayload(direction: directionCode(direction))
+            }
+        case .clearPreselection:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_CLEAR_PRESELECTION.rawValue)) { payload in
+                payload.clear_preselection = OmniDwindleClearPreselectionPayload(unused: 0)
+            }
+        case .validateSelection:
+            rc = invoke(opCode: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_VALIDATE_SELECTION.rawValue)) { payload in
+                payload.validate_selection = OmniDwindleValidateSelectionPayload(unused: 0)
+            }
+        }
+
+        let selected: UUID?
+        if rawResult.has_selected_window_id != 0, !isZeroUUID(rawResult.selected_window_id) {
+            selected = uuid(from: rawResult.selected_window_id)
+        } else {
+            selected = nil
+        }
+
+        let focused: UUID?
+        if rawResult.has_focused_window_id != 0, !isZeroUUID(rawResult.focused_window_id) {
+            focused = uuid(from: rawResult.focused_window_id)
+        } else {
+            focused = nil
+        }
+
+        let preselection: Direction?
+        if rawResult.has_preselection != 0 {
+            preselection = direction(from: rawResult.preselection_direction)
+        } else {
+            preselection = nil
+        }
+
+        let resolvedRemovedCount = min(max(0, rawResult.removed_window_count), removedRaw.count)
+        var removedIds: [UUID] = []
+        removedIds.reserveCapacity(resolvedRemovedCount)
+        if rc == OMNI_OK, resolvedRemovedCount > 0 {
+            for idx in 0 ..< resolvedRemovedCount {
+                if isZeroUUID(removedRaw[idx]) { continue }
+                removedIds.append(uuid(from: removedRaw[idx]))
+            }
+        }
+
+        return OpResult(
+            rc: rc,
+            applied: rawResult.applied != 0,
+            selectedWindowId: selected,
+            focusedWindowId: focused,
+            preselection: preselection,
+            removedWindowIds: removedIds
+        )
+    }
+
     static func omniUUID(from uuid: UUID) -> OmniUuid128 {
         var rawUUID = uuid.uuid
         var encoded = OmniUuid128()
@@ -304,6 +480,21 @@ enum DwindleZigKernel {
             return 2
         case .down:
             return 3
+        }
+    }
+
+    private static func direction(from raw: UInt8) -> Direction? {
+        switch raw {
+        case 0:
+            return .left
+        case 1:
+            return .right
+        case 2:
+            return .up
+        case 3:
+            return .down
+        default:
+            return nil
         }
     }
 }

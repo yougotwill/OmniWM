@@ -84,6 +84,13 @@ final class DwindleLayoutEngine {
         windowToNode[handle]
     }
 
+    private func findNode(windowId: UUID) -> DwindleNode? {
+        if let direct = windowToNode.first(where: { $0.key.id == windowId }) {
+            return direct.value
+        }
+        return nil
+    }
+
     func windowCount(in workspaceId: WorkspaceDescriptor.ID) -> Int {
         roots[workspaceId]?.collectAllWindows().count ?? 0
     }
@@ -305,29 +312,40 @@ final class DwindleLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         focusedHandle: WindowHandle?
     ) -> Set<WindowHandle> {
-        let existingWindows = Set(roots[workspaceId]?.collectAllWindows() ?? [])
-        let newWindows = Set(handles)
-
-        let toRemove = existingWindows.subtracting(newWindows)
-        let toAdd = newWindows.subtracting(existingWindows)
-
-        for handle in toRemove {
-            removeWindow(handle: handle, from: workspaceId)
+        let existingOrdered = roots[workspaceId]?.collectAllWindows() ?? []
+        var existingById: [UUID: WindowHandle] = [:]
+        existingById.reserveCapacity(existingOrdered.count)
+        for handle in existingOrdered where existingById[handle.id] == nil {
+            existingById[handle.id] = handle
         }
 
-        var activeFrame: CGRect?
-        if let focused = focusedHandle, let node = windowToNode[focused] {
-            activeFrame = node.cachedFrame
+        var incomingOrder: [UUID] = []
+        incomingOrder.reserveCapacity(handles.count)
+        var incomingById: [UUID: WindowHandle] = [:]
+        incomingById.reserveCapacity(handles.count)
+        for handle in handles where incomingById[handle.id] == nil {
+            incomingOrder.append(handle.id)
+            incomingById[handle.id] = handle
         }
 
-        for handle in toAdd {
-            addWindow(handle: handle, to: workspaceId, activeWindowFrame: activeFrame)
-            if let newNode = windowToNode[handle] {
-                activeFrame = newNode.cachedFrame
+        var removedHandles: [WindowHandle] = []
+        removedHandles.reserveCapacity(existingOrdered.count)
+        for handle in existingOrdered {
+            if incomingById[handle.id] == nil {
+                removedHandles.append(handle)
             }
         }
 
-        return toRemove
+        for handle in removedHandles {
+            removeWindow(handle: handle, from: workspaceId)
+        }
+
+        for windowId in incomingOrder where existingById[windowId] == nil {
+            guard let handle = incomingById[windowId] else { continue }
+            addWindow(handle: handle, to: workspaceId, activeWindowFrame: nil)
+        }
+
+        return Set(removedHandles)
     }
 
     func calculateLayout(

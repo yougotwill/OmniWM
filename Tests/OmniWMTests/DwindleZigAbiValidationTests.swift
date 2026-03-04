@@ -140,6 +140,62 @@ private func seedState(
     }
 }
 
+private func applyOp(
+    context: OpaquePointer,
+    request: OmniDwindleOpRequest,
+    removedCapacity: Int = 8
+) -> (rc: Int32, result: OmniDwindleOpResult, removed: [OmniUuid128]) {
+    var mutableRequest = request
+    var result = defaultOpResult()
+    var removed = [OmniUuid128](repeating: makeUUID(0), count: max(0, removedCapacity))
+    let rc = withUnsafePointer(to: &mutableRequest) { requestPtr in
+        withUnsafeMutablePointer(to: &result) { resultPtr in
+            removed.withUnsafeMutableBufferPointer { removedBuf in
+                omni_dwindle_ctx_apply_op(
+                    context,
+                    requestPtr,
+                    resultPtr,
+                    removedCapacity > 0 ? removedBuf.baseAddress : nil,
+                    removedCapacity > 0 ? removedBuf.count : 0
+                )
+            }
+        }
+    }
+    return (rc, result, removed)
+}
+
+private func layoutFrameCount(context: OpaquePointer) -> Int {
+    var request = defaultLayoutRequest()
+    var outCount = -1
+    var frames = [OmniDwindleWindowFrame](
+        repeating: OmniDwindleWindowFrame(
+            window_id: makeUUID(0),
+            frame_x: 0,
+            frame_y: 0,
+            frame_width: 0,
+            frame_height: 0
+        ),
+        count: 16
+    )
+    let rc = withUnsafePointer(to: &request) { requestPtr in
+        frames.withUnsafeMutableBufferPointer { frameBuf in
+            withUnsafeMutablePointer(to: &outCount) { countPtr in
+                omni_dwindle_ctx_calculate_layout(
+                    context,
+                    requestPtr,
+                    nil,
+                    0,
+                    frameBuf.baseAddress,
+                    frameBuf.count,
+                    countPtr
+                )
+            }
+        }
+    }
+    #expect(rc == abiOK)
+    return max(0, outCount)
+}
+
 @Suite struct DwindleZigAbiValidationTests {
     @Test func constantsStayAligned() {
         #expect(Int(OMNI_DWINDLE_MAX_NODES) == 1023)
@@ -331,6 +387,117 @@ private func seedState(
             #expect(rc == abiOK)
             #expect(result.applied == 0)
             #expect(result.removed_window_count == 0)
+        }
+    }
+
+    @Test func applyOpAddAndRemoveUpdateSelectionAndRemovedIds() {
+        withDwindleContext { context in
+            let addRequest = makeOpRequest(
+                op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_ADD_WINDOW.rawValue)
+            ) { payload in
+                payload.add_window = OmniDwindleAddWindowPayload(window_id: makeUUID(11))
+            }
+            let addResult = applyOp(context: context, request: addRequest, removedCapacity: 4)
+            #expect(addResult.rc == abiOK)
+            #expect(addResult.result.applied == 1)
+            #expect(addResult.result.has_selected_window_id == 1)
+            #expect(addResult.result.selected_window_id.bytes.0 == 11)
+            #expect(addResult.result.has_focused_window_id == 1)
+            #expect(addResult.result.focused_window_id.bytes.0 == 11)
+            #expect(addResult.result.removed_window_count == 0)
+
+            let removeRequest = makeOpRequest(
+                op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_REMOVE_WINDOW.rawValue)
+            ) { payload in
+                payload.remove_window = OmniDwindleRemoveWindowPayload(window_id: makeUUID(11))
+            }
+            let removeResult = applyOp(context: context, request: removeRequest, removedCapacity: 4)
+            #expect(removeResult.rc == abiOK)
+            #expect(removeResult.result.applied == 1)
+            #expect(removeResult.result.removed_window_count == 1)
+            #expect(removeResult.removed[0].bytes.0 == 11)
+            #expect(removeResult.result.has_selected_window_id == 0)
+            #expect(removeResult.result.has_focused_window_id == 0)
+            #expect(layoutFrameCount(context: context) == 0)
+        }
+    }
+
+    @Test func applyOpRemoveHonorsCapacityWithoutMutation() {
+        withDwindleContext { context in
+            for marker in [UInt8(11), UInt8(22)] {
+                let addRequest = makeOpRequest(
+                    op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_ADD_WINDOW.rawValue)
+                ) { payload in
+                    payload.add_window = OmniDwindleAddWindowPayload(window_id: makeUUID(marker))
+                }
+                let addResult = applyOp(context: context, request: addRequest, removedCapacity: 0)
+                #expect(addResult.rc == abiOK)
+            }
+            #expect(layoutFrameCount(context: context) == 2)
+
+            var removeRequest = makeOpRequest(
+                op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_REMOVE_WINDOW.rawValue)
+            ) { payload in
+                payload.remove_window = OmniDwindleRemoveWindowPayload(window_id: makeUUID(11))
+            }
+            var result = defaultOpResult()
+            let noCapacityRC = withUnsafePointer(to: &removeRequest) { requestPtr in
+                withUnsafeMutablePointer(to: &result) { resultPtr in
+                    omni_dwindle_ctx_apply_op(context, requestPtr, resultPtr, nil, 0)
+                }
+            }
+            #expect(noCapacityRC == abiErrOutOfRange)
+            #expect(layoutFrameCount(context: context) == 2)
+        }
+    }
+
+    @Test func applyOpSyncRemovesInCurrentStateOrder() {
+        withDwindleContext { context in
+            for marker in [UInt8(11), UInt8(22), UInt8(33)] {
+                let addRequest = makeOpRequest(
+                    op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_ADD_WINDOW.rawValue)
+                ) { payload in
+                    payload.add_window = OmniDwindleAddWindowPayload(window_id: makeUUID(marker))
+                }
+                let addResult = applyOp(context: context, request: addRequest, removedCapacity: 4)
+                #expect(addResult.rc == abiOK)
+            }
+            #expect(layoutFrameCount(context: context) == 3)
+
+            var rawResult = defaultOpResult()
+            var removed = [OmniUuid128](repeating: makeUUID(0), count: 4)
+            let syncWindowIds: [OmniUuid128] = [makeUUID(33), makeUUID(44)]
+            let rc = syncWindowIds.withUnsafeBufferPointer { idBuf in
+                var request = makeOpRequest(
+                    op: UInt8(truncatingIfNeeded: OMNI_DWINDLE_OP_SYNC_WINDOWS.rawValue)
+                ) { payload in
+                    payload.sync_windows = OmniDwindleSyncWindowsPayload(
+                        window_ids: idBuf.baseAddress,
+                        window_count: idBuf.count
+                    )
+                }
+                return withUnsafePointer(to: &request) { requestPtr in
+                    withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                        removed.withUnsafeMutableBufferPointer { removedBuf in
+                            omni_dwindle_ctx_apply_op(
+                                context,
+                                requestPtr,
+                                resultPtr,
+                                removedBuf.baseAddress,
+                                removedBuf.count
+                            )
+                        }
+                    }
+                }
+            }
+
+            #expect(rc == abiOK)
+            #expect(rawResult.removed_window_count == 2)
+            #expect(removed[0].bytes.0 == 11)
+            #expect(removed[1].bytes.0 == 22)
+            #expect(rawResult.has_selected_window_id == 1)
+            #expect(rawResult.selected_window_id.bytes.0 == 44)
+            #expect(layoutFrameCount(context: context) == 2)
         }
     }
 
