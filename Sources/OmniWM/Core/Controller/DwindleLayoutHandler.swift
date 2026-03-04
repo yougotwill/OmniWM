@@ -93,9 +93,7 @@ import QuartzCore
                 }
             }
 
-            if let selected = engine.selectedNode(in: wsId),
-               case let .leaf(handle, _) = selected.kind,
-               let handle {
+            if let handle = engine.selectedWindowHandle(in: wsId) {
                 controller.focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
                 if let currentFocused = controller.focusedHandle {
                     if controller.workspaceManager.workspace(for: currentFocused) == wsId {

@@ -1,36 +1,285 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import QuartzCore
 
 final class DwindleLayoutEngine {
-    private var roots: [WorkspaceDescriptor.ID: DwindleNode] = [:]
-    private var windowToNode: [WindowHandle: DwindleNode] = [:]
-    private var selectedNodeId: [WorkspaceDescriptor.ID: DwindleNodeId] = [:]
-    private var preselection: [WorkspaceDescriptor.ID: Direction] = [:]
-    private var windowConstraints: [WindowHandle: WindowSizeConstraints] = [:]
+    enum Backend {
+        case zigContext
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        case legacyDeterministic
+#endif
+    }
 
-    var settings: DwindleSettings = DwindleSettings()
+    private struct ZigWorkspaceState {
+        let context: DwindleZigKernel.LayoutContext
+        var handlesById: [UUID: WindowHandle] = [:]
+        var selectedWindowId: UUID?
+        var focusedWindowId: UUID?
+        var preselection: Direction?
+        var lastFramesById: [UUID: CGRect] = [:]
+        var animationNodeById: [UUID: DwindleNode] = [:]
+    }
+
+    let backend: Backend
+
+    var settings: DwindleSettings = DwindleSettings() {
+        didSet {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+            if backend == .legacyDeterministic {
+                legacyEngine.settings = settings
+            }
+#endif
+        }
+    }
     private var monitorSettings: [Monitor.ID: ResolvedDwindleSettings] = [:]
-    var animationClock: AnimationClock?
-    var displayRefreshRate: Double = 60.0
+    var animationClock: AnimationClock? {
+        didSet {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+            if backend == .legacyDeterministic {
+                legacyEngine.animationClock = animationClock
+            }
+#endif
+        }
+    }
+    var displayRefreshRate: Double = 60.0 {
+        didSet {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+            if backend == .legacyDeterministic {
+                legacyEngine.displayRefreshRate = displayRefreshRate
+            }
+#endif
+        }
+    }
+    var windowMovementAnimationConfig: CubicConfig = CubicConfig(duration: 0.3) {
+        didSet {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+            if backend == .legacyDeterministic {
+                legacyEngine.windowMovementAnimationConfig = windowMovementAnimationConfig
+            }
+#endif
+        }
+    }
+
+    private var windowConstraints: [WindowHandle: WindowSizeConstraints] = [:]
+    private var zigStates: [WorkspaceDescriptor.ID: ZigWorkspaceState] = [:]
+
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+    private let legacy: LegacyDwindleLayoutEngine?
+#endif
+
+    init(backend: Backend = .zigContext) {
+        self.backend = backend
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        switch backend {
+        case .zigContext:
+            legacy = nil
+        case .legacyDeterministic:
+            guard Self.isRunningUnderXCTest else {
+                preconditionFailure("Dwindle legacy backend is test-only and unavailable in this runtime")
+            }
+            legacy = LegacyDwindleLayoutEngine()
+        }
+#endif
+    }
+
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+    private static var isRunningUnderXCTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment.keys.contains(where: { $0.hasPrefix("SWIFT_TESTING") })
+        {
+            return true
+        }
+        if NSClassFromString("XCTestCase") != nil {
+            return true
+        }
+
+        if Bundle.allBundles.contains(where: { $0.bundlePath.hasSuffix(".xctest") }) {
+            return true
+        }
+
+        let processName = ProcessInfo.processInfo.processName.lowercased()
+        if processName.contains("xctest") || processName.contains("packagetests") {
+            return true
+        }
+
+        let arguments = ProcessInfo.processInfo.arguments.joined(separator: " ").lowercased()
+        if arguments.contains("xctest")
+            || arguments.contains("swift-testing")
+            || arguments.contains("packagetests")
+        {
+            return true
+        }
+
+        return Bundle.main.bundlePath.hasSuffix(".xctest")
+    }
+
+    private var legacyEngine: LegacyDwindleLayoutEngine {
+        guard let legacy else {
+            preconditionFailure("Dwindle legacy backend is not initialized")
+        }
+        return legacy
+    }
+#endif
+
+    private func ensureZigState(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        if zigStates[workspaceId] != nil {
+            return true
+        }
+        guard let context = DwindleZigKernel.LayoutContext() else {
+            return false
+        }
+        zigStates[workspaceId] = ZigWorkspaceState(context: context)
+        return true
+    }
+
+    private func withZigState<T>(
+        for workspaceId: WorkspaceDescriptor.ID,
+        _ body: (inout ZigWorkspaceState) -> T
+    ) -> T? {
+        guard ensureZigState(for: workspaceId), var state = zigStates[workspaceId] else {
+            return nil
+        }
+        let result = body(&state)
+        zigStates[workspaceId] = state
+        return result
+    }
+
+    private func applyZigResult(_ result: DwindleZigKernel.OpResult, to state: inout ZigWorkspaceState) {
+        state.selectedWindowId = result.selectedWindowId
+        state.focusedWindowId = result.focusedWindowId
+        state.preselection = result.preselection
+    }
+
+    private func ensureAnimationNode(
+        in state: inout ZigWorkspaceState,
+        windowId: UUID,
+        handle: WindowHandle
+    ) -> DwindleNode {
+        if let existing = state.animationNodeById[windowId] {
+            let fullscreen = existing.isFullscreen
+            existing.kind = .leaf(handle: handle, fullscreen: fullscreen)
+            return existing
+        }
+
+        let node = DwindleNode(kind: .leaf(handle: handle, fullscreen: false))
+        node.cachedFrame = state.lastFramesById[windowId]
+        state.animationNodeById[windowId] = node
+        return node
+    }
+
+    private func applyZigOp(
+        _ op: DwindleZigKernel.Op,
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> DwindleZigKernel.OpResult? {
+        withZigState(for: workspaceId) { state in
+            let result = DwindleZigKernel.applyOp(context: state.context, op: op)
+            if result.rc == 0 {
+                applyZigResult(result, to: &state)
+            }
+            return result
+        }
+    }
+
+    private func zigHandle(for windowId: UUID?, in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+        guard let windowId,
+              let state = zigStates[workspaceId]
+        else {
+            return nil
+        }
+        return state.handlesById[windowId]
+    }
+
+    private func zigFindNode(windowId: UUID) -> DwindleNode? {
+        for state in zigStates.values {
+            if let node = state.animationNodeById[windowId] {
+                return node
+            }
+        }
+        return nil
+    }
+
+    private func zigAnimationNode(for handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) -> DwindleNode? {
+        zigStates[workspaceId]?.animationNodeById[handle.id]
+    }
+
+    private func dedupHandlesById(_ handles: [WindowHandle]) -> (order: [UUID], map: [UUID: WindowHandle]) {
+        var order: [UUID] = []
+        order.reserveCapacity(handles.count)
+
+        var map: [UUID: WindowHandle] = [:]
+        map.reserveCapacity(handles.count)
+
+        for handle in handles where map[handle.id] == nil {
+            order.append(handle.id)
+            map[handle.id] = handle
+        }
+
+        return (order, map)
+    }
+
+    private func zigCurrentFrames(for workspaceId: WorkspaceDescriptor.ID) -> [WindowHandle: CGRect] {
+        guard let state = zigStates[workspaceId] else {
+            return [:]
+        }
+
+        var frames: [WindowHandle: CGRect] = [:]
+        frames.reserveCapacity(state.lastFramesById.count)
+
+        for (windowId, frame) in state.lastFramesById {
+            guard let handle = state.handlesById[windowId] else { continue }
+            frames[handle] = frame
+        }
+
+        return frames
+    }
 
     func updateWindowConstraints(for handle: WindowHandle, constraints: WindowSizeConstraints) {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.updateWindowConstraints(for: handle, constraints: constraints)
+            return
+        }
+#endif
         windowConstraints[handle] = constraints
     }
 
     func constraints(for handle: WindowHandle) -> WindowSizeConstraints {
-        windowConstraints[handle] ?? .unconstrained
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.constraints(for: handle)
+        }
+#endif
+        return windowConstraints[handle] ?? .unconstrained
     }
 
     func updateMonitorSettings(_ resolved: ResolvedDwindleSettings, for monitorId: Monitor.ID) {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.updateMonitorSettings(resolved, for: monitorId)
+            return
+        }
+#endif
         monitorSettings[monitorId] = resolved
     }
 
     func cleanupRemovedMonitor(_ monitorId: Monitor.ID) {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.cleanupRemovedMonitor(monitorId)
+            return
+        }
+#endif
         monitorSettings.removeValue(forKey: monitorId)
     }
 
     func effectiveSettings(for monitorId: Monitor.ID) -> DwindleSettings {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.effectiveSettings(for: monitorId)
+        }
+#endif
         guard let resolved = monitorSettings[monitorId] else { return settings }
 
         var effective = settings
@@ -50,81 +299,136 @@ final class DwindleLayoutEngine {
         return effective
     }
 
-    var windowMovementAnimationConfig: CubicConfig = CubicConfig(duration: 0.3)
-
     func root(for workspaceId: WorkspaceDescriptor.ID) -> DwindleNode? {
-        roots[workspaceId]
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.root(for: workspaceId)
+        }
+#endif
+        return nil
     }
 
     func ensureRoot(for workspaceId: WorkspaceDescriptor.ID) -> DwindleNode {
-        if let existing = roots[workspaceId] {
-            return existing
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.ensureRoot(for: workspaceId)
         }
-        let newRoot = DwindleNode(kind: .leaf(handle: nil, fullscreen: false))
-        roots[workspaceId] = newRoot
-        return newRoot
+#endif
+        _ = ensureZigState(for: workspaceId)
+        return DwindleNode(kind: .leaf(handle: nil, fullscreen: false))
     }
 
     func removeLayout(for workspaceId: WorkspaceDescriptor.ID) {
-        if let root = roots.removeValue(forKey: workspaceId) {
-            for window in root.collectAllWindows() {
-                windowToNode.removeValue(forKey: window)
-                windowConstraints.removeValue(forKey: window)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.removeLayout(for: workspaceId)
+            return
+        }
+#endif
+
+        if let state = zigStates.removeValue(forKey: workspaceId) {
+            for handle in state.handlesById.values {
+                windowConstraints.removeValue(forKey: handle)
             }
         }
-        selectedNodeId.removeValue(forKey: workspaceId)
     }
 
     func containsWindow(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let root = roots[workspaceId] else { return false }
-        return root.collectAllWindows().contains(handle)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.containsWindow(handle, in: workspaceId)
+        }
+#endif
+        return zigStates[workspaceId]?.handlesById[handle.id] != nil
     }
 
     func findNode(for handle: WindowHandle) -> DwindleNode? {
-        windowToNode[handle]
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.findNode(for: handle)
+        }
+#endif
+        return zigFindNode(windowId: handle.id)
     }
 
     private func findNode(windowId: UUID) -> DwindleNode? {
-        if let direct = windowToNode.first(where: { $0.key.id == windowId }) {
-            return direct.value
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return nil
         }
-        return nil
+#endif
+        return zigFindNode(windowId: windowId)
     }
 
     func windowCount(in workspaceId: WorkspaceDescriptor.ID) -> Int {
-        roots[workspaceId]?.collectAllWindows().count ?? 0
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.windowCount(in: workspaceId)
+        }
+#endif
+        return zigStates[workspaceId]?.handlesById.count ?? 0
     }
 
     func selectedNode(in workspaceId: WorkspaceDescriptor.ID) -> DwindleNode? {
-        guard let nodeId = selectedNodeId[workspaceId],
-              let root = roots[workspaceId] else { return nil }
-        return findNodeById(nodeId, in: root)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.selectedNode(in: workspaceId)
+        }
+#endif
+        guard let handle = selectedWindowHandle(in: workspaceId) else {
+            return nil
+        }
+        return findNode(for: handle)
+    }
+
+    func selectedWindowHandle(in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.selectedNode(in: workspaceId)?.windowHandle
+        }
+#endif
+        guard let state = zigStates[workspaceId],
+              let selectedId = state.selectedWindowId
+        else {
+            return nil
+        }
+        return state.handlesById[selectedId]
     }
 
     func setSelectedNode(_ node: DwindleNode?, in workspaceId: WorkspaceDescriptor.ID) {
-        selectedNodeId[workspaceId] = node?.id
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.setSelectedNode(node, in: workspaceId)
+            return
+        }
+#endif
+        guard var state = zigStates[workspaceId] else { return }
+        state.selectedWindowId = node?.windowHandle?.id
+        zigStates[workspaceId] = state
     }
 
     func setPreselection(_ direction: Direction?, in workspaceId: WorkspaceDescriptor.ID) {
-        if let direction {
-            preselection[workspaceId] = direction
-        } else {
-            preselection.removeValue(forKey: workspaceId)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.setPreselection(direction, in: workspaceId)
+            return
         }
+#endif
+        let op: DwindleZigKernel.Op = if let direction {
+            .setPreselection(direction: direction)
+        } else {
+            .clearPreselection
+        }
+        _ = applyZigOp(op, in: workspaceId)
     }
 
     func getPreselection(in workspaceId: WorkspaceDescriptor.ID) -> Direction? {
-        preselection[workspaceId]
-    }
-
-    private func findNodeById(_ nodeId: DwindleNodeId, in root: DwindleNode) -> DwindleNode? {
-        if root.id == nodeId { return root }
-        for child in root.children {
-            if let found = findNodeById(nodeId, in: child) {
-                return found
-            }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.getPreselection(in: workspaceId)
         }
-        return nil
+#endif
+        return zigStates[workspaceId]?.preselection
     }
 
     @discardableResult
@@ -133,178 +437,69 @@ final class DwindleLayoutEngine {
         to workspaceId: WorkspaceDescriptor.ID,
         activeWindowFrame: CGRect?
     ) -> DwindleNode {
-        let root = ensureRoot(for: workspaceId)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.addWindow(handle: handle, to: workspaceId, activeWindowFrame: activeWindowFrame)
+        }
+#endif
 
-        if case let .leaf(existingHandle, _) = root.kind, existingHandle == nil {
-            root.kind = .leaf(handle: handle, fullscreen: false)
-            windowToNode[handle] = root
-            selectedNodeId[workspaceId] = root.id
-            return root
+        guard var state = zigStates[workspaceId] ?? (ensureZigState(for: workspaceId) ? zigStates[workspaceId] : nil) else {
+            return DwindleNode(kind: .leaf(handle: handle, fullscreen: false))
         }
 
-        let targetNode: DwindleNode
-        if let selected = selectedNode(in: workspaceId), selected.isLeaf {
-            targetNode = selected
-        } else {
-            targetNode = root.descendToFirstLeaf()
+        if let existing = state.animationNodeById[handle.id] {
+            let fullscreen = existing.isFullscreen
+            existing.kind = .leaf(handle: handle, fullscreen: fullscreen)
+            state.handlesById[handle.id] = handle
+            zigStates[workspaceId] = state
+            return existing
         }
 
-        let preselectedDir = preselection[workspaceId]
-        let newLeaf = splitLeaf(
-            targetNode,
-            newWindow: handle,
-            workspaceId: workspaceId,
-            activeWindowFrame: activeWindowFrame,
-            preselectedDirection: preselectedDir
-        )
-        preselection.removeValue(forKey: workspaceId)
+        let previousState = state
+        state.handlesById[handle.id] = handle
+        let node = ensureAnimationNode(in: &state, windowId: handle.id, handle: handle)
 
-        windowToNode[handle] = newLeaf
-        selectedNodeId[workspaceId] = newLeaf.id
-        return newLeaf
-    }
-
-    private func splitLeaf(
-        _ leaf: DwindleNode,
-        newWindow: WindowHandle,
-        workspaceId: WorkspaceDescriptor.ID,
-        activeWindowFrame: CGRect?,
-        preselectedDirection: Direction? = nil
-    ) -> DwindleNode {
-        guard case let .leaf(existingHandle, fullscreen) = leaf.kind else {
-            let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
-            leaf.appendChild(newLeaf)
-            return newLeaf
+        let result = DwindleZigKernel.applyOp(context: state.context, op: .addWindow(windowId: handle.id))
+        guard result.rc == 0 else {
+            zigStates[workspaceId] = previousState
+            return node
         }
 
-        let targetRect = leaf.cachedFrame
-        let (orientation, newFirst): (DwindleOrientation, Bool)
-        if let dir = preselectedDirection {
-            orientation = dir.dwindleOrientation
-            newFirst = dir == .left || dir == .up
-        } else {
-            (orientation, newFirst) = planSplit(
-                targetRect: targetRect,
-                activeWindowFrame: activeWindowFrame
-            )
-        }
-
-        let existingLeaf = DwindleNode(kind: .leaf(handle: existingHandle, fullscreen: fullscreen))
-        let newLeaf = DwindleNode(kind: .leaf(handle: newWindow, fullscreen: false))
-
-        leaf.kind = .split(orientation: orientation, ratio: settings.defaultSplitRatio)
-
-        if newFirst {
-            leaf.replaceChildren(first: newLeaf, second: existingLeaf)
-        } else {
-            leaf.replaceChildren(first: existingLeaf, second: newLeaf)
-        }
-
-        if let existingHandle {
-            windowToNode[existingHandle] = existingLeaf
-        }
-
-        return newLeaf
-    }
-
-    private func planSplit(
-        targetRect: CGRect?,
-        activeWindowFrame: CGRect?
-    ) -> (orientation: DwindleOrientation, newFirst: Bool) {
-        guard settings.smartSplit,
-              let targetRect,
-              let activeFrame = activeWindowFrame else {
-            return (aspectOrientation(for: targetRect), false)
-        }
-
-        let targetCenter = targetRect.center
-        let activeCenter = activeFrame.center
-
-        let deltaX = activeCenter.x - targetCenter.x
-        let deltaY = activeCenter.y - targetCenter.y
-
-        let slope: CGFloat
-        if abs(deltaX) < 0.001 {
-            slope = .infinity
-        } else {
-            slope = deltaY / deltaX
-        }
-
-        let aspect: CGFloat
-        if abs(targetRect.width) < 0.001 {
-            aspect = .infinity
-        } else {
-            aspect = targetRect.height / targetRect.width
-        }
-
-        if abs(slope) < aspect {
-            return (.horizontal, deltaX < 0)
-        } else {
-            return (.vertical, deltaY < 0)
-        }
-    }
-
-    private func aspectOrientation(for rect: CGRect?) -> DwindleOrientation {
-        guard let rect else { return .horizontal }
-        if rect.height * settings.splitWidthMultiplier > rect.width {
-            return .vertical
-        }
-        return .horizontal
+        applyZigResult(result, to: &state)
+        zigStates[workspaceId] = state
+        return node
     }
 
     func removeWindow(handle: WindowHandle, from workspaceId: WorkspaceDescriptor.ID) {
-        guard let node = windowToNode.removeValue(forKey: handle) else { return }
-        windowConstraints.removeValue(forKey: handle)
-
-        if case .leaf = node.kind {
-            node.kind = .leaf(handle: nil, fullscreen: false)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.removeWindow(handle: handle, from: workspaceId)
+            return
         }
+#endif
 
-        cleanupAfterRemoval(node, in: workspaceId)
-    }
-
-    private func cleanupAfterRemoval(_ node: DwindleNode, in workspaceId: WorkspaceDescriptor.ID) {
-        guard let parent = node.parent else {
-            if let root = roots[workspaceId], root.id == node.id {
-                if case let .leaf(handle, _) = node.kind, handle == nil {
-                    return
-                }
-            }
+        guard var state = zigStates[workspaceId], state.handlesById[handle.id] != nil else {
             return
         }
 
-        guard let sibling = node.sibling() else { return }
-
-        node.detach()
-
-        parent.kind = sibling.kind
-        parent.children = sibling.children
-        for child in parent.children {
-            child.parent = parent
+        let previousById = state.handlesById
+        let result = DwindleZigKernel.applyOp(context: state.context, op: .removeWindow(windowId: handle.id))
+        guard result.rc == 0 else {
+            return
         }
 
-        for window in sibling.collectAllWindows() {
-            if let leafNode = findLeafContaining(window, in: parent) {
-                windowToNode[window] = leafNode
+        applyZigResult(result, to: &state)
+
+        for removedId in result.removedWindowIds {
+            if let removedHandle = previousById[removedId] {
+                windowConstraints.removeValue(forKey: removedHandle)
             }
+            state.handlesById.removeValue(forKey: removedId)
+            state.animationNodeById.removeValue(forKey: removedId)
+            state.lastFramesById.removeValue(forKey: removedId)
         }
 
-        if let selectedId = selectedNodeId[workspaceId], selectedId == node.id {
-            let newSelected = parent.descendToFirstLeaf()
-            selectedNodeId[workspaceId] = newSelected.id
-        }
-    }
-
-    private func findLeafContaining(_ handle: WindowHandle, in root: DwindleNode) -> DwindleNode? {
-        if case let .leaf(h, _) = root.kind, h === handle {
-            return root
-        }
-        for child in root.children {
-            if let found = findLeafContaining(handle, in: child) {
-                return found
-            }
-        }
-        return nil
+        zigStates[workspaceId] = state
     }
 
     func syncWindows(
@@ -312,39 +507,56 @@ final class DwindleLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         focusedHandle: WindowHandle?
     ) -> Set<WindowHandle> {
-        let existingOrdered = roots[workspaceId]?.collectAllWindows() ?? []
-        var existingById: [UUID: WindowHandle] = [:]
-        existingById.reserveCapacity(existingOrdered.count)
-        for handle in existingOrdered where existingById[handle.id] == nil {
-            existingById[handle.id] = handle
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.syncWindows(handles, in: workspaceId, focusedHandle: focusedHandle)
+        }
+#endif
+
+        _ = focusedHandle
+
+        guard var state = zigStates[workspaceId] ?? (ensureZigState(for: workspaceId) ? zigStates[workspaceId] : nil) else {
+            return []
         }
 
-        var incomingOrder: [UUID] = []
-        incomingOrder.reserveCapacity(handles.count)
-        var incomingById: [UUID: WindowHandle] = [:]
-        incomingById.reserveCapacity(handles.count)
-        for handle in handles where incomingById[handle.id] == nil {
-            incomingOrder.append(handle.id)
-            incomingById[handle.id] = handle
+        let deduped = dedupHandlesById(handles)
+        let previousById = state.handlesById
+
+        let result = DwindleZigKernel.applyOp(
+            context: state.context,
+            op: .syncWindows(windowIds: deduped.order)
+        )
+
+        guard result.rc == 0 else {
+            return []
         }
+
+        applyZigResult(result, to: &state)
 
         var removedHandles: [WindowHandle] = []
-        removedHandles.reserveCapacity(existingOrdered.count)
-        for handle in existingOrdered {
-            if incomingById[handle.id] == nil {
-                removedHandles.append(handle)
+        removedHandles.reserveCapacity(result.removedWindowIds.count)
+        for removedId in result.removedWindowIds {
+            if let removed = previousById[removedId] {
+                removedHandles.append(removed)
+                windowConstraints.removeValue(forKey: removed)
             }
+            state.animationNodeById.removeValue(forKey: removedId)
+            state.lastFramesById.removeValue(forKey: removedId)
         }
 
-        for handle in removedHandles {
-            removeWindow(handle: handle, from: workspaceId)
+        state.handlesById = deduped.map
+
+        for (windowId, handle) in state.handlesById {
+            let node = ensureAnimationNode(in: &state, windowId: windowId, handle: handle)
+            node.cachedFrame = state.lastFramesById[windowId]
         }
 
-        for windowId in incomingOrder where existingById[windowId] == nil {
-            guard let handle = incomingById[windowId] else { continue }
-            addWindow(handle: handle, to: workspaceId, activeWindowFrame: nil)
+        for existingId in Array(state.animationNodeById.keys) where state.handlesById[existingId] == nil {
+            state.animationNodeById.removeValue(forKey: existingId)
+            state.lastFramesById.removeValue(forKey: existingId)
         }
 
+        zigStates[workspaceId] = state
         return Set(removedHandles)
     }
 
@@ -352,240 +564,70 @@ final class DwindleLayoutEngine {
         for workspaceId: WorkspaceDescriptor.ID,
         screen: CGRect
     ) -> [WindowHandle: CGRect] {
-        guard let root = roots[workspaceId] else { return [:] }
-
-        let windowCount = root.collectAllWindows().count
-        if windowCount == 0 {
-            return [:]
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.calculateLayout(for: workspaceId, screen: screen)
         }
+#endif
 
-        invalidateMinSizeCache(for: workspaceId)
-
-        var output: [WindowHandle: CGRect] = [:]
-        let tilingArea = DwindleGapCalculator.applyOuterGapsOnly(rect: screen, settings: settings)
-
-        if windowCount == 1 {
-            let leaf = root.descendToFirstLeaf()
-            if case let .leaf(handle, fullscreen) = leaf.kind,
-               let handle {
-                let rect: CGRect
-                if fullscreen {
-                    rect = screen
-                } else {
-                    rect = singleWindowRect(screen: tilingArea)
-                }
-                output[handle] = rect
-                leaf.cachedFrame = rect
+        guard let output = withZigState(for: workspaceId, { state -> [WindowHandle: CGRect] in
+            if state.handlesById.isEmpty {
+                state.lastFramesById.removeAll(keepingCapacity: true)
+                return [:]
             }
-        } else {
-            calculateLayoutRecursive(
-                node: root,
-                rect: tilingArea,
-                tilingArea: tilingArea,
-                output: &output
+
+            let request = DwindleZigKernel.LayoutRequest(screen: screen, settings: settings)
+            let kernelConstraints = state.handlesById.values.map { handle in
+                DwindleZigKernel.WindowConstraint(windowId: handle.id, constraints: constraints(for: handle))
+            }
+
+            let layoutResult = DwindleZigKernel.calculateLayout(
+                context: state.context,
+                request: request,
+                constraints: kernelConstraints
             )
+
+            if layoutResult.rc != 0 {
+                var staleFrames: [WindowHandle: CGRect] = [:]
+                staleFrames.reserveCapacity(state.lastFramesById.count)
+                for (windowId, frame) in state.lastFramesById {
+                    guard let handle = state.handlesById[windowId] else { continue }
+                    staleFrames[handle] = frame
+                }
+                return staleFrames
+            }
+
+            state.lastFramesById = layoutResult.framesByWindowId
+
+            var framesByHandle: [WindowHandle: CGRect] = [:]
+            framesByHandle.reserveCapacity(layoutResult.framesByWindowId.count)
+
+            for (windowId, frame) in layoutResult.framesByWindowId {
+                guard let handle = state.handlesById[windowId] else { continue }
+                framesByHandle[handle] = frame
+                let node = ensureAnimationNode(in: &state, windowId: windowId, handle: handle)
+                node.cachedFrame = frame
+            }
+
+            for (windowId, node) in state.animationNodeById where layoutResult.framesByWindowId[windowId] == nil {
+                node.cachedFrame = nil
+            }
+
+            return framesByHandle
+        }) else {
+            return [:]
         }
 
         return output
     }
 
     func currentFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowHandle: CGRect] {
-        guard let root = roots[workspaceId] else { return [:] }
-        var frames: [WindowHandle: CGRect] = [:]
-        collectCurrentFrames(node: root, into: &frames)
-        return frames
-    }
-
-    private func collectCurrentFrames(node: DwindleNode, into frames: inout [WindowHandle: CGRect]) {
-        if case let .leaf(handle, _) = node.kind, let handle, let frame = node.cachedFrame {
-            frames[handle] = frame
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.currentFrames(in: workspaceId)
         }
-        for child in node.children {
-            collectCurrentFrames(node: child, into: &frames)
-        }
-    }
-
-    private func calculateLayoutRecursive(
-        node: DwindleNode,
-        rect: CGRect,
-        tilingArea: CGRect,
-        output: inout [WindowHandle: CGRect]
-    ) {
-        switch node.kind {
-        case let .leaf(handle, fullscreen):
-            guard let handle else { return }
-
-            let target: CGRect
-            if fullscreen {
-                target = tilingArea
-            } else {
-                target = DwindleGapCalculator.applyGaps(
-                    nodeRect: rect,
-                    tilingArea: tilingArea,
-                    settings: settings
-                )
-            }
-            output[handle] = target
-            node.cachedFrame = target
-
-        case let .split(orientation, ratio):
-            node.cachedFrame = rect
-
-            let firstMin: CGSize
-            let secondMin: CGSize
-
-            if let first = node.firstChild() {
-                firstMin = computeMinSizeForSubtree(first)
-            } else {
-                firstMin = CGSize(width: 1, height: 1)
-            }
-
-            if let second = node.secondChild() {
-                secondMin = computeMinSizeForSubtree(second)
-            } else {
-                secondMin = CGSize(width: 1, height: 1)
-            }
-
-            let (r1, r2) = splitRect(
-                rect,
-                orientation: orientation,
-                ratio: ratio,
-                firstMinSize: firstMin,
-                secondMinSize: secondMin
-            )
-
-            if let first = node.firstChild() {
-                calculateLayoutRecursive(node: first, rect: r1, tilingArea: tilingArea, output: &output)
-            }
-            if let second = node.secondChild() {
-                calculateLayoutRecursive(node: second, rect: r2, tilingArea: tilingArea, output: &output)
-            }
-        }
-    }
-
-    private func computeMinSizeForSubtree(_ node: DwindleNode) -> CGSize {
-        if let cached = node.cachedMinSize {
-            return cached
-        }
-
-        let result: CGSize
-        switch node.kind {
-        case let .leaf(handle, _):
-            if let handle {
-                let c = constraints(for: handle)
-                result = c.minSize
-            } else {
-                result = CGSize(width: 1, height: 1)
-            }
-
-        case let .split(orientation, _):
-            guard let first = node.firstChild(), let second = node.secondChild() else {
-                result = CGSize(width: 1, height: 1)
-                break
-            }
-
-            let firstMin = computeMinSizeForSubtree(first)
-            let secondMin = computeMinSizeForSubtree(second)
-
-            switch orientation {
-            case .horizontal:
-                result = CGSize(
-                    width: firstMin.width + secondMin.width,
-                    height: max(firstMin.height, secondMin.height)
-                )
-            case .vertical:
-                result = CGSize(
-                    width: max(firstMin.width, secondMin.width),
-                    height: firstMin.height + secondMin.height
-                )
-            }
-        }
-
-        node.cachedMinSize = result
-        return result
-    }
-
-    private func invalidateMinSizeCache(for workspaceId: WorkspaceDescriptor.ID) {
-        guard let root = roots[workspaceId] else { return }
-        invalidateMinSizeCacheRecursive(root)
-    }
-
-    private func invalidateMinSizeCacheRecursive(_ node: DwindleNode) {
-        node.cachedMinSize = nil
-        for child in node.children {
-            invalidateMinSizeCacheRecursive(child)
-        }
-    }
-
-    private func splitRect(
-        _ rect: CGRect,
-        orientation: DwindleOrientation,
-        ratio: CGFloat,
-        firstMinSize: CGSize,
-        secondMinSize: CGSize
-    ) -> (CGRect, CGRect) {
-        var fraction = settings.ratioToFraction(ratio)
-
-        switch orientation {
-        case .horizontal:
-            let totalMin = firstMinSize.width + secondMinSize.width
-            if totalMin > rect.width {
-                let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.width / totalMinClamped
-            } else {
-                let minFraction = firstMinSize.width / rect.width
-                let maxFraction = (rect.width - secondMinSize.width) / rect.width
-                fraction = max(minFraction, min(maxFraction, fraction))
-            }
-
-            let firstW = rect.width * fraction
-            let secondW = rect.width - firstW
-            let r1 = CGRect(x: rect.minX, y: rect.minY, width: firstW, height: rect.height)
-            let r2 = CGRect(x: rect.minX + firstW, y: rect.minY, width: secondW, height: rect.height)
-            return (r1, r2)
-
-        case .vertical:
-            let totalMin = firstMinSize.height + secondMinSize.height
-            if totalMin > rect.height {
-                let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.height / totalMinClamped
-            } else {
-                let minFraction = firstMinSize.height / rect.height
-                let maxFraction = (rect.height - secondMinSize.height) / rect.height
-                fraction = max(minFraction, min(maxFraction, fraction))
-            }
-
-            let firstH = rect.height * fraction
-            let secondH = rect.height - firstH
-            let r1 = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: firstH)
-            let r2 = CGRect(x: rect.minX, y: rect.minY + firstH, width: rect.width, height: secondH)
-            return (r1, r2)
-        }
-    }
-
-    private func singleWindowRect(screen: CGRect) -> CGRect {
-        let targetRatio = settings.singleWindowAspectRatio.width / settings.singleWindowAspectRatio.height
-        let currentRatio = screen.width / screen.height
-
-        if abs(targetRatio - currentRatio) < settings.singleWindowAspectRatioTolerance {
-            return screen
-        }
-
-        var width = screen.width
-        var height = screen.height
-
-        if currentRatio > targetRatio {
-            width = height * targetRatio
-        } else {
-            height = width / targetRatio
-        }
-
-        return CGRect(
-            x: screen.minX + (screen.width - width) / 2,
-            y: screen.minY + (screen.height - height) / 2,
-            width: width,
-            height: height
-        )
+#endif
+        return zigCurrentFrames(for: workspaceId)
     }
 
     func findGeometricNeighbor(
@@ -593,258 +635,99 @@ final class DwindleLayoutEngine {
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> WindowHandle? {
-        guard let currentNode = findNode(for: handle),
-              let currentFrame = currentNode.cachedFrame,
-              let root = roots[workspaceId] else { return nil }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.findGeometricNeighbor(from: handle, direction: direction, in: workspaceId)
+        }
+#endif
 
-        var candidates: [(handle: WindowHandle, overlap: CGFloat)] = []
+        guard let state = zigStates[workspaceId] else {
+            return nil
+        }
 
-        collectNavigationCandidates(
-            from: root,
-            current: currentNode,
-            currentFrame: currentFrame,
+        let result = DwindleZigKernel.findNeighbor(
+            context: state.context,
+            windowId: handle.id,
             direction: direction,
-            innerGap: settings.innerGap,
-            candidates: &candidates
+            innerGap: settings.innerGap
         )
 
-        guard !candidates.isEmpty else { return nil }
-
-        let sorted = candidates.sorted { $0.overlap > $1.overlap }
-        return sorted.first?.handle
-    }
-
-    private func collectNavigationCandidates(
-        from node: DwindleNode,
-        current: DwindleNode,
-        currentFrame: CGRect,
-        direction: Direction,
-        innerGap: CGFloat,
-        candidates: inout [(handle: WindowHandle, overlap: CGFloat)]
-    ) {
-        if node.id == current.id {
-            for child in node.children {
-                collectNavigationCandidates(
-                    from: child,
-                    current: current,
-                    currentFrame: currentFrame,
-                    direction: direction,
-                    innerGap: innerGap,
-                    candidates: &candidates
-                )
-            }
-            return
+        guard result.rc == 0,
+              let neighborId = result.neighborWindowId
+        else {
+            return nil
         }
 
-        if node.isLeaf, let handle = node.windowHandle, let candidateFrame = node.cachedFrame {
-            if let overlap = calculateDirectionalOverlap(
-                from: currentFrame,
-                to: candidateFrame,
-                direction: direction,
-                innerGap: innerGap
-            ) {
-                candidates.append((handle, overlap))
-            }
-            return
-        }
-
-        for child in node.children {
-            collectNavigationCandidates(
-                from: child,
-                current: current,
-                currentFrame: currentFrame,
-                direction: direction,
-                innerGap: innerGap,
-                candidates: &candidates
-            )
-        }
-    }
-
-    private func calculateDirectionalOverlap(
-        from source: CGRect,
-        to target: CGRect,
-        direction: Direction,
-        innerGap: CGFloat
-    ) -> CGFloat? {
-        let edgeThreshold = innerGap + 5.0
-        let minOverlapRatio: CGFloat = 0.1
-
-        switch direction {
-        case .up:
-            let edgesTouch = abs(source.maxY - target.minY) < edgeThreshold
-            guard edgesTouch else { return nil }
-
-            let overlapStart = max(source.minX, target.minX)
-            let overlapEnd = min(source.maxX, target.maxX)
-            let overlap = max(0, overlapEnd - overlapStart)
-
-            let minRequired = min(source.width, target.width) * minOverlapRatio
-            return overlap >= minRequired ? overlap : nil
-
-        case .down:
-            let edgesTouch = abs(source.minY - target.maxY) < edgeThreshold
-            guard edgesTouch else { return nil }
-
-            let overlapStart = max(source.minX, target.minX)
-            let overlapEnd = min(source.maxX, target.maxX)
-            let overlap = max(0, overlapEnd - overlapStart)
-
-            let minRequired = min(source.width, target.width) * minOverlapRatio
-            return overlap >= minRequired ? overlap : nil
-
-        case .left:
-            let edgesTouch = abs(source.minX - target.maxX) < edgeThreshold
-            guard edgesTouch else { return nil }
-
-            let overlapStart = max(source.minY, target.minY)
-            let overlapEnd = min(source.maxY, target.maxY)
-            let overlap = max(0, overlapEnd - overlapStart)
-
-            let minRequired = min(source.height, target.height) * minOverlapRatio
-            return overlap >= minRequired ? overlap : nil
-
-        case .right:
-            let edgesTouch = abs(source.maxX - target.minX) < edgeThreshold
-            guard edgesTouch else { return nil }
-
-            let overlapStart = max(source.minY, target.minY)
-            let overlapEnd = min(source.maxY, target.maxY)
-            let overlap = max(0, overlapEnd - overlapStart)
-
-            let minRequired = min(source.height, target.height) * minOverlapRatio
-            return overlap >= minRequired ? overlap : nil
-        }
+        return state.handlesById[neighborId]
     }
 
     func moveFocus(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        guard let current = selectedNode(in: workspaceId),
-              let currentHandle = current.windowHandle else {
-            if let root = roots[workspaceId] {
-                let firstLeaf = root.descendToFirstLeaf()
-                selectedNodeId[workspaceId] = firstLeaf.id
-                return firstLeaf.windowHandle
-            }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.moveFocus(direction: direction, in: workspaceId)
+        }
+#endif
+
+        guard let result = applyZigOp(.moveFocus(direction: direction), in: workspaceId),
+              result.rc == 0,
+              result.applied
+        else {
             return nil
         }
 
-        guard let neighborHandle = findGeometricNeighbor(
-            from: currentHandle,
-            direction: direction,
-            in: workspaceId
-        ) else {
-            return nil
-        }
-
-        if let neighborNode = findNode(for: neighborHandle) {
-            selectedNodeId[workspaceId] = neighborNode.id
-        }
-        return neighborHandle
+        return zigHandle(for: result.selectedWindowId, in: workspaceId)
     }
 
     func swapWindows(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> Bool {
-        guard let current = selectedNode(in: workspaceId),
-              case let .leaf(currentHandle, currentFullscreen) = current.kind,
-              let ch = currentHandle,
-              let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
-              let neighbor = findNode(for: neighborHandle),
-              case let .leaf(nh, neighborFullscreen) = neighbor.kind else {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.swapWindows(direction: direction, in: workspaceId)
+        }
+#endif
+
+        guard let result = applyZigOp(.swapWindows(direction: direction), in: workspaceId) else {
             return false
         }
-
-        current.kind = .leaf(handle: nh, fullscreen: neighborFullscreen)
-        neighbor.kind = .leaf(handle: currentHandle, fullscreen: currentFullscreen)
-
-        let currentCachedFrame = current.cachedFrame
-        current.cachedFrame = neighbor.cachedFrame
-        neighbor.cachedFrame = currentCachedFrame
-
-        current.moveXAnimation = nil
-        current.moveYAnimation = nil
-        current.sizeWAnimation = nil
-        current.sizeHAnimation = nil
-
-        neighbor.moveXAnimation = nil
-        neighbor.moveYAnimation = nil
-        neighbor.sizeWAnimation = nil
-        neighbor.sizeHAnimation = nil
-
-        windowToNode[ch] = neighbor
-        if let nh {
-            windowToNode[nh] = current
-        }
-
-        selectedNodeId[workspaceId] = neighbor.id
-
-        return true
+        return result.rc == 0 && result.applied
     }
 
     func toggleOrientation(in workspaceId: WorkspaceDescriptor.ID) {
-        guard let selected = selectedNode(in: workspaceId),
-              let parent = selected.parent,
-              case let .split(orientation, ratio) = parent.kind else {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.toggleOrientation(in: workspaceId)
             return
         }
+#endif
 
-        parent.kind = .split(orientation: orientation.perpendicular, ratio: ratio)
+        _ = applyZigOp(.toggleOrientation, in: workspaceId)
     }
 
     func toggleFullscreen(in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        guard let selected = selectedNode(in: workspaceId),
-              case let .leaf(handle, fullscreen) = selected.kind else {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.toggleFullscreen(in: workspaceId)
+        }
+#endif
+
+        guard let result = applyZigOp(.toggleFullscreen, in: workspaceId),
+              result.rc == 0,
+              result.applied
+        else {
             return nil
         }
 
-        selected.kind = .leaf(handle: handle, fullscreen: !fullscreen)
-        return handle
+        return zigHandle(for: result.selectedWindowId, in: workspaceId)
     }
 
     func moveSelectionToRoot(stable: Bool, in workspaceId: WorkspaceDescriptor.ID) {
-        guard let selected = selectedNode(in: workspaceId) else { return }
-        let leaf = selected.isLeaf ? selected : selected.descendToFirstLeaf()
-        guard let root = roots[workspaceId] else { return }
-
-        if leaf.id == root.id { return }
-
-        guard let leafParent = leaf.parent else { return }
-
-        if leafParent.id == root.id { return }
-
-        var ancestor = leafParent
-        while let parent = ancestor.parent, parent.id != root.id {
-            ancestor = parent
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.moveSelectionToRoot(stable: stable, in: workspaceId)
+            return
         }
+#endif
 
-        guard ancestor.parent?.id == root.id else { return }
-
-        guard root.children.count == 2,
-              let first = root.firstChild(),
-              let second = root.secondChild() else { return }
-
-        let ancestorIsFirst = first.id == ancestor.id
-        let swapNode = ancestorIsFirst ? second : first
-
-        guard let leafSibling = leaf.sibling() else { return }
-        let leafIsFirst = leaf.isFirstChild(of: leafParent)
-
-        leaf.detach()
-        if ancestorIsFirst {
-            leaf.insertAfter(ancestor)
-        } else {
-            leaf.insertBefore(ancestor)
-        }
-
-        swapNode.detach()
-        if leafIsFirst {
-            swapNode.insertBefore(leafSibling)
-        } else {
-            swapNode.insertAfter(leafSibling)
-        }
-
-        if stable, root.children.count == 2,
-           let newFirst = root.firstChild() {
-            newFirst.detach()
-            root.appendChild(newFirst)
-        }
+        _ = applyZigOp(.moveSelectionToRoot(stable: stable), in: workspaceId)
     }
 
     func resizeSelected(
@@ -852,101 +735,79 @@ final class DwindleLayoutEngine {
         direction: Direction,
         in workspaceId: WorkspaceDescriptor.ID
     ) {
-        guard let selected = selectedNode(in: workspaceId) else { return }
-
-        let targetOrientation = direction.dwindleOrientation
-        let increaseFirst = !direction.isPositive
-
-        var current = selected
-        while let parent = current.parent {
-            guard case let .split(orientation, ratio) = parent.kind else {
-                current = parent
-                continue
-            }
-
-            if orientation == targetOrientation {
-                let isFirst = current.isFirstChild(of: parent)
-                var newRatio = ratio
-
-                if (isFirst && increaseFirst) || (!isFirst && !increaseFirst) {
-                    newRatio += delta
-                } else {
-                    newRatio -= delta
-                }
-
-                parent.kind = .split(orientation: orientation, ratio: settings.clampedRatio(newRatio))
-                return
-            }
-
-            current = parent
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.resizeSelected(by: delta, direction: direction, in: workspaceId)
+            return
         }
+#endif
+
+        _ = applyZigOp(.resizeSelected(delta: delta, direction: direction), in: workspaceId)
     }
 
     func balanceSizes(in workspaceId: WorkspaceDescriptor.ID) {
-        guard let root = roots[workspaceId] else { return }
-        balanceSizesRecursive(root)
-    }
-
-    private func balanceSizesRecursive(_ node: DwindleNode) {
-        guard case let .split(orientation, _) = node.kind else { return }
-        node.kind = .split(orientation: orientation, ratio: 1.0)
-        for child in node.children {
-            balanceSizesRecursive(child)
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.balanceSizes(in: workspaceId)
+            return
         }
+#endif
+
+        _ = applyZigOp(.balanceSizes, in: workspaceId)
     }
 
     func swapSplit(in workspaceId: WorkspaceDescriptor.ID) {
-        guard let selected = selectedNode(in: workspaceId),
-              let parent = selected.parent,
-              parent.children.count == 2 else { return }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.swapSplit(in: workspaceId)
+            return
+        }
+#endif
 
-        let first = parent.children[0]
-        let second = parent.children[1]
-        parent.children = [second, first]
+        _ = applyZigOp(.swapSplit, in: workspaceId)
     }
 
     func cycleSplitRatio(forward: Bool, in workspaceId: WorkspaceDescriptor.ID) {
-        guard let selected = selectedNode(in: workspaceId),
-              let parent = selected.parent,
-              case let .split(orientation, currentRatio) = parent.kind else { return }
-
-        let presets: [CGFloat] = [0.3, 0.5, 0.7]
-
-        let currentIndex = presets.enumerated().min(by: {
-            abs($0.element - currentRatio) < abs($1.element - currentRatio)
-        })?.offset ?? 1
-
-        let newIndex: Int
-        if forward {
-            newIndex = (currentIndex + 1) % presets.count
-        } else {
-            newIndex = (currentIndex - 1 + presets.count) % presets.count
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.cycleSplitRatio(forward: forward, in: workspaceId)
+            return
         }
+#endif
 
-        parent.kind = .split(orientation: orientation, ratio: presets[newIndex])
+        _ = applyZigOp(.cycleSplitRatio(forward: forward), in: workspaceId)
     }
 
     func tickAnimations(at time: TimeInterval, in workspaceId: WorkspaceDescriptor.ID) {
-        guard let root = roots[workspaceId] else { return }
-        tickAnimationsRecursive(root, at: time)
-    }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.tickAnimations(at: time, in: workspaceId)
+            return
+        }
+#endif
 
-    private func tickAnimationsRecursive(_ node: DwindleNode, at time: TimeInterval) {
-        node.tickAnimations(at: time)
-        for child in node.children {
-            tickAnimationsRecursive(child, at: time)
+        guard let state = zigStates[workspaceId] else {
+            return
+        }
+
+        for node in state.animationNodeById.values {
+            node.tickAnimations(at: time)
         }
     }
 
     func hasActiveAnimations(in workspaceId: WorkspaceDescriptor.ID, at time: TimeInterval) -> Bool {
-        guard let root = roots[workspaceId] else { return false }
-        return hasActiveAnimationsRecursive(root, at: time)
-    }
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.hasActiveAnimations(in: workspaceId, at: time)
+        }
+#endif
 
-    private func hasActiveAnimationsRecursive(_ node: DwindleNode, at time: TimeInterval) -> Bool {
-        if node.hasActiveAnimations(at: time) { return true }
-        for child in node.children {
-            if hasActiveAnimationsRecursive(child, at: time) { return true }
+        guard let state = zigStates[workspaceId] else {
+            return false
+        }
+
+        for node in state.animationNodeById.values where node.hasActiveAnimations(at: time) {
+            return true
         }
         return false
     }
@@ -955,23 +816,34 @@ final class DwindleLayoutEngine {
         oldFrames: [WindowHandle: CGRect],
         newFrames: [WindowHandle: CGRect]
     ) {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            legacyEngine.animateWindowMovements(oldFrames: oldFrames, newFrames: newFrames)
+            return
+        }
+#endif
+
         for (handle, newFrame) in newFrames {
-            guard let oldFrame = oldFrames[handle],
-                  let node = windowToNode[handle] else { continue }
+            guard let oldFrame = oldFrames[handle] else { continue }
 
-            let changed = abs(oldFrame.origin.x - newFrame.origin.x) > 0.5 ||
-                          abs(oldFrame.origin.y - newFrame.origin.y) > 0.5 ||
-                          abs(oldFrame.width - newFrame.width) > 0.5 ||
-                          abs(oldFrame.height - newFrame.height) > 0.5
+            let changed = abs(oldFrame.origin.x - newFrame.origin.x) > 0.5
+                || abs(oldFrame.origin.y - newFrame.origin.y) > 0.5
+                || abs(oldFrame.width - newFrame.width) > 0.5
+                || abs(oldFrame.height - newFrame.height) > 0.5
 
-            if changed {
-                node.animateFrom(
-                    oldFrame: oldFrame,
-                    newFrame: newFrame,
-                    clock: animationClock,
-                    config: windowMovementAnimationConfig
-                )
+            guard changed,
+                  let workspaceId = zigStates.keys.first(where: { zigStates[$0]?.animationNodeById[handle.id] != nil }),
+                  let node = zigAnimationNode(for: handle, in: workspaceId)
+            else {
+                continue
             }
+
+            node.animateFrom(
+                oldFrame: oldFrame,
+                newFrame: newFrame,
+                clock: animationClock,
+                config: windowMovementAnimationConfig
+            )
         }
     }
 
@@ -980,15 +852,24 @@ final class DwindleLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID,
         at time: TimeInterval
     ) -> [WindowHandle: CGRect] {
+#if OMNI_DWINDLE_LEGACY_TEST_BACKEND
+        if backend == .legacyDeterministic {
+            return legacyEngine.calculateAnimatedFrames(baseFrames: baseFrames, in: workspaceId, at: time)
+        }
+#endif
+
         var result = baseFrames
 
         for (handle, frame) in baseFrames {
-            guard let node = windowToNode[handle] else { continue }
+            guard let node = zigAnimationNode(for: handle, in: workspaceId) else { continue }
+
             let posOffset = node.renderOffset(at: time)
             let sizeOffset = node.renderSizeOffset(at: time)
 
-            let hasAnimation = abs(posOffset.x) > 0.1 || abs(posOffset.y) > 0.1 ||
-                              abs(sizeOffset.width) > 0.1 || abs(sizeOffset.height) > 0.1
+            let hasAnimation = abs(posOffset.x) > 0.1
+                || abs(posOffset.y) > 0.1
+                || abs(sizeOffset.width) > 0.1
+                || abs(sizeOffset.height) > 0.1
 
             if hasAnimation {
                 result[handle] = CGRect(

@@ -645,7 +645,9 @@ final class WorkspaceNavigationHandler {
                   let sourceWsId,
                   let dwindleEngine = controller.dwindleEngine
         {
-            dwindleEngine.removeWindow(handle: handle, from: sourceWsId)
+            if dwindleEngine.containsWindow(handle, in: sourceWsId) {
+                dwindleEngine.removeWindow(handle: handle, from: sourceWsId)
+            }
         }
 
         let succeeded: Bool

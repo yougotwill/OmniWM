@@ -138,7 +138,7 @@ private func applyReferenceMutationOp(
 @Suite struct DwindleZigMutationParityTests {
     @MainActor
     @Test func scenarioCoversAllV1Ops() {
-        let engine = DwindleLayoutEngine()
+        let engine = DwindleLayoutEngine(backend: .legacyDeterministic)
         engine.settings.defaultSplitRatio = 1.0
         engine.settings.smartSplit = true
         engine.settings.splitWidthMultiplier = 1.0

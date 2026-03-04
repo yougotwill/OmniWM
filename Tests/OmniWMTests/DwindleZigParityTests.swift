@@ -237,7 +237,7 @@ private func makeScenario(
 ) -> (engine: DwindleLayoutEngine, workspaceId: WorkspaceDescriptor.ID, screen: CGRect) {
     var rng = DwindleParityLCG(seed: seed)
 
-    let engine = DwindleLayoutEngine()
+    let engine = DwindleLayoutEngine(backend: .legacyDeterministic)
     engine.settings.smartSplit = rng.nextBool(0.7)
     engine.settings.defaultSplitRatio = rng.nextCGFloat(0.3 ... 1.7)
     engine.settings.splitWidthMultiplier = rng.nextCGFloat(0.7 ... 1.8)

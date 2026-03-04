@@ -244,7 +244,7 @@ private func randomFuzzOp(
     @Test func fuzzParityAcrossHundredSeedsAndOneHundredFiftyOps() {
         for seed in 0 ..< 100 {
             var rng = DwindleMutationLCG(seed: UInt64(seed + 1) &* 0x9E37_79B9_7F4A_7C15)
-            let engine = DwindleLayoutEngine()
+            let engine = DwindleLayoutEngine(backend: .legacyDeterministic)
 
             engine.settings.defaultSplitRatio = 1.0
             engine.settings.smartSplit = true
