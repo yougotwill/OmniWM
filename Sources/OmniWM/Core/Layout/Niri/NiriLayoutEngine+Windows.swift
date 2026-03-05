@@ -3,7 +3,7 @@ import Foundation
 
 extension NiriLayoutEngine {
     private struct LifecycleRuntimePreparation {
-        let context: NiriLayoutZigKernel.LayoutContext
+        let runtimeStore: NiriRuntimeWorkspaceStore
     }
 
     private func canonicalSelectedNodeId(
@@ -94,15 +94,12 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let workspaceColumns = columns(in: workspaceId)
-        guard let context = prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: workspaceColumns)
-        ) else {
-            return nil
-        }
-
-        return LifecycleRuntimePreparation(context: context)
+        return LifecycleRuntimePreparation(
+            runtimeStore: runtimeStore(
+                for: workspaceId,
+                ensureWorkspaceRoot: ensureWorkspaceRoot
+            )
+        )
     }
 
     func addWindow(
@@ -138,28 +135,34 @@ extension NiriLayoutEngine {
             in: workspaceId
         )
 
-        let request = NiriStateZigKernel.MutationRequest(
-            op: .addWindow,
-            maxVisibleColumns: maxVisibleColumns,
-            selectedNodeId: sanitizedSelectedNodeId,
-            focusedWindowId: focusedWindowId
-        )
-        let applyRequest = NiriStateZigKernel.MutationApplyRequest(
-            request: request,
-            incomingWindowId: handle.id,
-            createdColumnId: UUID(),
-            placeholderColumnId: UUID()
-        )
-        let applyOutcome = NiriStateZigKernel.applyMutation(
-            context: prepared.context,
-            request: applyRequest
-        )
+        let applyOutcome: NiriRuntimeLifecycleOutcome
+        switch prepared.runtimeStore.executeLifecycle(
+            .addWindow(
+                incomingHandle: handle,
+                selectedNodeId: sanitizedSelectedNodeId,
+                focusedWindowId: focusedWindowId,
+                createdColumnId: UUID(),
+                placeholderColumnId: UUID()
+            )
+        ) {
+        case let .success(outcome):
+            applyOutcome = outcome
+        case let .failure(error):
+            lifecycleContractFailure(
+                op: .addWindow,
+                workspaceId: workspaceId,
+                sourceHandle: handle,
+                reason: "runtime boundary command failed: \(error.description)"
+            )
+            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
+        }
+
         guard applyOutcome.rc == 0 else {
             lifecycleContractFailure(
                 op: .addWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx apply failed rc=\(applyOutcome.rc)"
+                reason: "runtime command failed rc=\(applyOutcome.rc)"
             )
             return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
@@ -168,32 +171,17 @@ extension NiriLayoutEngine {
                 op: .addWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx apply returned applied=false"
+                reason: "runtime command returned applied=false"
             )
             return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
 
-        guard let delta = applyOutcome.delta else {
+        guard applyOutcome.delta != nil else {
             lifecycleContractFailure(
                 op: .addWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx delta missing after apply"
-            )
-            return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
-        }
-
-        guard case .success = applyProjectedLifecycleRuntimeExport(
-            context: prepared.context,
-            workspaceId: workspaceId,
-            incomingHandlesById: [handle.id: handle],
-            delta: delta
-        ) else {
-            lifecycleContractFailure(
-                op: .addWindow,
-                workspaceId: workspaceId,
-                sourceHandle: handle,
-                reason: "runtime lifecycle projection failed"
+                reason: "runtime delta missing after apply"
             )
             return fallbackAddWindow(handle: handle, workspaceId: workspaceId)
         }
@@ -247,24 +235,32 @@ extension NiriLayoutEngine {
             return
         }
 
-        let request = NiriStateZigKernel.MutationRequest(
-            op: .removeWindow,
-            sourceWindowId: node.id
-        )
-        let applyRequest = NiriStateZigKernel.MutationApplyRequest(
-            request: request,
-            placeholderColumnId: UUID()
-        )
-        let applyOutcome = NiriStateZigKernel.applyMutation(
-            context: prepared.context,
-            request: applyRequest
-        )
+        let applyOutcome: NiriRuntimeLifecycleOutcome
+        switch prepared.runtimeStore.executeLifecycle(
+            .removeWindow(
+                sourceWindowId: node.id,
+                placeholderColumnId: UUID()
+            )
+        ) {
+        case let .success(outcome):
+            applyOutcome = outcome
+        case let .failure(error):
+            lifecycleContractFailure(
+                op: .removeWindow,
+                workspaceId: workspaceId,
+                sourceHandle: handle,
+                reason: "runtime boundary command failed: \(error.description)"
+            )
+            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
+            return
+        }
+
         guard applyOutcome.rc == 0 else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx apply failed rc=\(applyOutcome.rc)"
+                reason: "runtime command failed rc=\(applyOutcome.rc)"
             )
             fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
             return
@@ -274,33 +270,18 @@ extension NiriLayoutEngine {
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx apply returned applied=false"
+                reason: "runtime command returned applied=false"
             )
             fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
             return
         }
 
-        guard let delta = applyOutcome.delta else {
+        guard applyOutcome.delta != nil else {
             lifecycleContractFailure(
                 op: .removeWindow,
                 workspaceId: workspaceId,
                 sourceHandle: handle,
-                reason: "ctx delta missing after apply"
-            )
-            fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
-            return
-        }
-
-        guard case .success = applyProjectedRuntimeExport(
-            context: prepared.context,
-            workspaceId: workspaceId,
-            delta: delta
-        ) else {
-            lifecycleContractFailure(
-                op: .removeWindow,
-                workspaceId: workspaceId,
-                sourceHandle: handle,
-                reason: "runtime snapshot projection failed"
+                reason: "runtime delta missing after apply"
             )
             fallbackRemoveWindow(handle: handle, workspaceId: workspaceId)
             return
@@ -361,16 +342,19 @@ extension NiriLayoutEngine {
             in: workspaceId
         )
 
-        let request = NiriStateZigKernel.MutationRequest(
-            op: .validateSelection,
-            selectedNodeId: sanitizedSelectedNodeId
-        )
-        let outcome = NiriStateZigKernel.applyMutation(
-            context: prepared.context,
-            request: .init(
-                request: request
+        let outcome: NiriRuntimeLifecycleOutcome
+        switch prepared.runtimeStore.executeLifecycle(
+            .validateSelection(
+                selectedNodeId: sanitizedSelectedNodeId,
+                focusedWindowId: nil
             )
-        )
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
+            return columns(in: workspaceId).first?.firstChild()?.id
+        }
+
         guard outcome.rc == 0 else {
             return columns(in: workspaceId).first?.firstChild()?.id
         }
@@ -392,16 +376,16 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let request = NiriStateZigKernel.MutationRequest(
-            op: .fallbackSelectionOnRemoval,
-            sourceWindowId: removingNodeId
-        )
-        let outcome = NiriStateZigKernel.applyMutation(
-            context: prepared.context,
-            request: .init(
-                request: request
-            )
-        )
+        let outcome: NiriRuntimeLifecycleOutcome
+        switch prepared.runtimeStore.executeLifecycle(
+            .fallbackSelectionOnRemoval(sourceWindowId: removingNodeId)
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
+            return nil
+        }
+
         guard outcome.rc == 0 else { return nil }
         return outcome.targetNode?.nodeId
     }

@@ -125,4 +125,52 @@ final class NiriTxnContractTests: XCTestCase {
         XCTAssertTrue(kernelContent.contains("reseed_rc="))
         XCTAssertTrue(kernelContent.contains("retry_rc="))
     }
+
+    func testPhase1RuntimeBoundaryTypesAndStoreDispatchExist() throws {
+        let boundaryURL = niriSourceDirURL().appendingPathComponent("NiriRuntimeBoundary.swift")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: boundaryURL.path),
+            "Phase 1 runtime boundary file must exist."
+        )
+        let boundaryContent = try String(contentsOf: boundaryURL, encoding: .utf8)
+        XCTAssertTrue(boundaryContent.contains("enum NiriRuntimeCommand"))
+        XCTAssertTrue(boundaryContent.contains("struct NiriRuntimeWorkspaceView"))
+        XCTAssertTrue(boundaryContent.contains("final class NiriRuntimeWorkspaceStore"))
+        XCTAssertTrue(boundaryContent.contains("func runtimeStore("))
+
+        let operationFiles = [
+            "NiriLayoutEngine+ColumnOps.swift",
+            "NiriLayoutEngine+WindowOps.swift",
+            "NiriLayoutEngine+WorkspaceOps.swift",
+            "NiriLayoutEngine+Windows.swift",
+            "NiriNavigation.swift",
+        ]
+        for fileName in operationFiles {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertTrue(
+                content.contains("runtimeStore(") || content.contains("executeNavigation(") || content.contains("executeLifecycle("),
+                "Expected Phase 1 runtime boundary store usage in \(fileName)"
+            )
+        }
+
+        let commandFiles = [
+            "NiriLayoutEngine+ColumnOps.swift",
+            "NiriLayoutEngine+WindowOps.swift",
+            "NiriLayoutEngine+WorkspaceOps.swift",
+            "NiriLayoutEngine+Windows.swift",
+        ]
+        for fileName in commandFiles {
+            let fileURL = niriSourceDirURL().appendingPathComponent(fileName)
+            let content = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertFalse(
+                content.contains("NiriStateZigKernel.MutationRequest("),
+                "Expected typed runtime command dispatch (no direct mutation request builders) in \(fileName)"
+            )
+            XCTAssertFalse(
+                content.contains("NiriStateZigKernel.WorkspaceRequest("),
+                "Expected typed runtime command dispatch (no direct workspace request builders) in \(fileName)"
+            )
+        }
+    }
 }

@@ -5,9 +5,11 @@ extension NiriLayoutEngine {
     private struct WorkspacePreparedRequest {
         let sourceWorkspaceId: WorkspaceDescriptor.ID
         let targetWorkspaceId: WorkspaceDescriptor.ID
-        let sourceColumns: [NiriContainer]
-        let targetColumns: [NiriContainer]
-        let request: NiriStateZigKernel.WorkspaceRequest
+        let sourceStore: NiriRuntimeWorkspaceStore
+        let targetStore: NiriRuntimeWorkspaceStore
+        let op: NiriStateZigKernel.WorkspaceOp
+        let sourceWindowId: NodeId?
+        let sourceColumnId: NodeId?
     }
 
     private struct WorkspaceApplyOutcome {
@@ -30,27 +32,23 @@ extension NiriLayoutEngine {
         targetCreatedColumnId: UUID?,
         sourcePlaceholderColumnId: UUID?
     ) -> WorkspaceApplyOutcome? {
-        guard let sourceContext = prepareSeededRuntimeContext(
-            for: prepared.sourceWorkspaceId,
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.sourceColumns)
-        ),
-            let targetContext = prepareSeededRuntimeContext(
-                for: prepared.targetWorkspaceId,
-                snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.targetColumns)
-            )
+        guard let command = workspaceCommand(
+            prepared: prepared,
+            targetCreatedColumnId: targetCreatedColumnId,
+            sourcePlaceholderColumnId: sourcePlaceholderColumnId
+        )
         else {
             return nil
         }
 
-        let applyOutcome = NiriStateZigKernel.applyWorkspace(
-            sourceContext: sourceContext,
-            targetContext: targetContext,
-            request: .init(
-                request: prepared.request,
-                targetCreatedColumnId: targetCreatedColumnId,
-                sourcePlaceholderColumnId: sourcePlaceholderColumnId
-            )
-        )
+        let applyOutcome: NiriRuntimeWorkspaceOutcome
+        switch prepared.sourceStore.executeWorkspace(command, targetStore: prepared.targetStore) {
+        case let .success(outcome):
+            applyOutcome = outcome
+        case .failure:
+            return nil
+        }
+
         guard applyOutcome.rc == 0 else {
             return nil
         }
@@ -61,18 +59,6 @@ extension NiriLayoutEngine {
                 targetSelectionNodeId: nil,
                 movedHandle: nil
             )
-        }
-
-        guard case .success = applyProjectedWorkspaceRuntimeExports(
-            sourceContext: sourceContext,
-            sourceWorkspaceId: prepared.sourceWorkspaceId,
-            targetContext: targetContext,
-            targetWorkspaceId: prepared.targetWorkspaceId,
-            sourceDelta: applyOutcome.sourceDelta,
-            targetDelta: applyOutcome.targetDelta,
-            refreshMirrorStateFromExport: false
-        ) else {
-            return nil
         }
 
         let movedHandle: WindowHandle?
@@ -87,15 +73,41 @@ extension NiriLayoutEngine {
             movedHandle = nil
         }
 
-        markRuntimeSeeded(for: prepared.sourceWorkspaceId)
-        markRuntimeSeeded(for: prepared.targetWorkspaceId)
-
         return WorkspaceApplyOutcome(
             applied: true,
             newSourceFocusNodeId: applyOutcome.sourceSelectionWindowId,
             targetSelectionNodeId: applyOutcome.targetSelectionWindowId,
             movedHandle: movedHandle
         )
+    }
+
+    private func workspaceCommand(
+        prepared: WorkspacePreparedRequest,
+        targetCreatedColumnId: UUID?,
+        sourcePlaceholderColumnId: UUID?
+    ) -> NiriRuntimeWorkspaceCommand? {
+        switch prepared.op {
+        case .moveWindowToWorkspace:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let targetCreatedColumnId,
+                  let sourcePlaceholderColumnId
+            else {
+                return nil
+            }
+            return .moveWindowToWorkspace(
+                sourceWindowId: sourceWindowId,
+                targetCreatedColumnId: targetCreatedColumnId,
+                sourcePlaceholderColumnId: sourcePlaceholderColumnId
+            )
+        case .moveColumnToWorkspace:
+            guard let sourceColumnId = prepared.sourceColumnId else {
+                return nil
+            }
+            return .moveColumnToWorkspace(
+                sourceColumnId: sourceColumnId,
+                sourcePlaceholderColumnId: sourcePlaceholderColumnId
+            )
+        }
     }
 
     private func executePreparedWorkspaceMutation(
@@ -125,7 +137,7 @@ extension NiriLayoutEngine {
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
         let sourceColumns = sourceRoot.columns
-        let targetColumns = targetRoot.columns
+        _ = targetRoot.columns
         let sourceWindowExists = sourceColumns.contains { column in
             column.windowNodes.contains(where: { $0.id == window.id })
         }
@@ -133,18 +145,14 @@ extension NiriLayoutEngine {
             return nil
         }
 
-        let request = NiriStateZigKernel.WorkspaceRequest(
-            op: .moveWindowToWorkspace,
-            sourceWindowId: window.id,
-            maxVisibleColumns: maxVisibleColumns
-        )
-
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            sourceColumns: sourceColumns,
-            targetColumns: targetColumns,
-            request: request
+            sourceStore: runtimeStore(for: sourceWorkspaceId),
+            targetStore: runtimeStore(for: targetWorkspaceId, ensureWorkspaceRoot: true),
+            op: .moveWindowToWorkspace,
+            sourceWindowId: window.id,
+            sourceColumnId: nil
         )
     }
 
@@ -163,22 +171,19 @@ extension NiriLayoutEngine {
 
         let targetRoot = ensureRoot(for: targetWorkspaceId)
         let sourceColumns = sourceRoot.columns
-        let targetColumns = targetRoot.columns
+        _ = targetRoot.columns
         guard sourceColumns.contains(where: { $0.id == column.id }) else {
             return nil
         }
 
-        let request = NiriStateZigKernel.WorkspaceRequest(
-            op: .moveColumnToWorkspace,
-            sourceColumnId: column.id
-        )
-
         return WorkspacePreparedRequest(
             sourceWorkspaceId: sourceWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            sourceColumns: sourceColumns,
-            targetColumns: targetColumns,
-            request: request
+            sourceStore: runtimeStore(for: sourceWorkspaceId),
+            targetStore: runtimeStore(for: targetWorkspaceId, ensureWorkspaceRoot: true),
+            op: .moveColumnToWorkspace,
+            sourceWindowId: nil,
+            sourceColumnId: column.id
         )
     }
 

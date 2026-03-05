@@ -4,7 +4,8 @@ import Foundation
 extension NiriLayoutEngine {
     private struct WindowMutationPreparedRequest {
         let workspaceColumns: [NiriContainer]
-        let request: NiriStateZigKernel.MutationRequest
+        let runtimeStore: NiriRuntimeWorkspaceStore
+        let command: NiriRuntimeMutationCommand
     }
 
     private struct WindowMutationApplyOutcome {
@@ -43,20 +44,20 @@ extension NiriLayoutEngine {
                 return nil
             }
         }
-
-        let request = NiriStateZigKernel.MutationRequest(
+        guard let command = windowMutationCommand(
             op: op,
             sourceWindowId: sourceWindow.id,
             targetWindowId: targetWindow?.id,
             direction: direction,
-            infiniteLoop: infiniteLoop,
-            insertPosition: insertPosition,
-            maxWindowsPerColumn: maxWindowsPerColumn
-        )
+            insertPosition: insertPosition
+        ) else {
+            return nil
+        }
 
         return WindowMutationPreparedRequest(
             workspaceColumns: workspaceColumns,
-            request: request
+            runtimeStore: runtimeStore(for: workspaceId),
+            command: command
         )
     }
 
@@ -106,37 +107,20 @@ extension NiriLayoutEngine {
 
     private func applyRuntimeWindowMutationCore(
         _ prepared: WindowMutationPreparedRequest,
-        in workspaceId: WorkspaceDescriptor.ID
-    ) -> NiriStateZigKernel.MutationApplyOutcome? {
-        guard let context = prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
-        ) else {
+        in _: WorkspaceDescriptor.ID
+    ) -> NiriRuntimeMutationOutcome? {
+        let runtimeOutcome: NiriRuntimeMutationOutcome
+        switch prepared.runtimeStore.executeMutation(prepared.command) {
+        case let .success(outcome):
+            runtimeOutcome = outcome
+        case .failure:
             return nil
         }
 
-        let applyOutcome = NiriStateZigKernel.applyMutation(
-            context: context,
-            request: .init(
-                request: prepared.request
-            )
-        )
-        guard applyOutcome.rc == 0 else {
+        guard runtimeOutcome.rc == 0 else {
             return nil
         }
-        guard applyOutcome.applied else {
-            return applyOutcome
-        }
-
-        guard case .success = applyProjectedRuntimeExport(
-            context: context,
-            workspaceId: workspaceId,
-            delta: applyOutcome.delta
-        ) else {
-            return nil
-        }
-
-        return applyOutcome
+        return runtimeOutcome
     }
 
     private func applyRuntimeWindowMutationAppliedOnly(
@@ -154,6 +138,41 @@ extension NiriLayoutEngine {
         in workspaceId: WorkspaceDescriptor.ID
     ) -> WindowMutationApplyOutcome? {
         applyRuntimeWindowMutation(prepared, in: workspaceId)
+    }
+
+    private func windowMutationCommand(
+        op: NiriStateZigKernel.MutationOp,
+        sourceWindowId: NodeId,
+        targetWindowId: NodeId?,
+        direction: Direction?,
+        insertPosition: InsertPosition?
+    ) -> NiriRuntimeMutationCommand? {
+        switch op {
+        case .moveWindowVertical:
+            guard let direction else { return nil }
+            return .moveWindowVertical(sourceWindowId: sourceWindowId, direction: direction)
+        case .swapWindowVertical:
+            guard let direction else { return nil }
+            return .swapWindowVertical(sourceWindowId: sourceWindowId, direction: direction)
+        case .moveWindowHorizontal:
+            guard let direction else { return nil }
+            return .moveWindowHorizontal(sourceWindowId: sourceWindowId, direction: direction)
+        case .swapWindowHorizontal:
+            guard let direction else { return nil }
+            return .swapWindowHorizontal(sourceWindowId: sourceWindowId, direction: direction)
+        case .swapWindowsByMove:
+            guard let targetWindowId else { return nil }
+            return .swapWindowsByMove(sourceWindowId: sourceWindowId, targetWindowId: targetWindowId)
+        case .insertWindowByMove:
+            guard let targetWindowId, let insertPosition else { return nil }
+            return .insertWindowByMove(
+                sourceWindowId: sourceWindowId,
+                targetWindowId: targetWindowId,
+                position: insertPosition
+            )
+        default:
+            return nil
+        }
     }
 
     func applyWindowMutation(

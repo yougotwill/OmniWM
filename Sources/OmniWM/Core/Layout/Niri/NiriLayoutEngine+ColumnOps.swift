@@ -4,7 +4,13 @@ import Foundation
 extension NiriLayoutEngine {
     private struct ColumnMutationPreparedRequest {
         let workspaceColumns: [NiriContainer]
-        let request: NiriStateZigKernel.MutationRequest
+        let runtimeStore: NiriRuntimeWorkspaceStore
+        let op: NiriStateZigKernel.MutationOp
+        let sourceWindowId: NodeId?
+        let sourceColumnId: NodeId?
+        let targetColumnId: NodeId?
+        let insertColumnIndex: Int
+        let direction: Direction?
     }
 
     private struct ColumnMutationApplyOutcome {
@@ -57,21 +63,15 @@ extension NiriLayoutEngine {
             }
         }
 
-        let request = NiriStateZigKernel.MutationRequest(
+        return ColumnMutationPreparedRequest(
+            workspaceColumns: workspaceColumns,
+            runtimeStore: runtimeStore(for: workspaceId),
             op: op,
             sourceWindowId: sourceWindow?.id,
-            direction: direction,
-            infiniteLoop: infiniteLoop,
-            maxWindowsPerColumn: maxWindowsPerColumn,
             sourceColumnId: sourceColumn?.id,
             targetColumnId: targetColumn?.id,
             insertColumnIndex: insertColumnIndex,
-            maxVisibleColumns: maxVisibleColumns
-        )
-
-        return ColumnMutationPreparedRequest(
-            workspaceColumns: workspaceColumns,
-            request: request
+            direction: direction
         )
     }
 
@@ -81,21 +81,22 @@ extension NiriLayoutEngine {
         createdColumnId: UUID?,
         placeholderColumnId: UUID?
     ) -> ColumnMutationApplyOutcome? {
-        guard let context = prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: NiriStateZigKernel.makeSnapshot(columns: prepared.workspaceColumns)
+        guard let command = columnMutationCommand(
+            prepared: prepared,
+            createdColumnId: createdColumnId,
+            placeholderColumnId: placeholderColumnId
         ) else {
             return nil
         }
 
-        let applyOutcome = NiriStateZigKernel.applyMutation(
-            context: context,
-            request: .init(
-                request: prepared.request,
-                createdColumnId: createdColumnId,
-                placeholderColumnId: placeholderColumnId
-            )
-        )
+        let applyOutcome: NiriRuntimeMutationOutcome
+        switch prepared.runtimeStore.executeMutation(command) {
+        case let .success(outcome):
+            applyOutcome = outcome
+        case .failure:
+            return nil
+        }
+
         guard applyOutcome.rc == 0 else {
             return nil
         }
@@ -104,14 +105,6 @@ extension NiriLayoutEngine {
                 applied: false,
                 targetWindow: nil
             )
-        }
-
-        guard case .success = applyProjectedRuntimeExport(
-            context: context,
-            workspaceId: workspaceId,
-            delta: applyOutcome.delta
-        ) else {
-            return nil
         }
 
         let targetWindow: NiriWindow?
@@ -128,6 +121,108 @@ extension NiriLayoutEngine {
             applied: true,
             targetWindow: targetWindow
         )
+    }
+
+    private func columnMutationCommand(
+        prepared: ColumnMutationPreparedRequest,
+        createdColumnId: UUID?,
+        placeholderColumnId: UUID?
+    ) -> NiriRuntimeMutationCommand? {
+        switch prepared.op {
+        case .moveWindowToColumn:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let targetColumnId = prepared.targetColumnId,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .moveWindowToColumn(
+                sourceWindowId: sourceWindowId,
+                targetColumnId: targetColumnId,
+                placeholderColumnId: placeholderColumnId
+            )
+        case .createColumnAndMove:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let direction = prepared.direction,
+                  let createdColumnId,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .createColumnAndMove(
+                sourceWindowId: sourceWindowId,
+                direction: direction,
+                createdColumnId: createdColumnId,
+                placeholderColumnId: placeholderColumnId
+            )
+        case .insertWindowInNewColumn:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let createdColumnId,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .insertWindowInNewColumn(
+                sourceWindowId: sourceWindowId,
+                insertColumnIndex: prepared.insertColumnIndex,
+                createdColumnId: createdColumnId,
+                placeholderColumnId: placeholderColumnId
+            )
+        case .cleanupEmptyColumn:
+            guard let sourceColumnId = prepared.sourceColumnId,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .cleanupEmptyColumn(
+                sourceColumnId: sourceColumnId,
+                placeholderColumnId: placeholderColumnId
+            )
+        case .normalizeColumnSizes:
+            return .normalizeColumnSizes
+        case .normalizeWindowSizes:
+            guard let sourceColumnId = prepared.sourceColumnId else {
+                return nil
+            }
+            return .normalizeWindowSizes(sourceColumnId: sourceColumnId)
+        case .balanceSizes:
+            return .balanceSizes
+        case .moveColumn:
+            guard let sourceColumnId = prepared.sourceColumnId,
+                  let direction = prepared.direction
+            else {
+                return nil
+            }
+            return .moveColumn(sourceColumnId: sourceColumnId, direction: direction)
+        case .consumeWindow:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let direction = prepared.direction,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .consumeWindow(
+                sourceWindowId: sourceWindowId,
+                direction: direction,
+                placeholderColumnId: placeholderColumnId
+            )
+        case .expelWindow:
+            guard let sourceWindowId = prepared.sourceWindowId,
+                  let direction = prepared.direction,
+                  let createdColumnId,
+                  let placeholderColumnId
+            else {
+                return nil
+            }
+            return .expelWindow(
+                sourceWindowId: sourceWindowId,
+                direction: direction,
+                createdColumnId: createdColumnId,
+                placeholderColumnId: placeholderColumnId
+            )
+        default:
+            return nil
+        }
     }
 
     private func executePreparedColumnMutation(

@@ -676,6 +676,116 @@ final class NiriTxnIntegrationTests: XCTestCase {
         XCTAssertEqual(outcome.targetNode?.nodeId, fixture.window.id)
     }
 
+    func testRuntimeWorkspaceStoreMutationCommandProjectsIntoSwiftGraph() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-runtime-store-mutation")
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3, infiniteLoop: false)
+        let root = engine.ensureRoot(for: workspace.id)
+        let sourceColumn = try XCTUnwrap(root.columns.first)
+        let movingWindow = makeWindow()
+        sourceColumn.appendChild(movingWindow)
+
+        let targetColumn = NiriContainer()
+        root.appendChild(targetColumn)
+        targetColumn.appendChild(makeWindow())
+
+        let store = engine.runtimeStore(for: workspace.id)
+        let outcome: NiriRuntimeMutationOutcome
+        switch store.executeMutation(
+            .moveWindowHorizontal(
+                sourceWindowId: movingWindow.id,
+                direction: .right
+            )
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case let .failure(error):
+            XCTFail("runtime mutation command failed: \(error)")
+            return
+        }
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
+        XCTAssertTrue(outcome.applied)
+
+        let movedColumn = try XCTUnwrap(engine.findColumn(containing: movingWindow, in: workspace.id))
+        XCTAssertEqual(movedColumn.id, targetColumn.id)
+    }
+
+    func testRuntimeWorkspaceStoreQueryViewReflectsRuntimeOrderAndHandles() throws {
+        let workspace = WorkspaceDescriptor(name: "txn-runtime-store-view")
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3, infiniteLoop: false)
+        let root = engine.ensureRoot(for: workspace.id)
+        let firstColumn = try XCTUnwrap(root.columns.first)
+        let firstWindow = makeWindow()
+        let secondWindow = makeWindow()
+        firstColumn.appendChild(firstWindow)
+        firstColumn.appendChild(secondWindow)
+        firstColumn.setActiveTileIdx(1)
+
+        let secondColumn = NiriContainer()
+        root.appendChild(secondColumn)
+        let thirdWindow = makeWindow()
+        secondColumn.appendChild(thirdWindow)
+
+        engine.handleToNode[firstWindow.handle] = firstWindow
+        engine.handleToNode[secondWindow.handle] = secondWindow
+        engine.handleToNode[thirdWindow.handle] = thirdWindow
+
+        let store = engine.runtimeStore(for: workspace.id)
+        let view: NiriRuntimeWorkspaceView
+        switch store.queryView() {
+        case let .success(resolved):
+            view = resolved
+        case let .failure(error):
+            XCTFail("runtime query view failed: \(error)")
+            return
+        }
+
+        XCTAssertEqual(view.columns.count, 2)
+        XCTAssertEqual(view.windows.count, 3)
+        XCTAssertEqual(view.columns.first?.windowIds, [firstWindow.id, secondWindow.id])
+        XCTAssertEqual(view.columns.first?.activeTileIndex, 1)
+        XCTAssertEqual(view.window(for: firstWindow.id)?.handle, firstWindow.handle)
+        XCTAssertEqual(view.window(for: thirdWindow.id)?.columnId, secondColumn.id)
+    }
+
+    func testRuntimeWorkspaceStoreWorkspaceCommandMovesWindowAcrossContexts() throws {
+        let sourceWorkspace = WorkspaceDescriptor(name: "txn-runtime-store-workspace-source")
+        let targetWorkspace = WorkspaceDescriptor(name: "txn-runtime-store-workspace-target")
+        let engine = NiriLayoutEngine(maxVisibleColumns: 3)
+
+        let sourceRoot = engine.ensureRoot(for: sourceWorkspace.id)
+        let sourceColumn = try XCTUnwrap(sourceRoot.columns.first)
+        let movingWindow = makeWindow()
+        sourceColumn.appendChild(movingWindow)
+
+        _ = engine.ensureRoot(for: targetWorkspace.id)
+
+        let sourceStore = engine.runtimeStore(for: sourceWorkspace.id)
+        let targetStore = engine.runtimeStore(for: targetWorkspace.id, ensureWorkspaceRoot: true)
+
+        let outcome: NiriRuntimeWorkspaceOutcome
+        switch sourceStore.executeWorkspace(
+            .moveWindowToWorkspace(
+                sourceWindowId: movingWindow.id,
+                targetCreatedColumnId: UUID(),
+                sourcePlaceholderColumnId: UUID()
+            ),
+            targetStore: targetStore
+        ) {
+        case let .success(resolved):
+            outcome = resolved
+        case let .failure(error):
+            XCTFail("runtime workspace command failed: \(error)")
+            return
+        }
+
+        XCTAssertEqual(outcome.rc, Int32(OMNI_OK))
+        XCTAssertTrue(outcome.applied)
+        XCTAssertNotNil(outcome.movedWindowId)
+        XCTAssertEqual(outcome.sourceDelta?.windows.count, 0)
+        XCTAssertEqual(outcome.targetDelta?.windows.count, 1)
+    }
+
     func testRuntimeRenderRecoversFromCountDriftByReseedingAndRetrying() throws {
         let workspace = WorkspaceDescriptor(name: "txn-runtime-render-retry")
         let engine = NiriLayoutEngine()

@@ -115,10 +115,96 @@ extension NiriLayoutEngine {
             return nil
         }
 
+        let selectionAnchor: NiriRuntimeSelectionAnchor?
+        if let sourceWindowId = selection?.sourceWindowId {
+            selectionAnchor = .window(
+                windowId: sourceWindowId,
+                columnId: selection?.sourceColumnId
+            )
+        } else if let sourceColumnId = selection?.sourceColumnId {
+            selectionAnchor = .column(columnId: sourceColumnId)
+        } else {
+            selectionAnchor = nil
+        }
+
+        let command: NiriRuntimeNavigationCommand?
+        switch op {
+        case .moveByColumns:
+            if let selectionAnchor {
+                command = .moveByColumns(
+                    selection: selectionAnchor,
+                    step: step,
+                    targetRowIndex: targetRowIndex >= 0 ? targetRowIndex : nil
+                )
+            } else {
+                command = nil
+            }
+        case .moveVertical:
+            if let selectionAnchor, let direction {
+                command = .moveVertical(
+                    selection: selectionAnchor,
+                    direction: direction,
+                    orientation: orientation
+                )
+            } else {
+                command = nil
+            }
+        case .focusTarget:
+            if let selectionAnchor, let direction {
+                command = .focusTarget(
+                    selection: selectionAnchor,
+                    direction: direction,
+                    orientation: orientation
+                )
+            } else {
+                command = nil
+            }
+        case .focusDownOrLeft:
+            if let selectionAnchor {
+                command = .focusDownOrLeft(selection: selectionAnchor)
+            } else {
+                command = nil
+            }
+        case .focusUpOrRight:
+            if let selectionAnchor {
+                command = .focusUpOrRight(selection: selectionAnchor)
+            } else {
+                command = nil
+            }
+        case .focusColumnFirst:
+            command = .focusColumnFirst(selection: selectionAnchor)
+        case .focusColumnLast:
+            command = .focusColumnLast(selection: selectionAnchor)
+        case .focusColumnIndex:
+            guard focusColumnIndex >= 0 else { return nil }
+            command = .focusColumnIndex(selection: selectionAnchor, columnIndex: focusColumnIndex)
+        case .focusWindowIndex:
+            if let selectionAnchor, focusWindowIndex >= 0 {
+                command = .focusWindowIndex(selection: selectionAnchor, windowIndex: focusWindowIndex)
+            } else {
+                command = nil
+            }
+        case .focusWindowTop:
+            if let selectionAnchor {
+                command = .focusWindowTop(selection: selectionAnchor)
+            } else {
+                command = nil
+            }
+        case .focusWindowBottom:
+            if let selectionAnchor {
+                command = .focusWindowBottom(selection: selectionAnchor)
+            } else {
+                command = nil
+            }
+        }
+        guard let command else {
+            return nil
+        }
+
         let request = NiriStateZigKernel.NavigationRequest(
             op: op,
-            sourceWindowId: selection?.sourceWindowId,
-            sourceColumnId: selection?.sourceColumnId,
+            sourceWindowId: selectionAnchor?.sourceWindowId,
+            sourceColumnId: selectionAnchor?.sourceColumnId,
             direction: direction,
             orientation: orientation,
             infiniteLoop: infiniteLoop,
@@ -135,28 +221,15 @@ extension NiriLayoutEngine {
             )
         }
 
-        guard let context = prepareSeededRuntimeContext(
-            for: workspaceId,
-            snapshot: snapshot
-        ) else {
+        let runtimeStore = runtimeStore(for: workspaceId)
+        let outcome: NiriRuntimeNavigationOutcome
+        switch runtimeStore.executeNavigation(command) {
+        case let .success(resolved):
+            outcome = resolved
+        case .failure:
             return nil
         }
-
-        let outcome = NiriStateZigKernel.applyNavigation(
-            context: context,
-            request: .init(
-                request: request
-            )
-        )
         guard outcome.rc == OMNI_OK else {
-            return nil
-        }
-
-        guard case .success = applyProjectedRuntimeExport(
-            context: context,
-            workspaceId: workspaceId,
-            delta: outcome.delta
-        ) else {
             return nil
         }
 
