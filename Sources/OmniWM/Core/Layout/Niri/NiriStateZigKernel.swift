@@ -384,70 +384,120 @@ enum NiriStateZigKernel {
     private static func navigationOpCode(_ op: NavigationOp) -> UInt8 {
         switch op {
         case .moveByColumns:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_MOVE_BY_COLUMNS.rawValue)
         case .moveVertical:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_MOVE_VERTICAL.rawValue)
         case .focusTarget:
-            return 2
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_TARGET.rawValue)
         case .focusDownOrLeft:
-            return 3
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_DOWN_OR_LEFT.rawValue)
         case .focusUpOrRight:
-            return 4
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_UP_OR_RIGHT.rawValue)
         case .focusColumnFirst:
-            return 5
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_COLUMN_FIRST.rawValue)
         case .focusColumnLast:
-            return 6
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_COLUMN_LAST.rawValue)
         case .focusColumnIndex:
-            return 7
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_COLUMN_INDEX.rawValue)
         case .focusWindowIndex:
-            return 8
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_WINDOW_INDEX.rawValue)
         case .focusWindowTop:
-            return 9
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_WINDOW_TOP.rawValue)
         case .focusWindowBottom:
-            return 10
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_WINDOW_BOTTOM.rawValue)
+        }
+    }
+
+    private static func mutationOpCode(_ op: MutationOp) -> UInt8 {
+        switch op {
+        case .moveWindowVertical:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL.rawValue)
+        case .swapWindowVertical:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL.rawValue)
+        case .moveWindowHorizontal:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL.rawValue)
+        case .swapWindowHorizontal:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_HORIZONTAL.rawValue)
+        case .swapWindowsByMove:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_SWAP_WINDOWS_BY_MOVE.rawValue)
+        case .insertWindowByMove:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_INSERT_WINDOW_BY_MOVE.rawValue)
+        case .moveWindowToColumn:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_TO_COLUMN.rawValue)
+        case .createColumnAndMove:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_CREATE_COLUMN_AND_MOVE.rawValue)
+        case .insertWindowInNewColumn:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_INSERT_WINDOW_IN_NEW_COLUMN.rawValue)
+        case .moveColumn:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_MOVE_COLUMN.rawValue)
+        case .consumeWindow:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_CONSUME_WINDOW.rawValue)
+        case .expelWindow:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_EXPEL_WINDOW.rawValue)
+        case .cleanupEmptyColumn:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_CLEANUP_EMPTY_COLUMN.rawValue)
+        case .normalizeColumnSizes:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_NORMALIZE_COLUMN_SIZES.rawValue)
+        case .normalizeWindowSizes:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_NORMALIZE_WINDOW_SIZES.rawValue)
+        case .balanceSizes:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_BALANCE_SIZES.rawValue)
+        case .addWindow:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_ADD_WINDOW.rawValue)
+        case .removeWindow:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW.rawValue)
+        case .validateSelection:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION.rawValue)
+        case .fallbackSelectionOnRemoval:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL.rawValue)
         }
     }
 
     private static func workspaceOpCode(_ op: WorkspaceOp) -> UInt8 {
-        op.rawValue
+        switch op {
+        case .moveWindowToWorkspace:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE.rawValue)
+        case .moveColumnToWorkspace:
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE.rawValue)
+        }
     }
 
     private static func mutationNodeKindCode(_ kind: MutationNodeKind) -> UInt8 {
         switch kind {
         case .none:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_NONE.rawValue)
         case .window:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_WINDOW.rawValue)
         case .column:
-            return 2
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_NODE_COLUMN.rawValue)
         }
     }
 
     private static func navigationDirectionCode(_ direction: Direction?) -> UInt8 {
         switch direction {
         case .left:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_LEFT.rawValue)
         case .right:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_RIGHT.rawValue)
         case .up:
-            return 2
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_UP.rawValue)
         case .down:
-            return 3
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_DOWN.rawValue)
         case nil:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_LEFT.rawValue)
         }
     }
 
     private static func mutationDirectionCode(_ direction: Direction?) -> UInt8 {
         switch direction {
         case .left:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_LEFT.rawValue)
         case .right:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_RIGHT.rawValue)
         case .up:
-            return 2
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_UP.rawValue)
         case .down:
-            return 3
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_DOWN.rawValue)
         case nil:
             // Direction-required mutation ops must reject unspecified direction.
             return 0xFF
@@ -457,22 +507,22 @@ enum NiriStateZigKernel {
     private static func insertPositionCode(_ position: InsertPosition?) -> UInt8 {
         switch position {
         case .before:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_INSERT_BEFORE.rawValue)
         case .after:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_INSERT_AFTER.rawValue)
         case .swap:
-            return 2
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_INSERT_SWAP.rawValue)
         case nil:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_INSERT_BEFORE.rawValue)
         }
     }
 
     private static func orientationCode(_ orientation: Monitor.Orientation) -> UInt8 {
         switch orientation {
         case .horizontal:
-            return 0
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_ORIENTATION_HORIZONTAL.rawValue)
         case .vertical:
-            return 1
+            return UInt8(truncatingIfNeeded: OMNI_NIRI_ORIENTATION_VERTICAL.rawValue)
         }
     }
 
@@ -698,7 +748,7 @@ enum NiriStateZigKernel {
 
     private static func rawMutationRequest(from request: MutationRequest) -> OmniNiriMutationRequest {
         OmniNiriMutationRequest(
-            op: request.op.rawValue,
+            op: mutationOpCode(request.op),
             direction: mutationDirectionCode(request.direction),
             infinite_loop: request.infiniteLoop ? 1 : 0,
             insert_position: insertPositionCode(request.insertPosition),
@@ -811,12 +861,20 @@ enum NiriStateZigKernel {
 
         return rawColumns.withUnsafeBufferPointer { columnBuf in
             rawWindows.withUnsafeBufferPointer { windowBuf in
-                context.withRawContext { raw in
+                let columnPtr = columnBuf.count > 0 ? columnBuf.baseAddress : nil
+                let windowPtr = windowBuf.count > 0 ? windowBuf.baseAddress : nil
+
+                guard !(columnBuf.count > 0 && columnPtr == nil),
+                      !(windowBuf.count > 0 && windowPtr == nil)
+                else {
+                    return Int32(OMNI_ERR_INVALID_ARGS)
+                }
+                return context.withRawContext { raw in
                     omni_niri_ctx_seed_runtime_state(
                         raw,
-                        columnBuf.baseAddress,
+                        columnPtr,
                         columnBuf.count,
-                        windowBuf.baseAddress,
+                        windowPtr,
                         windowBuf.count
                     )
                 }
@@ -842,6 +900,20 @@ enum NiriStateZigKernel {
 
         guard rc == OMNI_OK else {
             return (rc: rc, export: RuntimeStateExport(columns: [], windows: []))
+        }
+
+        let hasColumnPointer = rawExport.columns != nil
+        let hasColumnCount = rawExport.column_count > 0
+        let hasWindowPointer = rawExport.windows != nil
+        let hasWindowCount = rawExport.window_count > 0
+
+        guard hasColumnPointer == hasColumnCount,
+              hasWindowPointer == hasWindowCount
+        else {
+            return (
+                rc: Int32(OMNI_ERR_INVALID_ARGS),
+                export: RuntimeStateExport(columns: [], windows: [])
+            )
         }
 
         let columns: [RuntimeColumnState]
