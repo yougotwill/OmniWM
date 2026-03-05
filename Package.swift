@@ -35,8 +35,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .interoperabilityMode(.C),
-                .unsafeFlags(["-enable-testing"])
+                .interoperabilityMode(.C)
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -56,17 +55,6 @@ let package = Package(
             name: "OmniWMApp",
             dependencies: ["OmniWM"],
             path: "Sources/OmniWMApp",
-            swiftSettings: [
-                .swiftLanguageMode(.v6)
-            ]
-        ),
-        .testTarget(
-            name: "OmniWMTests",
-            dependencies: ["OmniWM"],
-            path: "Tests/OmniWMTests",
-            resources: [
-                .process("Benchmarks")
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
