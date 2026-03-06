@@ -15,7 +15,6 @@ enum WorkspaceBarDataSource {
         hideEmpty: Bool,
         workspaceManager: WorkspaceManager,
         appInfoCache: AppInfoCache,
-        niriEngine: NiriLayoutEngine?,
         zigNiriEngine: ZigNiriEngine?,
         focusedHandle: WindowHandle?,
         settings: SettingsStore
@@ -33,7 +32,6 @@ enum WorkspaceBarDataSource {
             let orderMap = orderMap(
                 for: workspace.id,
                 entries: entries,
-                niriEngine: niriEngine,
                 zigNiriEngine: zigNiriEngine,
                 focusedHandle: focusedHandle
             )
@@ -66,7 +64,6 @@ enum WorkspaceBarDataSource {
     private static func orderMap(
         for workspaceId: WorkspaceDescriptor.ID,
         entries: [WindowModel.Entry],
-        niriEngine: NiriLayoutEngine?,
         zigNiriEngine: ZigNiriEngine?,
         focusedHandle: WindowHandle?
     ) -> [WindowHandle: SortKey]? {
@@ -92,19 +89,7 @@ enum WorkspaceBarDataSource {
                 }
             }
         }
-
-        guard let niriEngine else { return nil }
-
-        var order: [WindowHandle: SortKey] = [:]
-        let columns = niriEngine.columns(in: workspaceId)
-
-        for (colIdx, column) in columns.enumerated() {
-            for (rowIdx, window) in column.windowNodes.enumerated() {
-                order[window.handle] = SortKey(group: 0, primary: colIdx, secondary: rowIdx)
-            }
-        }
-
-        return order
+        return nil
     }
 
     private static func sortEntries(

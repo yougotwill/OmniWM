@@ -62,16 +62,10 @@ final class FocusManager {
         in workspaceId: WorkspaceDescriptor.ID,
         preferredNodeId: NodeId?,
         zigEngine: ZigNiriEngine?,
-        engine: NiriLayoutEngine?,
         entries: [WindowModel.Entry]
     ) {
         if let preferredId = preferredNodeId,
            let handle = zigEngine?.windowHandle(for: preferredId)
-        {
-            setFocus(handle, in: workspaceId)
-        } else if let engine,
-                  let preferredId = preferredNodeId,
-                  let handle = engine.handleToNode.first(where: { $0.value.id == preferredId })?.key
         {
             setFocus(handle, in: workspaceId)
         } else if let fallback = entries.first?.handle {
@@ -134,7 +128,6 @@ final class FocusManager {
     func ensureFocusedHandleValid(
         in workspaceId: WorkspaceDescriptor.ID,
         zigEngine: ZigNiriEngine?,
-        engine: NiriLayoutEngine?,
         workspaceManager: WorkspaceManager,
         focusWindowAction: (WindowHandle) -> Void
     ) {
@@ -142,7 +135,7 @@ final class FocusManager {
            workspaceManager.entry(for: focused)?.workspaceId == workspaceId
         {
             lastFocusedByWorkspace[workspaceId] = focused
-            let nodeId = zigEngine?.nodeId(for: focused) ?? engine?.findNode(for: focused)?.id
+            let nodeId = zigEngine?.nodeId(for: focused)
             if let nodeId {
                 workspaceManager.setSelection(nodeId, for: workspaceId)
             }
@@ -153,7 +146,7 @@ final class FocusManager {
            workspaceManager.entry(for: remembered) != nil
         {
             setFocus(remembered, in: workspaceId)
-            let nodeId = zigEngine?.nodeId(for: remembered) ?? engine?.findNode(for: remembered)?.id
+            let nodeId = zigEngine?.nodeId(for: remembered)
             if let nodeId {
                 workspaceManager.setSelection(nodeId, for: workspaceId)
             }
@@ -164,7 +157,7 @@ final class FocusManager {
         let newHandle = workspaceManager.entries(in: workspaceId).first?.handle
         if let newHandle {
             setFocus(newHandle, in: workspaceId)
-            let nodeId = zigEngine?.nodeId(for: newHandle) ?? engine?.findNode(for: newHandle)?.id
+            let nodeId = zigEngine?.nodeId(for: newHandle)
             if let nodeId {
                 workspaceManager.setSelection(nodeId, for: workspaceId)
             }

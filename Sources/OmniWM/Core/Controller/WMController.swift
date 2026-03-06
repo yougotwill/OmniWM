@@ -217,7 +217,6 @@ final class WMController {
             hideEmpty: hideEmpty,
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
-            niriEngine: niriEngine,
             zigNiriEngine: zigNiriEngine,
             focusedHandle: focusedHandle,
             settings: settings
@@ -458,7 +457,6 @@ final class WMController {
             in: workspaceId,
             preferredNodeId: preferredNodeId,
             zigEngine: zigNiriEngine,
-            engine: niriEngine,
             entries: workspaceManager.entries(in: workspaceId)
         )
     }
@@ -486,10 +484,7 @@ final class WMController {
         if let workspaceId {
             _ = syncZigNiriWorkspace(workspaceId: workspaceId)
         }
-        if let nodeId = zigNiriEngine?.nodeId(for: handle) {
-            return nodeId
-        }
-        return niriEngine?.findNode(for: handle)?.id
+        return zigNiriEngine?.nodeId(for: handle)
     }
 
     func zigWindowHandle(
@@ -499,10 +494,7 @@ final class WMController {
         if let workspaceId {
             _ = syncZigNiriWorkspace(workspaceId: workspaceId)
         }
-        if let handle = zigNiriEngine?.windowHandle(for: nodeId) {
-            return handle
-        }
-        return niriEngine?.handleToNode.first(where: { $0.value.id == nodeId })?.key
+        return zigNiriEngine?.windowHandle(for: nodeId)
     }
 
     func zigContainsNode(
@@ -517,7 +509,7 @@ final class WMController {
                 return true
             }
         }
-        return niriEngine?.findNode(by: nodeId) != nil
+        return false
     }
 
     func moveMouseToWindow(_ handle: WindowHandle) {
@@ -593,9 +585,9 @@ extension WMController {
                 }
 
                 if let entry = self.workspaceManager.entry(for: handle) {
-                    if let engine = self.niriEngine,
-                       let node = engine.findNode(for: handle),
-                       let frame = node.frame
+                    if let workspaceView = self.syncZigNiriWorkspace(workspaceId: entry.workspaceId),
+                       let nodeId = self.zigNiriEngine?.nodeId(for: handle),
+                       let frame = workspaceView.windowsById[nodeId]?.frame
                     {
                         self.borderCoordinator.updateBorderIfAllowed(handle: entry.handle, frame: frame, windowId: entry.windowId)
                     } else if let frame = try? AXWindowService.frame(entry.axRef) {

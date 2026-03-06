@@ -367,7 +367,6 @@ import QuartzCore
             controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
                 zigEngine: controller.zigNiriEngine,
-                engine: controller.niriEngine,
                 workspaceManager: controller.workspaceManager,
                 focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
             )
@@ -557,7 +556,6 @@ import QuartzCore
             controller.focusManager.ensureFocusedHandleValid(
                 in: focusedWorkspaceId,
                 zigEngine: controller.zigNiriEngine,
-                engine: controller.niriEngine,
                 workspaceManager: controller.workspaceManager,
                 focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
             )

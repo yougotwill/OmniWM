@@ -70,16 +70,8 @@ final class BorderCoordinator {
            let nodeId = controller.zigNodeId(for: handle),
            let windowView = workspaceView.windowsById[nodeId]
         {
-            if windowView.sizingMode == .fullscreen {
-                return true
-            }
+            return windowView.sizingMode == .fullscreen
         }
-
-        guard let engine = controller.niriEngine,
-              let windowNode = engine.findNode(for: handle)
-        else {
-            return false
-        }
-        return windowNode.isFullscreen
+        return false
     }
 }
