@@ -30,6 +30,10 @@ final class NiriLayoutHandler {
 
         controller.workspaceManager.withNiriViewportState(for: wsId) { state in
             let viewportAnimationRunning = state.advanceAnimations(at: targetTime)
+            controller.zigNiriEngine?.pruneExpiredStructuralAnimations(
+                at: targetTime,
+                workspaceId: wsId
+            )
             let structuralAnimationRunning = controller.zigNiriEngine?.hasActiveStructuralAnimation(
                 in: wsId,
                 at: targetTime

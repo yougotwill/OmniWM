@@ -4,6 +4,9 @@ import Foundation
 import QuartzCore
 
 final class ZigNiriEngine {
+    static let mutationAnimationDuration: TimeInterval = 0.18
+    static let workspaceSwitchAnimationDuration: TimeInterval = 0.20
+
     private struct RuntimeSelectionAnchor {
         let windowId: NodeId?
         let columnId: NodeId?
@@ -64,15 +67,22 @@ final class ZigNiriEngine {
     private var interactiveMoveState: ZigNiriInteractiveMoveState?
     private var interactiveResizeState: ActiveInteractiveResize?
     private var structuralAnimationsByWorkspace: [WorkspaceDescriptor.ID: StructuralAnimationState] = [:]
+    private let timeProvider: () -> TimeInterval
 
     init(
         maxWindowsPerColumn: Int = 3,
         maxVisibleColumns: Int = 3,
-        infiniteLoop: Bool = false
+        infiniteLoop: Bool = false,
+        timeProvider: @escaping () -> TimeInterval = { CACurrentMediaTime() }
     ) {
         self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
         self.maxVisibleColumns = max(1, min(5, maxVisibleColumns))
         self.infiniteLoop = infiniteLoop
+        self.timeProvider = timeProvider
+    }
+
+    private func currentTime() -> TimeInterval {
+        timeProvider()
     }
 
     func updateConfiguration(
@@ -105,17 +115,31 @@ final class ZigNiriEngine {
 
     func hasActiveStructuralAnimation(
         in workspaceId: WorkspaceDescriptor.ID,
-        at time: TimeInterval = CACurrentMediaTime()
+        at time: TimeInterval? = nil
     ) -> Bool {
         guard let animation = structuralAnimationsByWorkspace[workspaceId] else {
             return false
         }
-        let elapsed = max(0, time - animation.startedAt)
-        if elapsed < animation.duration {
-            return true
+        let sampleTime = time ?? currentTime()
+        return isStructuralAnimationActive(animation, at: sampleTime)
+    }
+
+    func pruneExpiredStructuralAnimations(
+        at time: TimeInterval? = nil,
+        workspaceId: WorkspaceDescriptor.ID? = nil
+    ) {
+        let sampleTime = time ?? currentTime()
+        if let workspaceId {
+            guard let animation = structuralAnimationsByWorkspace[workspaceId] else { return }
+            if !isStructuralAnimationActive(animation, at: sampleTime) {
+                structuralAnimationsByWorkspace.removeValue(forKey: workspaceId)
+            }
+            return
         }
-        structuralAnimationsByWorkspace.removeValue(forKey: workspaceId)
-        return false
+
+        structuralAnimationsByWorkspace = structuralAnimationsByWorkspace.filter { _, animation in
+            isStructuralAnimationActive(animation, at: sampleTime)
+        }
     }
 
     func cancelStructuralAnimation(in workspaceId: WorkspaceDescriptor.ID) {
@@ -125,7 +149,7 @@ final class ZigNiriEngine {
     @discardableResult
     func startWorkspaceSwitchAnimation(
         in workspaceId: WorkspaceDescriptor.ID,
-        duration: TimeInterval = 0.20
+        duration: TimeInterval = ZigNiriEngine.workspaceSwitchAnimationDuration
     ) -> Bool {
         guard ensureRuntimeContext(for: workspaceId) != nil else {
             return false
@@ -135,7 +159,7 @@ final class ZigNiriEngine {
         }
         structuralAnimationsByWorkspace[workspaceId] = StructuralAnimationState(
             kind: .workspaceSwitch,
-            startedAt: CACurrentMediaTime(),
+            startedAt: currentTime(),
             duration: max(0.01, duration)
         )
         return true
@@ -838,32 +862,55 @@ final class ZigNiriEngine {
         return removedHandles
     }
 
+    private struct LayoutProjectionSnapshot {
+        let frames: [WindowHandle: CGRect]
+        let hiddenHandles: [WindowHandle: HideSide]
+    }
+
     func calculateLayout(_ request: ZigNiriLayoutRequest) -> ZigNiriLayoutResult {
         let latencyToken = ZigNiriLatencyProbe.begin(.layoutPass)
         defer { ZigNiriLatencyProbe.end(latencyToken) }
         let persistFrames = !ZigNiriLatencyProbe.isEnabled
 
-        guard var view = workspaceViews[request.workspaceId] else {
+        guard let view = workspaceViews[request.workspaceId] else {
             return ZigNiriLayoutResult(frames: [:], hiddenHandles: [:])
         }
+
+        let projection = projectLayoutFrames(
+            for: request,
+            view: view
+        )
+        let layoutTime = request.animationTime ?? currentTime()
+        let compositedFrames = compositeStructuralFrames(
+            projection.frames,
+            workspaceId: request.workspaceId,
+            orientation: request.orientation,
+            at: layoutTime
+        )
+
+        if persistFrames {
+            var persistedView = view
+            persistCompositedFrames(compositedFrames, in: &persistedView)
+            workspaceViews[request.workspaceId] = persistedView
+        }
+
+        return ZigNiriLayoutResult(
+            frames: compositedFrames,
+            hiddenHandles: projection.hiddenHandles
+        )
+    }
+
+    private func projectLayoutFrames(
+        for request: ZigNiriLayoutRequest,
+        view: ZigNiriWorkspaceView
+    ) -> LayoutProjectionSnapshot {
         guard !view.columns.isEmpty else {
-            if persistFrames {
-                for windowId in view.windowsById.keys {
-                    var window = view.windowsById[windowId]
-                    window?.frame = nil
-                    if let window {
-                        view.windowsById[windowId] = window
-                    }
-                }
-                workspaceViews[request.workspaceId] = view
-            }
-            return ZigNiriLayoutResult(frames: [:], hiddenHandles: [:])
+            return LayoutProjectionSnapshot(frames: [:], hiddenHandles: [:])
         }
 
         let workingFrame = request.workingArea?.workingFrame ?? request.monitorFrame
         let primaryGap = request.orientation == .horizontal ? request.gaps.horizontal : request.gaps.vertical
         let secondaryGap = request.orientation == .horizontal ? request.gaps.vertical : request.gaps.horizontal
-
         var frames: [WindowHandle: CGRect] = [:]
         var hiddenHandles: [WindowHandle: HideSide] = [:]
         let columnLayouts = columnLayoutsForLayout(
@@ -878,41 +925,15 @@ final class ZigNiriEngine {
             let fullFrame = workingFrame.roundedToPhysicalPixels(scale: request.scale)
             for (windowId, existingWindow) in view.windowsById {
                 if windowId == fullscreenWindowId {
-                    if persistFrames {
-                        var window = existingWindow
-                        window.frame = fullFrame
-                        view.windowsById[windowId] = window
-                    }
                     frames[existingWindow.handle] = fullFrame
                 } else {
-                    if persistFrames {
-                        var window = existingWindow
-                        window.frame = nil
-                        view.windowsById[windowId] = window
-                    }
                     hiddenHandles[existingWindow.handle] = .right
                 }
             }
-            let layoutTime = request.animationTime ?? CACurrentMediaTime()
-            frames = applyStructuralAnimationIfNeeded(
+            return LayoutProjectionSnapshot(
                 frames: frames,
-                workspaceId: request.workspaceId,
-                orientation: request.orientation,
-                at: layoutTime
+                hiddenHandles: hiddenHandles
             )
-            if persistFrames {
-                for (handle, frame) in frames {
-                    guard let nodeId = windowNodeIdsByHandle[handle],
-                          var window = view.windowsById[nodeId]
-                    else {
-                        continue
-                    }
-                    window.frame = frame
-                    view.windowsById[nodeId] = window
-                }
-                workspaceViews[request.workspaceId] = view
-            }
-            return ZigNiriLayoutResult(frames: frames, hiddenHandles: hiddenHandles)
         }
 
         for (columnIndex, column) in view.columns.enumerated() {
@@ -926,11 +947,6 @@ final class ZigNiriEngine {
                 let frame = columnRect.roundedToPhysicalPixels(scale: request.scale)
                 for windowId in windowIds {
                     guard let window = view.windowsById[windowId] else { continue }
-                    if persistFrames {
-                        var persistedWindow = window
-                        persistedWindow.frame = frame
-                        view.windowsById[windowId] = persistedWindow
-                    }
                     frames[window.handle] = frame
                     hiddenHandles[window.handle] = offscreenSide
                 }
@@ -943,18 +959,8 @@ final class ZigNiriEngine {
                     guard let window = view.windowsById[windowId] else { continue }
                     if rowIndex == activeIndex {
                         let frame = columnRect.roundedToPhysicalPixels(scale: request.scale)
-                        if persistFrames {
-                            var persistedWindow = window
-                            persistedWindow.frame = frame
-                            view.windowsById[windowId] = persistedWindow
-                        }
                         frames[window.handle] = frame
                     } else {
-                        if persistFrames {
-                            var persistedWindow = window
-                            persistedWindow.frame = nil
-                            view.windowsById[windowId] = persistedWindow
-                        }
                         hiddenHandles[window.handle] = .right
                     }
                 }
@@ -973,39 +979,39 @@ final class ZigNiriEngine {
                       let window = view.windowsById[windowId]
                 else { continue }
                 let frame = rowRects[rowIndex].roundedToPhysicalPixels(scale: request.scale)
-                if persistFrames {
-                    var persistedWindow = window
-                    persistedWindow.frame = frame
-                    view.windowsById[windowId] = persistedWindow
-                }
                 frames[window.handle] = frame
             }
         }
 
-        let layoutTime = request.animationTime ?? CACurrentMediaTime()
-        frames = applyStructuralAnimationIfNeeded(
+        return LayoutProjectionSnapshot(
             frames: frames,
-            workspaceId: request.workspaceId,
-            orientation: request.orientation,
-            at: layoutTime
+            hiddenHandles: hiddenHandles
         )
+    }
 
-        if persistFrames {
-            for (handle, frame) in frames {
-                guard let nodeId = windowNodeIdsByHandle[handle],
-                      var window = view.windowsById[nodeId]
-                else {
-                    continue
-                }
-                window.frame = frame
-                view.windowsById[nodeId] = window
-            }
-        }
+    private func compositeStructuralFrames(
+        _ frames: [WindowHandle: CGRect],
+        workspaceId: WorkspaceDescriptor.ID,
+        orientation: Monitor.Orientation,
+        at time: TimeInterval
+    ) -> [WindowHandle: CGRect] {
+        applyStructuralAnimationIfNeeded(
+            frames: frames,
+            workspaceId: workspaceId,
+            orientation: orientation,
+            at: time
+        )
+    }
 
-        if persistFrames {
-            workspaceViews[request.workspaceId] = view
+    private func persistCompositedFrames(
+        _ frames: [WindowHandle: CGRect],
+        in view: inout ZigNiriWorkspaceView
+    ) {
+        for (windowId, existingWindow) in view.windowsById {
+            var window = existingWindow
+            window.frame = frames[window.handle]
+            view.windowsById[windowId] = window
         }
-        return ZigNiriLayoutResult(frames: frames, hiddenHandles: hiddenHandles)
     }
 
     func resolvedColumnSpans(
@@ -3272,13 +3278,21 @@ private extension ZigNiriEngine {
     func scheduleStructuralAnimation(
         in workspaceId: WorkspaceDescriptor.ID,
         from fromFramesByNodeId: [NodeId: CGRect],
-        duration: TimeInterval = 0.18
+        duration: TimeInterval = ZigNiriEngine.mutationAnimationDuration
     ) {
         structuralAnimationsByWorkspace[workspaceId] = StructuralAnimationState(
             kind: .mutation(fromFramesByNodeId: fromFramesByNodeId),
-            startedAt: CACurrentMediaTime(),
+            startedAt: currentTime(),
             duration: max(0.01, duration)
         )
+    }
+
+    private func isStructuralAnimationActive(
+        _ animation: StructuralAnimationState,
+        at time: TimeInterval
+    ) -> Bool {
+        let elapsed = max(0, time - animation.startedAt)
+        return elapsed < animation.duration
     }
 
     func applyStructuralAnimationIfNeeded(

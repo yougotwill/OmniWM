@@ -1,5 +1,6 @@
 import ApplicationServices
 import Darwin
+import Foundation
 import XCTest
 
 @testable import OmniWM
@@ -506,7 +507,8 @@ final class ZigNiriEngineTests: XCTestCase {
 
     func testFullscreenToggleProducesAnimatedIntermediateFrames() throws {
         let workspace = WorkspaceDescriptor(name: "zig-niri-fullscreen-animation")
-        let engine = ZigNiriEngine()
+        let clock = DeterministicClock(now: 1_000)
+        let engine = ZigNiriEngine(timeProvider: { clock.now })
         let first = makeWindowHandle()
         let second = makeWindowHandle()
 
@@ -537,7 +539,7 @@ final class ZigNiriEngineTests: XCTestCase {
         )
         XCTAssertTrue(mutation.applied)
         XCTAssertTrue(mutation.structuralAnimationActive)
-        let probeTime = CACurrentMediaTime()
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration * 0.45)
 
         let animated = engine.calculateLayout(
             ZigNiriLayoutRequest(
@@ -548,10 +550,10 @@ final class ZigNiriEngineTests: XCTestCase {
                 scale: 2,
                 workingArea: nil,
                 orientation: .horizontal,
-                viewportOffset: 0,
-                animationTime: probeTime + 0.08
+                viewportOffset: 0
             )
         )
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration)
         let settled = engine.calculateLayout(
             ZigNiriLayoutRequest(
                 workspaceId: workspace.id,
@@ -561,8 +563,7 @@ final class ZigNiriEngineTests: XCTestCase {
                 scale: 2,
                 workingArea: nil,
                 orientation: .horizontal,
-                viewportOffset: 0,
-                animationTime: probeTime + 0.35
+                viewportOffset: 0
             )
         )
 
@@ -710,7 +711,8 @@ final class ZigNiriEngineTests: XCTestCase {
 
     func testMoveMutationProducesAnimatedIntermediateFrames() throws {
         let workspace = WorkspaceDescriptor(name: "zig-niri-structural-animation-move")
-        let engine = ZigNiriEngine(maxWindowsPerColumn: 2)
+        let clock = DeterministicClock(now: 2_000)
+        let engine = ZigNiriEngine(maxWindowsPerColumn: 2, timeProvider: { clock.now })
         let first = makeWindowHandle()
         let second = makeWindowHandle()
 
@@ -742,7 +744,7 @@ final class ZigNiriEngineTests: XCTestCase {
         XCTAssertTrue(mutation.applied)
         XCTAssertTrue(mutation.structuralAnimationActive)
         XCTAssertTrue(engine.hasActiveStructuralAnimation(in: workspace.id))
-        let probeTime = CACurrentMediaTime()
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration * 0.45)
 
         let animated = engine.calculateLayout(
             ZigNiriLayoutRequest(
@@ -753,10 +755,10 @@ final class ZigNiriEngineTests: XCTestCase {
                 scale: 2,
                 workingArea: nil,
                 orientation: .horizontal,
-                viewportOffset: 0,
-                animationTime: probeTime + 0.08
+                viewportOffset: 0
             )
         )
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration)
         let settled = engine.calculateLayout(
             ZigNiriLayoutRequest(
                 workspaceId: workspace.id,
@@ -766,8 +768,7 @@ final class ZigNiriEngineTests: XCTestCase {
                 scale: 2,
                 workingArea: nil,
                 orientation: .horizontal,
-                viewportOffset: 0,
-                animationTime: probeTime + 0.35
+                viewportOffset: 0
             )
         )
 
@@ -832,7 +833,8 @@ final class ZigNiriEngineTests: XCTestCase {
 
     func testWorkspaceSwitchStartsStructuralAnimationState() throws {
         let workspace = WorkspaceDescriptor(name: "zig-niri-workspace-switch-animation")
-        let engine = ZigNiriEngine()
+        let clock = DeterministicClock(now: 3_000)
+        let engine = ZigNiriEngine(timeProvider: { clock.now })
         let handle = makeWindowHandle()
 
         _ = engine.syncWindows(
@@ -842,9 +844,157 @@ final class ZigNiriEngineTests: XCTestCase {
         )
 
         XCTAssertTrue(engine.startWorkspaceSwitchAnimation(in: workspace.id))
-        let probeTime = CACurrentMediaTime()
-        XCTAssertTrue(engine.hasActiveStructuralAnimation(in: workspace.id, at: probeTime + 0.05))
-        XCTAssertFalse(engine.hasActiveStructuralAnimation(in: workspace.id, at: probeTime + 0.35))
+        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25)
+        XCTAssertTrue(engine.hasActiveStructuralAnimation(in: workspace.id))
+        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration)
+        XCTAssertFalse(engine.hasActiveStructuralAnimation(in: workspace.id))
+    }
+
+    func testCalculateLayoutHonorsExplicitAnimationTimeOverride() throws {
+        let workspace = WorkspaceDescriptor(name: "zig-niri-explicit-animation-time")
+        let clock = DeterministicClock(now: 4_000)
+        let engine = ZigNiriEngine(maxWindowsPerColumn: 2, timeProvider: { clock.now })
+        let first = makeWindowHandle()
+        let second = makeWindowHandle()
+
+        _ = engine.syncWindows(
+            [first, second],
+            in: workspace.id,
+            selectedNodeId: nil
+        )
+        let firstId = try XCTUnwrap(engine.nodeId(for: first))
+
+        let initial = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0
+            )
+        )
+        let preFrame = try XCTUnwrap(initial.frames[first])
+        let mutationStartedAt = clock.now
+
+        let mutation = engine.applyMutation(
+            .moveWindow(windowId: firstId, direction: .right, orientation: .horizontal),
+            in: workspace.id
+        )
+        XCTAssertTrue(mutation.applied)
+        XCTAssertTrue(mutation.structuralAnimationActive)
+
+        clock.advance(by: ZigNiriEngine.mutationAnimationDuration * 10)
+        let animated = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0,
+                animationTime: mutationStartedAt + ZigNiriEngine.mutationAnimationDuration * 0.5
+            )
+        )
+        let settled = engine.calculateLayout(
+            ZigNiriLayoutRequest(
+                workspaceId: workspace.id,
+                monitorFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                screenFrame: nil,
+                gaps: ZigNiriGaps(horizontal: 8, vertical: 8),
+                scale: 2,
+                workingArea: nil,
+                orientation: .horizontal,
+                viewportOffset: 0,
+                animationTime: mutationStartedAt + ZigNiriEngine.mutationAnimationDuration * 2
+            )
+        )
+
+        let animatedFrame = try XCTUnwrap(animated.frames[first])
+        let settledFrame = try XCTUnwrap(settled.frames[first])
+        XCTAssertNotEqual(preFrame, settledFrame)
+        XCTAssertNotEqual(animatedFrame, settledFrame)
+    }
+
+    func testStructuralAnimationLivenessHonorsExplicitTimeOverride() throws {
+        let workspace = WorkspaceDescriptor(name: "zig-niri-explicit-liveness-time")
+        let clock = DeterministicClock(now: 5_000)
+        let engine = ZigNiriEngine(timeProvider: { clock.now })
+        let handle = makeWindowHandle()
+        _ = engine.syncWindows([handle], in: workspace.id, selectedNodeId: nil)
+
+        let startedAt = clock.now
+        XCTAssertTrue(engine.startWorkspaceSwitchAnimation(in: workspace.id))
+        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration * 2)
+        XCTAssertFalse(engine.hasActiveStructuralAnimation(in: workspace.id))
+
+        XCTAssertTrue(
+            engine.hasActiveStructuralAnimation(
+                in: workspace.id,
+                at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25
+            )
+        )
+        XCTAssertFalse(
+            engine.hasActiveStructuralAnimation(
+                in: workspace.id,
+                at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 1.25
+            )
+        )
+    }
+
+    func testPruneExpiredStructuralAnimationsRemovesExpiredEntries() throws {
+        let firstWorkspace = WorkspaceDescriptor(name: "zig-niri-prune-first")
+        let secondWorkspace = WorkspaceDescriptor(name: "zig-niri-prune-second")
+        let clock = DeterministicClock(now: 6_000)
+        let engine = ZigNiriEngine(timeProvider: { clock.now })
+        _ = engine.syncWindows([makeWindowHandle()], in: firstWorkspace.id, selectedNodeId: nil)
+        _ = engine.syncWindows([makeWindowHandle()], in: secondWorkspace.id, selectedNodeId: nil)
+
+        let startedAt = clock.now
+        XCTAssertTrue(engine.startWorkspaceSwitchAnimation(in: firstWorkspace.id))
+        XCTAssertTrue(engine.startWorkspaceSwitchAnimation(in: secondWorkspace.id))
+        clock.advance(by: ZigNiriEngine.workspaceSwitchAnimationDuration * 2)
+
+        engine.pruneExpiredStructuralAnimations(
+            at: clock.now,
+            workspaceId: firstWorkspace.id
+        )
+        XCTAssertFalse(
+            engine.hasActiveStructuralAnimation(
+                in: firstWorkspace.id,
+                at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25
+            )
+        )
+        XCTAssertTrue(
+            engine.hasActiveStructuralAnimation(
+                in: secondWorkspace.id,
+                at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25
+            )
+        )
+
+        engine.pruneExpiredStructuralAnimations(at: clock.now)
+        XCTAssertFalse(
+            engine.hasActiveStructuralAnimation(
+                in: secondWorkspace.id,
+                at: startedAt + ZigNiriEngine.workspaceSwitchAnimationDuration * 0.25
+            )
+        )
+    }
+
+    private final class DeterministicClock {
+        var now: TimeInterval
+
+        init(now: TimeInterval) {
+            self.now = now
+        }
+
+        func advance(by delta: TimeInterval) {
+            now += delta
+        }
     }
 
     private func makeWindowHandle() -> WindowHandle {
