@@ -433,42 +433,33 @@ private extension OverviewController {
         switch target {
         case let .workspaceMove(targetWsId):
             guard targetWsId != session.workspaceId else { return }
-            wmController.workspaceNavigationHandler.moveWindowFromOverview(
-                handle: session.handle,
-                toWorkspaceId: targetWsId
-            )
+            _ = wmController.moveWindowToWorkspace(handle: session.handle, toWorkspaceId: targetWsId)
         case let .niriWindowInsert(targetWsId, targetHandle, position):
             guard isNiriLayout(workspaceId: targetWsId) else { return }
             if targetWsId != session.workspaceId {
-                wmController.workspaceNavigationHandler.moveWindowFromOverview(
-                    handle: session.handle,
-                    toWorkspaceId: targetWsId
-                )
+                _ = wmController.moveWindowToWorkspace(handle: session.handle, toWorkspaceId: targetWsId)
             }
             let niriPosition = overviewInsertPositionToNiri(position)
-            wmController.niriLayoutHandler.overviewInsertWindow(
+            wmController.overviewInsertWindow(
                 handle: session.handle,
                 targetHandle: targetHandle,
                 position: niriPosition,
                 in: targetWsId
             )
-            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
+            wmController.startWorkspaceAnimation(for: targetWsId)
         case let .niriColumnInsert(targetWsId, insertIndex):
             guard isNiriLayout(workspaceId: targetWsId) else { return }
             if targetWsId != session.workspaceId {
-                wmController.workspaceNavigationHandler.moveWindowFromOverview(
-                    handle: session.handle,
-                    toWorkspaceId: targetWsId
-                )
+                _ = wmController.moveWindowToWorkspace(handle: session.handle, toWorkspaceId: targetWsId)
             }
-            wmController.niriLayoutHandler.overviewInsertWindowInNewColumn(
+            wmController.overviewInsertWindowInNewColumn(
                 handle: session.handle,
                 insertIndex: insertIndex,
                 in: targetWsId
             )
-            wmController.layoutRefreshController.startScrollAnimation(for: targetWsId)
+            wmController.startWorkspaceAnimation(for: targetWsId)
         }
-        wmController.layoutRefreshController.refreshWindowsAndLayout()
+        wmController.refreshLayout()
     }
     func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let wmController else { return false }

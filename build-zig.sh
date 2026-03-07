@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-# build-zig.sh — compile zig/omni_layout.zig into .build/zig/libomni_layout.a
-#
-# Default behavior builds a universal macOS static library (arm64 + x86_64).
-# Set ZIG_TARGET to produce a single-arch library:
-#   ZIG_TARGET=x86_64-macos ./build-zig.sh
+# build-zig.sh — compatibility wrapper around `zig build omni-layout`
 set -euo pipefail
 
-OUT_DIR=".build/zig"
-OUT_LIB="${OUT_DIR}/libomni_layout.a"
-SRC="zig/omni_layout.zig"
-REQUESTED_TARGET="${ZIG_TARGET:-}"
+OUT_LIB=".build/zig/libomni_layout.a"
 REQUIRED_SYMBOLS=(
     "omni_niri_ctx_apply_txn"
     "omni_niri_ctx_export_delta"
@@ -18,47 +11,27 @@ REQUIRED_SYMBOLS=(
     "omni_border_runtime_apply_config"
     "omni_border_runtime_apply_presentation"
     "omni_border_runtime_submit_snapshot"
+    "omni_border_runtime_apply_motion"
     "omni_border_runtime_invalidate_displays"
     "omni_border_runtime_hide"
+    "omni_controller_create"
+    "omni_controller_destroy"
+    "omni_controller_start"
+    "omni_controller_stop"
+    "omni_controller_submit_hotkey"
+    "omni_controller_submit_os_event"
+    "omni_controller_apply_settings"
+    "omni_controller_tick"
+    "omni_controller_query_ui_state"
+    "omni_input_runtime_create"
+    "omni_input_runtime_destroy"
+    "omni_input_runtime_start"
+    "omni_input_runtime_stop"
+    "omni_input_runtime_set_bindings"
+    "omni_input_runtime_set_options"
+    "omni_input_runtime_submit_event"
+    "omni_input_runtime_query_registration_failures"
 )
-
-if ! command -v zig >/dev/null 2>&1; then
-    echo "error: zig not found in PATH — install from https://ziglang.org/download/" >&2
-    exit 1
-fi
-
-resolve_sdk_path() {
-    local sdk_path=""
-
-    if command -v xcrun >/dev/null 2>&1; then
-        sdk_path="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
-        if [[ -z "${sdk_path}" ]]; then
-            echo "error: xcrun could not determine the macOS SDK path" >&2
-            exit 1
-        fi
-    else
-        local sdkroot_candidate="${SDKROOT:-}"
-        if [[ -z "${sdkroot_candidate}" ]]; then
-            echo "error: xcrun is unavailable and SDKROOT is not set" >&2
-            exit 1
-        fi
-        sdk_path="$(realpath "${sdkroot_candidate}" 2>/dev/null || true)"
-        if [[ -z "${sdk_path}" ]]; then
-            echo "error: SDKROOT could not be resolved: ${sdkroot_candidate}" >&2
-            exit 1
-        fi
-        case "${sdk_path}" in
-            /Applications/*.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/*|/Library/Developer/CommandLineTools/SDKs/*)
-                ;;
-            *)
-                echo "error: SDKROOT must resolve inside Xcode or CommandLineTools SDK roots: ${sdk_path}" >&2
-                exit 1
-                ;;
-        esac
-    fi
-
-    printf '%s\n' "${sdk_path}"
-}
 
 verify_required_symbols() {
     local artifact="$1"
@@ -84,51 +57,14 @@ verify_required_symbols() {
         exit 1
     fi
 
-    echo "Verified ${label} exports required layout and border symbols."
+    echo "Verified ${label} exports required runtime symbols."
 }
 
-SDK_PATH="$(resolve_sdk_path)"
-
-build_one() {
-    local target="$1"
-    local output="$2"
-    echo "▸ zig build-lib  target=${target}  out=${output}"
-    zig build-lib \
-        -O ReleaseFast \
-        -target "${target}" \
-        --sysroot "${SDK_PATH}" \
-        -F"${SDK_PATH}/System/Library/Frameworks" \
-        -femit-bin="${output}" \
-        -fno-emit-h \
-        "${SRC}"
-}
-
-mkdir -p "${OUT_DIR}"
-
-if [[ -n "${REQUESTED_TARGET}" ]]; then
-    build_one "${REQUESTED_TARGET}" "${OUT_LIB}"
-    verify_required_symbols "${OUT_LIB}" "Zig archive"
-    if command -v lipo >/dev/null 2>&1; then
-        lipo -info "${OUT_LIB}"
-    fi
-    echo "✓ ${OUT_LIB}"
-    exit 0
-fi
-
-if ! command -v lipo >/dev/null 2>&1; then
-    echo "error: lipo is required to create a universal macOS static library" >&2
-    exit 1
-fi
-
-ARM64_LIB="${OUT_DIR}/libomni_layout_arm64.a"
-X86_64_LIB="${OUT_DIR}/libomni_layout_x86_64.a"
-
-build_one "aarch64-macos" "${ARM64_LIB}"
-build_one "x86_64-macos" "${X86_64_LIB}"
-
-echo "▸ lipo create  out=${OUT_LIB}"
-lipo -create -output "${OUT_LIB}" "${ARM64_LIB}" "${X86_64_LIB}"
+zig build omni-layout --prefix .build
 verify_required_symbols "${OUT_LIB}" "Zig archive"
-lipo -info "${OUT_LIB}"
+
+if command -v lipo >/dev/null 2>&1; then
+    lipo -info "${OUT_LIB}"
+fi
 
 echo "✓ ${OUT_LIB}"

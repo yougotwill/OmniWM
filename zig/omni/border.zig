@@ -1,9 +1,9 @@
 const std = @import("std");
 const abi = @import("abi_types.zig");
+const skylight = @import("../platform/skylight.zig");
 const c = @cImport({
     @cInclude("CoreFoundation/CoreFoundation.h");
     @cInclude("CoreGraphics/CoreGraphics.h");
-    @cInclude("dlfcn.h");
 });
 const Allocator = std.mem.Allocator;
 const CFTypeRef = ?*anyopaque;
@@ -48,8 +48,7 @@ const BorderMacOSApi = struct {
     const SetWindowTagsFn = *const fn (i32, u32, *u64, i32) callconv(.c) i32;
     const FlushWindowContentRegionFn = *const fn (i32, u32, CFTypeRef) callconv(.c) i32;
     const NewRegionWithRectFn = *const fn (*const c.CGRect, *CFTypeRef) callconv(.c) i32;
-    skylight_handle: ?*anyopaque,
-    corefoundation_handle: ?*anyopaque,
+    shared: *skylight.Shared,
     cf_release: CFReleaseFn,
     main_connection_id: MainConnectionIDFn,
     transaction_create: TransactionCreateFn,
@@ -70,79 +69,32 @@ const BorderMacOSApi = struct {
     flush_window_content_region: ?FlushWindowContentRegionFn,
     new_region_with_rect: NewRegionWithRectFn,
     fn init() !BorderMacOSApi {
-        const skylight_handle = c.dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", c.RTLD_LAZY);
-        if (skylight_handle == null) return error.MissingSkyLight;
-        const corefoundation_handle = c.dlopen(
-            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
-            c.RTLD_LAZY,
-        );
-        if (corefoundation_handle == null) {
-            _ = c.dlclose(skylight_handle);
-            return error.MissingCoreFoundation;
-        }
-        errdefer _ = c.dlclose(skylight_handle);
-        errdefer _ = c.dlclose(corefoundation_handle);
+        const shared_api = skylight.shared() orelse return error.MissingSkyLight;
         return .{
-            .skylight_handle = skylight_handle,
-            .corefoundation_handle = corefoundation_handle,
-            .cf_release = try resolveRequired(CFReleaseFn, corefoundation_handle, "CFRelease"),
-            .main_connection_id = try resolveRequired(MainConnectionIDFn, skylight_handle, "SLSMainConnectionID"),
-            .transaction_create = try resolveRequired(TransactionCreateFn, skylight_handle, "SLSTransactionCreate"),
-            .transaction_commit = try resolveRequired(TransactionCommitFn, skylight_handle, "SLSTransactionCommit"),
-            .transaction_order_window = try resolveRequired(
-                TransactionOrderWindowFn,
-                skylight_handle,
-                "SLSTransactionOrderWindow",
-            ),
-            .transaction_move_window_with_group = resolveOptional(
-                TransactionMoveWindowWithGroupFn,
-                skylight_handle,
-                "SLSTransactionMoveWindowWithGroup",
-            ),
-            .transaction_set_window_level = resolveOptional(
-                TransactionSetWindowLevelFn,
-                skylight_handle,
-                "SLSTransactionSetWindowLevel",
-            ),
-            .move_window = resolveOptional(MoveWindowFn, skylight_handle, "SLSMoveWindow"),
-            .disable_update = try resolveRequired(DisableUpdateFn, skylight_handle, "SLSDisableUpdate"),
-            .reenable_update = try resolveRequired(ReenableUpdateFn, skylight_handle, "SLSReenableUpdate"),
-            .new_window = try resolveRequired(NewWindowFn, skylight_handle, "SLSNewWindow"),
-            .release_window = try resolveRequired(ReleaseWindowFn, skylight_handle, "SLSReleaseWindow"),
-            .window_context_create = try resolveRequired(
-                WindowContextCreateFn,
-                skylight_handle,
-                "SLWindowContextCreate",
-            ),
-            .set_window_shape = try resolveRequired(SetWindowShapeFn, skylight_handle, "SLSSetWindowShape"),
-            .set_window_resolution = resolveOptional(
-                SetWindowResolutionFn,
-                skylight_handle,
-                "SLSSetWindowResolution",
-            ),
-            .set_window_opacity = resolveOptional(SetWindowOpacityFn, skylight_handle, "SLSSetWindowOpacity"),
-            .set_window_tags = resolveOptional(SetWindowTagsFn, skylight_handle, "SLSSetWindowTags"),
-            .flush_window_content_region = resolveOptional(
-                FlushWindowContentRegionFn,
-                skylight_handle,
-                "SLSFlushWindowContentRegion",
-            ),
-            .new_region_with_rect = try resolveRequired(
-                NewRegionWithRectFn,
-                skylight_handle,
-                "CGSNewRegionWithRect",
-            ),
+            .shared = shared_api,
+            .cf_release = @ptrCast(shared_api.cf_release orelse return error.MissingSymbol),
+            .main_connection_id = @ptrCast(shared_api.main_connection_id orelse return error.MissingSymbol),
+            .transaction_create = @ptrCast(shared_api.transaction_create orelse return error.MissingSymbol),
+            .transaction_commit = @ptrCast(shared_api.transaction_commit orelse return error.MissingSymbol),
+            .transaction_order_window = @ptrCast(shared_api.transaction_order_window orelse return error.MissingSymbol),
+            .transaction_move_window_with_group = if (shared_api.transaction_move_window_with_group) |callback| @ptrCast(callback) else null,
+            .transaction_set_window_level = if (shared_api.transaction_set_window_level) |callback| @ptrCast(callback) else null,
+            .move_window = if (shared_api.move_window) |callback| @ptrCast(callback) else null,
+            .disable_update = @ptrCast(shared_api.disable_update orelse return error.MissingSymbol),
+            .reenable_update = @ptrCast(shared_api.reenable_update orelse return error.MissingSymbol),
+            .new_window = @ptrCast(shared_api.new_window orelse return error.MissingSymbol),
+            .release_window = @ptrCast(shared_api.release_window orelse return error.MissingSymbol),
+            .window_context_create = @ptrCast(shared_api.window_context_create orelse return error.MissingSymbol),
+            .set_window_shape = @ptrCast(shared_api.set_window_shape orelse return error.MissingSymbol),
+            .set_window_resolution = if (shared_api.set_window_resolution) |callback| @ptrCast(callback) else null,
+            .set_window_opacity = if (shared_api.set_window_opacity) |callback| @ptrCast(callback) else null,
+            .set_window_tags = if (shared_api.set_window_tags) |callback| @ptrCast(callback) else null,
+            .flush_window_content_region = if (shared_api.flush_window_content_region) |callback| @ptrCast(callback) else null,
+            .new_region_with_rect = @ptrCast(shared_api.new_region_with_rect orelse return error.MissingSymbol),
         };
     }
     fn deinit(self: *BorderMacOSApi) void {
-        if (self.skylight_handle) |handle| {
-            _ = c.dlclose(handle);
-            self.skylight_handle = null;
-        }
-        if (self.corefoundation_handle) |handle| {
-            _ = c.dlclose(handle);
-            self.corefoundation_handle = null;
-        }
+        _ = self;
     }
     fn connectionId(self: BorderMacOSApi) i32 {
         return self.main_connection_id();
@@ -271,14 +223,6 @@ const BorderMacOSApi = struct {
         _ = self.transaction_commit(transaction, 0);
         return abi.OMNI_OK;
     }
-    fn resolveRequired(comptime T: type, handle: ?*anyopaque, symbol: [*:0]const u8) !T {
-        return resolveOptional(T, handle, symbol) orelse error.MissingSymbol;
-    }
-    fn resolveOptional(comptime T: type, handle: ?*anyopaque, symbol: [*:0]const u8) ?T {
-        const raw_symbol = c.dlsym(handle, symbol);
-        if (raw_symbol == null) return null;
-        return @ptrCast(@alignCast(raw_symbol));
-    }
 };
 const BorderMacOSBackend = struct {
     api: BorderMacOSApi,
@@ -286,6 +230,7 @@ const BorderMacOSBackend = struct {
     context: CGContextRef = null,
     current_frame: abi.OmniBorderRect = zeroRect(),
     current_target_wid: u32 = 0,
+    current_backing_scale: f64 = 0.0,
     current_config: abi.OmniBorderConfig = defaultConfig(),
     needs_redraw: bool = true,
     fn init() !BorderMacOSBackend {
@@ -305,6 +250,7 @@ const BorderMacOSBackend = struct {
         self.api.deinit();
         self.current_frame = zeroRect();
         self.current_target_wid = 0;
+        self.current_backing_scale = 0.0;
         self.current_config = defaultConfig();
         self.needs_redraw = true;
     }
@@ -322,6 +268,7 @@ const BorderMacOSBackend = struct {
             if (new_wid == 0) return abi.OMNI_ERR_PLATFORM;
             self.wid = new_wid;
             self.api.configureWindow(self.wid, request.backing_scale, false);
+            self.current_backing_scale = request.backing_scale;
             self.api.setWindowTags(self.wid, BorderConstants.window_tags);
             self.context = self.api.createWindowContext(self.wid);
             if (self.context == null) {
@@ -330,6 +277,11 @@ const BorderMacOSBackend = struct {
                 return abi.OMNI_ERR_PLATFORM;
             }
             c.CGContextSetInterpolationQuality(self.context, c.kCGInterpolationNone);
+            self.needs_redraw = true;
+        }
+        if (self.current_backing_scale != request.backing_scale) {
+            self.api.configureWindow(self.wid, request.backing_scale, false);
+            self.current_backing_scale = request.backing_scale;
             self.needs_redraw = true;
         }
         if (!sameSize(self.current_frame, request.local_frame)) {
@@ -387,8 +339,25 @@ const BorderMacOSBackend = struct {
         return abi.OMNI_OK;
     }
 };
+const BorderPresentationState = struct {
+    is_focused_window_in_active_workspace: u8 = 0,
+    is_non_managed_focus_active: u8 = 0,
+    is_native_fullscreen_active: u8 = 0,
+    is_managed_fullscreen_active: u8 = 0,
+
+    fn fromSnapshot(snapshot: abi.OmniBorderSnapshotInput) BorderPresentationState {
+        return .{
+            .is_focused_window_in_active_workspace = snapshot.is_focused_window_in_active_workspace,
+            .is_non_managed_focus_active = snapshot.is_non_managed_focus_active,
+            .is_native_fullscreen_active = snapshot.is_native_fullscreen_active,
+            .is_managed_fullscreen_active = snapshot.is_managed_fullscreen_active,
+        };
+    }
+};
 const BorderState = struct {
     config: abi.OmniBorderConfig = defaultConfig(),
+    presentation_state: BorderPresentationState = .{},
+    force_hide_active: bool = false,
     last_applied_frame: abi.OmniBorderRect = zeroRect(),
     last_applied_window_id: i64 = 0,
     last_applied_config: abi.OmniBorderConfig = defaultConfig(),
@@ -397,8 +366,10 @@ const BorderState = struct {
         if (!isDisplayPayloadValid(snapshot.displays, snapshot.display_count)) {
             return abi.OMNI_ERR_INVALID_ARGS;
         }
+        self.config = snapshot.config;
+        self.presentation_state = BorderPresentationState.fromSnapshot(snapshot);
+        self.force_hide_active = snapshot.force_hide != 0;
         if (snapshot.force_hide != 0) {
-            self.config = snapshot.config;
             return self.hide(backend);
         }
         return self.applyPresentation(backend, makePresentationInput(snapshot));
@@ -409,6 +380,18 @@ const BorderState = struct {
             return self.hide(backend);
         }
         return abi.OMNI_OK;
+    }
+    fn applyMotion(self: *BorderState, backend: anytype, input: abi.OmniBorderMotionInput) i32 {
+        if (!isDisplayPayloadValid(input.displays, input.display_count)) {
+            return abi.OMNI_ERR_INVALID_ARGS;
+        }
+        if (!isMotionInputSane(input)) {
+            return abi.OMNI_ERR_INVALID_ARGS;
+        }
+        if (self.force_hide_active) {
+            return self.hide(backend);
+        }
+        return self.applyPresentation(backend, makeMotionPresentationInput(self.*, input));
     }
     fn applyPresentation(self: *BorderState, backend: anytype, input: abi.OmniBorderPresentationInput) i32 {
         if (!isDisplayPayloadValid(input.displays, input.display_count)) {
@@ -552,6 +535,14 @@ pub fn omni_border_runtime_submit_snapshot_impl(
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.submitSnapshot(&impl.backend, snapshot[0]);
 }
+pub fn omni_border_runtime_apply_motion_impl(
+    runtime: [*c]OmniBorderRuntime,
+    input: [*c]const abi.OmniBorderMotionInput,
+) i32 {
+    if (runtime == null or input == null) return abi.OMNI_ERR_INVALID_ARGS;
+    const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
+    return impl.state.applyMotion(&impl.backend, input[0]);
+}
 pub fn omni_border_runtime_invalidate_displays_impl(runtime: [*c]OmniBorderRuntime) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
@@ -611,6 +602,24 @@ fn makePresentationInput(snapshot: abi.OmniBorderSnapshotInput) abi.OmniBorderPr
         .display_count = snapshot.display_count,
     };
 }
+fn makeMotionPresentationInput(state: BorderState, input: abi.OmniBorderMotionInput) abi.OmniBorderPresentationInput {
+    return .{
+        .config = state.config,
+        .has_focused_window_id = 1,
+        .focused_window_id = input.focused_window_id,
+        .has_focused_frame = 1,
+        .focused_frame = input.focused_frame,
+        .is_focused_window_in_active_workspace = state.presentation_state.is_focused_window_in_active_workspace,
+        .is_non_managed_focus_active = state.presentation_state.is_non_managed_focus_active,
+        .is_native_fullscreen_active = state.presentation_state.is_native_fullscreen_active,
+        .is_managed_fullscreen_active = state.presentation_state.is_managed_fullscreen_active,
+        .defer_updates = 0,
+        .update_mode = input.update_mode,
+        .layout_animation_active = 0,
+        .displays = input.displays,
+        .display_count = input.display_count,
+    };
+}
 fn shouldDeferPresentation(input: abi.OmniBorderPresentationInput) bool {
     if (input.defer_updates != 0) return true;
     if (input.update_mode == abi.OMNI_BORDER_UPDATE_MODE_REALTIME) return false;
@@ -636,6 +645,13 @@ fn isPresentationPayloadSane(input: abi.OmniBorderPresentationInput) bool {
         if (!isDisplayInfoSane(display)) return false;
     }
     return true;
+}
+fn isMotionInputSane(input: abi.OmniBorderMotionInput) bool {
+    if (castWindowId(input.focused_window_id) == null) return false;
+    if (!isRectSane(input.focused_frame)) return false;
+    if (input.focused_frame.width <= 0 or input.focused_frame.height <= 0) return false;
+    return input.update_mode == abi.OMNI_BORDER_UPDATE_MODE_COALESCED or
+        input.update_mode == abi.OMNI_BORDER_UPDATE_MODE_REALTIME;
 }
 fn isBorderConfigSane(config: abi.OmniBorderConfig) bool {
     if (!std.math.isFinite(config.width) or config.width < 0 or config.width > 128.0) return false;
@@ -857,4 +873,72 @@ fn makeSnapshotInput(
         .displays = if (displays.len == 0) null else displays.ptr,
         .display_count = displays.len,
     };
+}
+fn makeMotionInput(
+    frame: abi.OmniBorderRect,
+    displays: []const abi.OmniBorderDisplayInfo,
+    update_mode: u8,
+) abi.OmniBorderMotionInput {
+    return .{
+        .focused_window_id = 42,
+        .focused_frame = frame,
+        .update_mode = update_mode,
+        .displays = if (displays.len == 0) null else displays.ptr,
+        .display_count = displays.len,
+    };
+}
+
+test "motion applies immediately after deferred snapshot" {
+    var state = BorderState{};
+    var backend = FakeBackend{};
+    const config = abi.OmniBorderConfig{
+        .enabled = 1,
+        .width = 4.0,
+        .color = .{ .red = 0.0, .green = 0.5, .blue = 1.0, .alpha = 1.0 },
+    };
+    const displays = [_]abi.OmniBorderDisplayInfo{
+        makeDisplay(0.0, 0.0, 1440.0, 900.0, 0.0, 0.0, 2880.0, 1800.0, 2.0),
+    };
+    var snapshot = makeSnapshotInput(config, .{ .x = 100.0, .y = 120.0, .width = 800.0, .height = 600.0 }, displays[0..]);
+    snapshot.layout_animation_active = 1;
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), state.submitSnapshot(&backend, snapshot));
+    try std.testing.expectEqual(@as(usize, 0), backend.present_count);
+
+    const motion = makeMotionInput(
+        .{ .x = 140.0, .y = 160.0, .width = 800.0, .height = 600.0 },
+        displays[0..],
+        abi.OMNI_BORDER_UPDATE_MODE_REALTIME,
+    );
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyMotion(&backend, motion));
+    try std.testing.expectEqual(@as(usize, 1), backend.present_count);
+    try std.testing.expectEqual(@as(i64, 42), state.last_applied_window_id);
+    try std.testing.expectEqual(@as(f64, 140.0), state.last_applied_frame.x);
+}
+
+test "motion stays hidden after force hide snapshot" {
+    var state = BorderState{};
+    var backend = FakeBackend{};
+    const config = abi.OmniBorderConfig{
+        .enabled = 1,
+        .width = 4.0,
+        .color = .{ .red = 0.0, .green = 0.5, .blue = 1.0, .alpha = 1.0 },
+    };
+    const displays = [_]abi.OmniBorderDisplayInfo{
+        makeDisplay(0.0, 0.0, 1440.0, 900.0, 0.0, 0.0, 2880.0, 1800.0, 2.0),
+    };
+    var snapshot = makeSnapshotInput(config, .{ .x = 100.0, .y = 120.0, .width = 800.0, .height = 600.0 }, displays[0..]);
+    snapshot.force_hide = 1;
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), state.submitSnapshot(&backend, snapshot));
+    try std.testing.expectEqual(@as(usize, 1), backend.hide_count);
+
+    const motion = makeMotionInput(
+        .{ .x = 140.0, .y = 160.0, .width = 800.0, .height = 600.0 },
+        displays[0..],
+        abi.OMNI_BORDER_UPDATE_MODE_REALTIME,
+    );
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyMotion(&backend, motion));
+    try std.testing.expectEqual(@as(usize, 2), backend.hide_count);
+    try std.testing.expectEqual(@as(usize, 0), backend.present_count);
 }

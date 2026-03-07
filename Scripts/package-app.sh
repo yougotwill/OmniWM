@@ -16,8 +16,18 @@ REQUIRED_SYMBOLS=(
   "omni_border_runtime_apply_config"
   "omni_border_runtime_apply_presentation"
   "omni_border_runtime_submit_snapshot"
+  "omni_border_runtime_apply_motion"
   "omni_border_runtime_invalidate_displays"
   "omni_border_runtime_hide"
+  "omni_controller_create"
+  "omni_controller_destroy"
+  "omni_controller_start"
+  "omni_controller_stop"
+  "omni_controller_submit_hotkey"
+  "omni_controller_submit_os_event"
+  "omni_controller_apply_settings"
+  "omni_controller_tick"
+  "omni_controller_query_ui_state"
 )
 
 verify_required_symbols() {
@@ -53,8 +63,7 @@ NOTARIZE_PROFILE="OmniWM-Notarize"
 ENTITLEMENTS="$ROOT_DIR/OmniWM.entitlements"
 
 echo "Building Zig static library (universal arm64 + x86_64)..."
-unset ZIG_TARGET
-"$ROOT_DIR/build-zig.sh"
+zig build omni-layout --prefix "$ROOT_DIR/.build"
 
 ZIG_LIB="$ROOT_DIR/.build/zig/libomni_layout.a"
 if [[ -f "$ZIG_LIB" ]]; then

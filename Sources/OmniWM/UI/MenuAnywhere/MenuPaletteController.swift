@@ -34,11 +34,7 @@ final class MenuPaletteController: ObservableObject {
             return
         }
         SkyLight.shared.orderWindow(UInt32(windowId), relativeTo: 0, order: .above)
-        var psn = ProcessSerialNumber()
-        if GetProcessForPID(app.processIdentifier, &psn) == noErr {
-            _ = _SLPSSetFrontProcessWithOptions(&psn, UInt32(windowId), kCPSUserGenerated)
-            makeKeyWindow(psn: &psn, windowId: UInt32(windowId))
-        }
+        focusWindow(pid: app.processIdentifier, windowId: UInt32(windowId), windowRef: window)
         app.activate()
     }
     var filteredItems: [MenuItemModel] {

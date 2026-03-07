@@ -244,17 +244,17 @@ enum ZigNiriStateKernel {
         var columns: [RuntimeColumnState]
         var windows: [RuntimeWindowState]
     }
-    struct RuntimeRenderRequest {
-        let columns: [OmniNiriColumnInput]
-        let windows: [OmniNiriWindowInput]
+    struct RuntimeRenderFromStateRequest {
+        let expectedColumnCount: Int
+        let expectedWindowCount: Int
         let workingFrame: CGRect
         let viewFrame: CGRect
         let fullscreenFrame: CGRect
         let primaryGap: CGFloat
         let secondaryGap: CGFloat
-        let viewStart: CGFloat
         let viewportSpan: CGFloat
         let workspaceOffset: CGFloat
+        let fullscreenWindowId: NodeId?
         let scale: CGFloat
         let orientation: Monitor.Orientation
         let sampleTime: TimeInterval
@@ -278,7 +278,6 @@ enum ZigNiriStateKernel {
         let selectionSteps: Int?
     }
     struct RuntimeViewportTransitionRequest {
-        let spans: [Double]
         let requestedIndex: Int
         let gap: CGFloat
         let viewportSpan: CGFloat
@@ -291,7 +290,6 @@ enum ZigNiriStateKernel {
         let reduceMotion: Bool
     }
     struct RuntimeViewportGestureEndRequest {
-        let spans: [Double]
         let gap: CGFloat
         let viewportSpan: CGFloat
         let centerMode: CenterFocusedColumn
@@ -1384,12 +1382,14 @@ enum ZigNiriStateKernel {
             delta: exported.deltaRC == OMNI_OK ? exported.delta : nil
         )
     }
-    static func renderRuntime(
+    static func renderRuntimeFromState(
         context: ZigNiriLayoutKernel.LayoutContext,
-        request: RuntimeRenderRequest
+        request: RuntimeRenderFromStateRequest
     ) -> (rc: Int32, output: RuntimeRenderOutput) {
-        guard request.windows.count <= runtimeExportMaxEntries,
-              request.columns.count <= runtimeExportMaxEntries
+        guard request.expectedWindowCount <= runtimeExportMaxEntries,
+              request.expectedColumnCount <= runtimeExportMaxEntries,
+              request.expectedWindowCount >= 0,
+              request.expectedColumnCount >= 0
         else {
             return (
                 rc: Int32(OMNI_ERR_OUT_OF_RANGE),
@@ -1402,61 +1402,56 @@ enum ZigNiriStateKernel {
         }
         var rawWindows = Array(
             repeating: OmniNiriWindowOutput(),
-            count: request.windows.count
+            count: request.expectedWindowCount
         )
         var rawColumns = Array(
             repeating: OmniNiriColumnOutput(),
-            count: request.columns.count
+            count: request.expectedColumnCount
         )
         var rc = Int32(OMNI_OK)
         var animationActive = false
-        request.columns.withUnsafeBufferPointer { columnBuf in
-            request.windows.withUnsafeBufferPointer { windowBuf in
-                rawWindows.withUnsafeMutableBufferPointer { outWindowBuf in
-                    rawColumns.withUnsafeMutableBufferPointer { outColumnBuf in
-                        var rawRequest = OmniNiriRuntimeRenderRequest(
-                            columns: columnBuf.baseAddress,
-                            column_count: columnBuf.count,
-                            windows: windowBuf.baseAddress,
-                            window_count: windowBuf.count,
-                            working_x: request.workingFrame.minX,
-                            working_y: request.workingFrame.minY,
-                            working_width: request.workingFrame.width,
-                            working_height: request.workingFrame.height,
-                            view_x: request.viewFrame.minX,
-                            view_y: request.viewFrame.minY,
-                            view_width: request.viewFrame.width,
-                            view_height: request.viewFrame.height,
-                            fullscreen_x: request.fullscreenFrame.minX,
-                            fullscreen_y: request.fullscreenFrame.minY,
-                            fullscreen_width: request.fullscreenFrame.width,
-                            fullscreen_height: request.fullscreenFrame.height,
-                            primary_gap: request.primaryGap,
-                            secondary_gap: request.secondaryGap,
-                            view_start: request.viewStart,
-                            viewport_span: request.viewportSpan,
-                            workspace_offset: request.workspaceOffset,
-                            scale: request.scale,
-                            orientation: orientationCode(request.orientation),
-                            sample_time: request.sampleTime
-                        )
-                        var rawOutput = OmniNiriRuntimeRenderOutput(
-                            windows: outWindowBuf.baseAddress,
-                            window_count: outWindowBuf.count,
-                            columns: outColumnBuf.baseAddress,
-                            column_count: outColumnBuf.count,
-                            animation_active: 0
-                        )
-                        rc = context.withRawContext { raw in
-                            withUnsafePointer(to: &rawRequest) { requestPtr in
-                                withUnsafeMutablePointer(to: &rawOutput) { outputPtr in
-                                    omni_niri_runtime_render(raw, raw, requestPtr, outputPtr)
-                                }
-                            }
+        rawWindows.withUnsafeMutableBufferPointer { outWindowBuf in
+            rawColumns.withUnsafeMutableBufferPointer { outColumnBuf in
+                var rawRequest = OmniNiriRuntimeRenderFromStateRequest(
+                    expected_column_count: request.expectedColumnCount,
+                    expected_window_count: request.expectedWindowCount,
+                    working_x: request.workingFrame.minX,
+                    working_y: request.workingFrame.minY,
+                    working_width: request.workingFrame.width,
+                    working_height: request.workingFrame.height,
+                    view_x: request.viewFrame.minX,
+                    view_y: request.viewFrame.minY,
+                    view_width: request.viewFrame.width,
+                    view_height: request.viewFrame.height,
+                    fullscreen_x: request.fullscreenFrame.minX,
+                    fullscreen_y: request.fullscreenFrame.minY,
+                    fullscreen_width: request.fullscreenFrame.width,
+                    fullscreen_height: request.fullscreenFrame.height,
+                    primary_gap: request.primaryGap,
+                    secondary_gap: request.secondaryGap,
+                    viewport_span: request.viewportSpan,
+                    workspace_offset: request.workspaceOffset,
+                    has_fullscreen_window_id: request.fullscreenWindowId == nil ? 0 : 1,
+                    fullscreen_window_id: request.fullscreenWindowId.map(omniUUID(from:)) ?? zeroUUID(),
+                    scale: request.scale,
+                    orientation: orientationCode(request.orientation),
+                    sample_time: request.sampleTime
+                )
+                var rawOutput = OmniNiriRuntimeRenderOutput(
+                    windows: outWindowBuf.baseAddress,
+                    window_count: outWindowBuf.count,
+                    columns: outColumnBuf.baseAddress,
+                    column_count: outColumnBuf.count,
+                    animation_active: 0
+                )
+                rc = context.withRawContext { raw in
+                    withUnsafePointer(to: &rawRequest) { requestPtr in
+                        withUnsafeMutablePointer(to: &rawOutput) { outputPtr in
+                            omni_niri_runtime_render_from_state(raw, raw, requestPtr, outputPtr)
                         }
-                        animationActive = rawOutput.animation_active != 0
                     }
                 }
+                animationActive = rawOutput.animation_active != 0
             }
         }
         if rc != OMNI_OK {
@@ -1558,35 +1553,27 @@ enum ZigNiriStateKernel {
     }
     static func updateViewportGesture(
         context: ZigNiriLayoutKernel.LayoutContext,
-        spans: [Double],
         deltaPixels: CGFloat,
         timestamp: TimeInterval,
         gap: CGFloat,
         viewportSpan: CGFloat
     ) -> (rc: Int32, result: RuntimeViewportGestureUpdateResult?) {
-        guard spans.count <= runtimeExportMaxEntries else {
-            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
-        }
         var rawResult = OmniViewportGestureUpdateResult(
             current_view_offset: 0,
             selection_progress: 0,
             has_selection_steps: 0,
             selection_steps: 0
         )
-        let rc = spans.withUnsafeBufferPointer { spansBuf in
-            context.withRawContext { raw in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                    omni_niri_runtime_viewport_update_gesture(
-                        raw,
-                        spansBuf.baseAddress,
-                        spansBuf.count,
-                        Double(deltaPixels),
-                        timestamp,
-                        Double(gap),
-                        Double(viewportSpan),
-                        resultPtr
-                    )
-                }
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                omni_niri_runtime_viewport_update_gesture(
+                    raw,
+                    Double(deltaPixels),
+                    timestamp,
+                    Double(gap),
+                    Double(viewportSpan),
+                    resultPtr
+                )
             }
         }
         guard rc == OMNI_OK else { return (rc, nil) }
@@ -1603,32 +1590,25 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportGestureEndRequest
     ) -> (rc: Int32, resolvedColumnIndex: Int?) {
-        guard request.spans.count <= runtimeExportMaxEntries else {
-            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
-        }
         var rawResult = OmniViewportGestureEndResult(
             resolved_column_index: 0,
             spring_from: 0,
             spring_to: 0,
             initial_velocity: 0
         )
-        let rc = request.spans.withUnsafeBufferPointer { spansBuf in
-            context.withRawContext { raw in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                    omni_niri_runtime_viewport_end_gesture(
-                        raw,
-                        spansBuf.baseAddress,
-                        spansBuf.count,
-                        Double(request.gap),
-                        Double(request.viewportSpan),
-                        centerModeCode(request.centerMode),
-                        request.alwaysCenterSingleColumn ? 1 : 0,
-                        request.sampleTime,
-                        request.displayRefreshRate,
-                        request.reduceMotion ? 1 : 0,
-                        resultPtr
-                    )
-                }
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                omni_niri_runtime_viewport_end_gesture(
+                    raw,
+                    Double(request.gap),
+                    Double(request.viewportSpan),
+                    centerModeCode(request.centerMode),
+                    request.alwaysCenterSingleColumn ? 1 : 0,
+                    request.sampleTime,
+                    request.displayRefreshRate,
+                    request.reduceMotion ? 1 : 0,
+                    resultPtr
+                )
             }
         }
         return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)
@@ -1637,9 +1617,6 @@ enum ZigNiriStateKernel {
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportTransitionRequest
     ) -> (rc: Int32, resolvedColumnIndex: Int?) {
-        guard request.spans.count <= runtimeExportMaxEntries else {
-            return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
-        }
         var rawResult = OmniViewportTransitionResult(
             resolved_column_index: 0,
             offset_delta: 0,
@@ -1648,26 +1625,22 @@ enum ZigNiriStateKernel {
             snap_delta: 0,
             snap_to_target_immediately: 0
         )
-        let rc = request.spans.withUnsafeBufferPointer { spansBuf in
-            context.withRawContext { raw in
-                withUnsafeMutablePointer(to: &rawResult) { resultPtr in
-                    omni_niri_runtime_viewport_transition_to_column(
-                        raw,
-                        spansBuf.baseAddress,
-                        spansBuf.count,
-                        request.requestedIndex,
-                        Double(request.gap),
-                        Double(request.viewportSpan),
-                        centerModeCode(request.centerMode),
-                        request.alwaysCenterSingleColumn ? 1 : 0,
-                        request.animate ? 1 : 0,
-                        Double(request.scale),
-                        request.sampleTime,
-                        request.displayRefreshRate,
-                        request.reduceMotion ? 1 : 0,
-                        resultPtr
-                    )
-                }
+        let rc = context.withRawContext { raw in
+            withUnsafeMutablePointer(to: &rawResult) { resultPtr in
+                omni_niri_runtime_viewport_transition_to_column(
+                    raw,
+                    request.requestedIndex,
+                    Double(request.gap),
+                    Double(request.viewportSpan),
+                    centerModeCode(request.centerMode),
+                    request.alwaysCenterSingleColumn ? 1 : 0,
+                    request.animate ? 1 : 0,
+                    Double(request.scale),
+                    request.sampleTime,
+                    request.displayRefreshRate,
+                    request.reduceMotion ? 1 : 0,
+                    resultPtr
+                )
             }
         }
         return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)

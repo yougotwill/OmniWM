@@ -46,14 +46,21 @@ let package = Package(
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
                 .linkedLibrary("omni_layout"),
-                .unsafeFlags(["-F/System/Library/PrivateFrameworks", "-framework", "SkyLight",
-                               "-L.build/zig"])
+                .unsafeFlags(["-L.build/zig"])
             ]
         ),
         .executableTarget(
             name: "OmniWMApp",
             dependencies: ["OmniWM"],
             path: "Sources/OmniWMApp",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "OmniWMTests",
+            dependencies: ["OmniWM"],
+            path: "Tests/OmniWMTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

@@ -500,6 +500,74 @@ fn shiftViewportOffset(
     }
     ctx.viewport_state.static_offset += delta;
 }
+fn runtimeColumnSpanForViewport(
+    column: abi.OmniNiriRuntimeColumnState,
+    available_primary: f64,
+    primary_gap: f64,
+) ?f64 {
+    const proportional_base = @max(0.0, available_primary - primary_gap);
+    if (column.is_full_width != 0) {
+        return available_primary;
+    }
+    return switch (column.width_kind) {
+        abi.OMNI_NIRI_SIZE_KIND_PROPORTION => @max(0.0, proportional_base * @max(0.0, column.size_value)),
+        abi.OMNI_NIRI_SIZE_KIND_FIXED => @max(0.0, column.size_value),
+        else => null,
+    };
+}
+pub fn deriveRuntimeViewportSpans(
+    ctx: *const OmniNiriLayoutContext,
+    primary_gap: f64,
+    viewport_span: f64,
+    out_spans: *[abi.MAX_WINDOWS]f64,
+) i32 {
+    const span_count = ctx.runtime_column_count;
+    const window_count = ctx.runtime_window_count;
+    if (span_count > abi.MAX_WINDOWS or window_count > abi.MAX_WINDOWS) {
+        return abi.OMNI_ERR_OUT_OF_RANGE;
+    }
+    const available_primary = @max(0.0, viewport_span);
+    for (0..span_count) |column_idx| {
+        const runtime_column = ctx.runtime_columns[column_idx];
+        if (runtime_column.window_start > window_count or
+            runtime_column.window_count > window_count - runtime_column.window_start)
+        {
+            return abi.OMNI_ERR_OUT_OF_RANGE;
+        }
+        const span = runtimeColumnSpanForViewport(
+            runtime_column,
+            available_primary,
+            primary_gap,
+        ) orelse return abi.OMNI_ERR_INVALID_ARGS;
+        out_spans[column_idx] = span;
+    }
+    return abi.OMNI_OK;
+}
+pub fn runtimeViewportActiveColumnIndex(
+    ctx: *const OmniNiriLayoutContext,
+    span_count: usize,
+) usize {
+    if (span_count == 0) return 0;
+    const current = if (ctx.viewport_state.active_column_index < 0)
+        0
+    else
+        @as(usize, @intCast(ctx.viewport_state.active_column_index));
+    return @min(current, span_count - 1);
+}
+pub fn runtimeViewportViewStart(
+    ctx: *OmniNiriLayoutContext,
+    sample_time: f64,
+    spans: *const [abi.MAX_WINDOWS]f64,
+    span_count: usize,
+    primary_gap: f64,
+) f64 {
+    var view_start = sampleViewportOffset(ctx, sample_time);
+    const active_index = runtimeViewportActiveColumnIndex(ctx, span_count);
+    for (0..active_index) |column_idx| {
+        view_start += spans[column_idx] + primary_gap;
+    }
+    return view_start;
+}
 fn configureViewportSpring(
     spring: *RuntimeViewportSpringState,
     from: f64,
@@ -720,8 +788,6 @@ pub fn omni_niri_ctx_viewport_begin_gesture_impl(
 }
 pub fn omni_niri_ctx_viewport_update_gesture_impl(
     context: [*c]OmniNiriLayoutContext,
-    spans: [*c]const f64,
-    span_count: usize,
     delta_pixels: f64,
     timestamp: f64,
     gap: f64,
@@ -731,15 +797,17 @@ pub fn omni_niri_ctx_viewport_update_gesture_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
-    const clamped_active_index: usize = if (span_count == 0)
-        0
-    else blk: {
-        const current = if (ctx.viewport_state.active_column_index < 0)
-            0
-        else
-            @as(usize, @intCast(ctx.viewport_state.active_column_index));
-        break :blk @min(current, span_count - 1);
-    };
+    const span_count = ctx.runtime_column_count;
+    var spans_buf: [abi.MAX_WINDOWS]f64 = undefined;
+    const spans_rc = deriveRuntimeViewportSpans(
+        ctx,
+        gap,
+        viewport_span,
+        &spans_buf,
+    );
+    if (spans_rc != abi.OMNI_OK) return spans_rc;
+    const spans: [*c]const f64 = if (span_count > 0) @ptrCast(&spans_buf[0]) else null;
+    const clamped_active_index = runtimeViewportActiveColumnIndex(ctx, span_count);
     const rc = viewport.omni_viewport_gesture_update_impl(
         @ptrCast(&ctx.viewport_state.gesture_state),
         spans,
@@ -758,8 +826,6 @@ pub fn omni_niri_ctx_viewport_update_gesture_impl(
 }
 pub fn omni_niri_ctx_viewport_end_gesture_impl(
     context: [*c]OmniNiriLayoutContext,
-    spans: [*c]const f64,
-    span_count: usize,
     gap: f64,
     viewport_span: f64,
     center_mode: u8,
@@ -772,15 +838,17 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
-    const clamped_active_index: usize = if (span_count == 0)
-        0
-    else blk: {
-        const current = if (ctx.viewport_state.active_column_index < 0)
-            0
-        else
-            @as(usize, @intCast(ctx.viewport_state.active_column_index));
-        break :blk @min(current, span_count - 1);
-    };
+    const span_count = ctx.runtime_column_count;
+    var spans_buf: [abi.MAX_WINDOWS]f64 = undefined;
+    const spans_rc = deriveRuntimeViewportSpans(
+        ctx,
+        gap,
+        viewport_span,
+        &spans_buf,
+    );
+    if (spans_rc != abi.OMNI_OK) return spans_rc;
+    const spans: [*c]const f64 = if (span_count > 0) @ptrCast(&spans_buf[0]) else null;
+    const clamped_active_index = runtimeViewportActiveColumnIndex(ctx, span_count);
     const rc = viewport.omni_viewport_gesture_end_impl(
         @ptrCast(&ctx.viewport_state.gesture_state),
         spans,
@@ -808,8 +876,6 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
 }
 pub fn omni_niri_ctx_viewport_transition_to_column_impl(
     context: [*c]OmniNiriLayoutContext,
-    spans: [*c]const f64,
-    span_count: usize,
     requested_index: usize,
     gap: f64,
     viewport_span: f64,
@@ -824,14 +890,18 @@ pub fn omni_niri_ctx_viewport_transition_to_column_impl(
 ) i32 {
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
+    const span_count = ctx.runtime_column_count;
+    var spans_buf: [abi.MAX_WINDOWS]f64 = undefined;
+    const spans_rc = deriveRuntimeViewportSpans(
+        ctx,
+        gap,
+        viewport_span,
+        &spans_buf,
+    );
+    if (spans_rc != abi.OMNI_OK) return spans_rc;
+    const spans: [*c]const f64 = if (span_count > 0) @ptrCast(&spans_buf[0]) else null;
     if (span_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
-    const current_active_index: usize = blk: {
-        const current = if (ctx.viewport_state.active_column_index < 0)
-            0
-        else
-            @as(usize, @intCast(ctx.viewport_state.active_column_index));
-        break :blk @min(current, span_count - 1);
-    };
+    const current_active_index = runtimeViewportActiveColumnIndex(ctx, span_count);
     const rc = viewport.omni_viewport_transition_to_column_impl(
         spans,
         span_count,
@@ -3248,4 +3318,372 @@ pub fn omni_niri_ctx_apply_txn_impl(
             return abi.OMNI_ERR_INVALID_ARGS;
         },
     }
+}
+
+fn testUuid(seed: u8) abi.OmniUuid128 {
+    return .{ .bytes = [_]u8{seed} ** 16 };
+}
+
+fn testRuntimeColumn(
+    column_id: abi.OmniUuid128,
+    window_start: usize,
+    window_count: usize,
+    size_value: f64,
+    width_kind: u8,
+    is_full_width: bool,
+) abi.OmniNiriRuntimeColumnState {
+    return .{
+        .column_id = column_id,
+        .window_start = window_start,
+        .window_count = window_count,
+        .active_tile_idx = 0,
+        .is_tabbed = 0,
+        .size_value = size_value,
+        .width_kind = width_kind,
+        .is_full_width = if (is_full_width) 1 else 0,
+        .has_saved_width = 0,
+        .saved_width_kind = width_kind,
+        .saved_width_value = size_value,
+    };
+}
+
+fn testRuntimeWindow(
+    window_id: abi.OmniUuid128,
+    column_id: abi.OmniUuid128,
+    column_index: usize,
+) abi.OmniNiriRuntimeWindowState {
+    return .{
+        .window_id = window_id,
+        .column_id = column_id,
+        .column_index = column_index,
+        .size_value = 1.0,
+        .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
+        .height_value = 1.0,
+    };
+}
+
+fn setupViewportTestContext(
+    ctx: *OmniNiriLayoutContext,
+    columns: [3]abi.OmniNiriRuntimeColumnState,
+) void {
+    resetContext(ctx);
+    ctx.runtime_column_count = columns.len;
+    ctx.runtime_window_count = columns.len;
+    for (columns, 0..) |column, idx| {
+        ctx.runtime_columns[idx] = column;
+        ctx.runtime_windows[idx] = testRuntimeWindow(
+            testUuid(@intCast(40 + idx)),
+            column.column_id,
+            idx,
+        );
+    }
+}
+
+fn expectApproxEq(actual: f64, expected: f64) !void {
+    try std.testing.expectApproxEqAbs(expected, actual, 0.000001);
+}
+
+test "deriveRuntimeViewportSpans handles horizontal mixed widths and full-width columns" {
+    var ctx = std.mem.zeroes(OmniNiriLayoutContext);
+    const column_ids = [_]abi.OmniUuid128{ testUuid(1), testUuid(2), testUuid(3) };
+    setupViewportTestContext(
+        &ctx,
+        .{
+            testRuntimeColumn(column_ids[0], 0, 1, 0.5, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+            testRuntimeColumn(column_ids[1], 1, 1, 220.0, abi.OMNI_NIRI_SIZE_KIND_FIXED, false),
+            testRuntimeColumn(column_ids[2], 2, 1, 0.2, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, true),
+        },
+    );
+
+    var spans: [abi.MAX_WINDOWS]f64 = undefined;
+    const rc = deriveRuntimeViewportSpans(&ctx, 10.0, 1000.0, &spans);
+    try std.testing.expectEqual(abi.OMNI_OK, rc);
+    try expectApproxEq(spans[0], 495.0);
+    try expectApproxEq(spans[1], 220.0);
+    try expectApproxEq(spans[2], 1000.0);
+
+    ctx.viewport_state.active_column_index = 2;
+    ctx.viewport_state.static_offset = -35.0;
+    const view_start = runtimeViewportViewStart(&ctx, 0.0, &spans, ctx.runtime_column_count, 10.0);
+    try expectApproxEq(view_start, 700.0);
+}
+
+test "deriveRuntimeViewportSpans handles vertical spans with gap math" {
+    var ctx = std.mem.zeroes(OmniNiriLayoutContext);
+    const column_ids = [_]abi.OmniUuid128{ testUuid(10), testUuid(11), testUuid(12) };
+    setupViewportTestContext(
+        &ctx,
+        .{
+            testRuntimeColumn(column_ids[0], 0, 1, 180.0, abi.OMNI_NIRI_SIZE_KIND_FIXED, false),
+            testRuntimeColumn(column_ids[1], 1, 1, 0.25, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+            testRuntimeColumn(column_ids[2], 2, 1, 0.3, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, true),
+        },
+    );
+
+    var spans: [abi.MAX_WINDOWS]f64 = undefined;
+    const rc = deriveRuntimeViewportSpans(&ctx, 8.0, 800.0, &spans);
+    try std.testing.expectEqual(abi.OMNI_OK, rc);
+    try expectApproxEq(spans[0], 180.0);
+    try expectApproxEq(spans[1], 198.0);
+    try expectApproxEq(spans[2], 800.0);
+}
+
+test "runtime viewport gesture update matches direct viewport kernel with derived spans" {
+    var ctx = std.mem.zeroes(OmniNiriLayoutContext);
+    const column_ids = [_]abi.OmniUuid128{ testUuid(21), testUuid(22), testUuid(23) };
+    setupViewportTestContext(
+        &ctx,
+        .{
+            testRuntimeColumn(column_ids[0], 0, 1, 0.35, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+            testRuntimeColumn(column_ids[1], 1, 1, 260.0, abi.OMNI_NIRI_SIZE_KIND_FIXED, false),
+            testRuntimeColumn(column_ids[2], 2, 1, 0.25, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+        },
+    );
+    ctx.viewport_state.active_column_index = 1;
+    ctx.viewport_state.static_offset = -24.0;
+
+    const gap = 12.0;
+    const viewport_span = 900.0;
+    const delta_pixels = -110.0;
+    const timestamp = 10.016;
+
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_begin_gesture_impl(@ptrCast(&ctx), 10.0, 1),
+    );
+
+    var ctx_update = std.mem.zeroes(abi.OmniViewportGestureUpdateResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_update_gesture_impl(
+            @ptrCast(&ctx),
+            delta_pixels,
+            timestamp,
+            gap,
+            viewport_span,
+            &ctx_update,
+        ),
+    );
+
+    var spans: [abi.MAX_WINDOWS]f64 = undefined;
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        deriveRuntimeViewportSpans(&ctx, gap, viewport_span, &spans),
+    );
+    const spans_ptr: [*c]const f64 = @ptrCast(&spans[0]);
+
+    var direct_gesture = zeroViewportGestureState();
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_gesture_begin_impl(-24.0, 1, &direct_gesture),
+    );
+
+    var direct_update = std.mem.zeroes(abi.OmniViewportGestureUpdateResult);
+    const active_index = runtimeViewportActiveColumnIndex(&ctx, ctx.runtime_column_count);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_gesture_update_impl(
+            &direct_gesture,
+            spans_ptr,
+            ctx.runtime_column_count,
+            active_index,
+            delta_pixels,
+            timestamp,
+            gap,
+            viewport_span,
+            0.0,
+            &direct_update,
+        ),
+    );
+
+    try expectApproxEq(ctx_update.current_view_offset, direct_update.current_view_offset);
+    try expectApproxEq(ctx_update.selection_progress, direct_update.selection_progress);
+    try std.testing.expectEqual(ctx_update.has_selection_steps, direct_update.has_selection_steps);
+    try std.testing.expectEqual(ctx_update.selection_steps, direct_update.selection_steps);
+    try expectApproxEq(ctx.viewport_state.gesture_state.current_view_offset, direct_update.current_view_offset);
+    try expectApproxEq(ctx.viewport_state.selection_progress, direct_update.selection_progress);
+}
+
+test "runtime viewport gesture end matches direct viewport kernel with derived spans" {
+    var ctx = std.mem.zeroes(OmniNiriLayoutContext);
+    const column_ids = [_]abi.OmniUuid128{ testUuid(31), testUuid(32), testUuid(33) };
+    setupViewportTestContext(
+        &ctx,
+        .{
+            testRuntimeColumn(column_ids[0], 0, 1, 0.4, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+            testRuntimeColumn(column_ids[1], 1, 1, 300.0, abi.OMNI_NIRI_SIZE_KIND_FIXED, false),
+            testRuntimeColumn(column_ids[2], 2, 1, 0.2, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+        },
+    );
+    ctx.viewport_state.active_column_index = 1;
+    ctx.viewport_state.static_offset = -40.0;
+
+    const gap = 10.0;
+    const viewport_span = 1000.0;
+
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_begin_gesture_impl(@ptrCast(&ctx), 5.0, 1),
+    );
+
+    var ctx_update = std.mem.zeroes(abi.OmniViewportGestureUpdateResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_update_gesture_impl(
+            @ptrCast(&ctx),
+            -140.0,
+            5.016,
+            gap,
+            viewport_span,
+            &ctx_update,
+        ),
+    );
+
+    var spans: [abi.MAX_WINDOWS]f64 = undefined;
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        deriveRuntimeViewportSpans(&ctx, gap, viewport_span, &spans),
+    );
+    const spans_ptr: [*c]const f64 = @ptrCast(&spans[0]);
+
+    var direct_gesture = zeroViewportGestureState();
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_gesture_begin_impl(-40.0, 1, &direct_gesture),
+    );
+    var direct_update = std.mem.zeroes(abi.OmniViewportGestureUpdateResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_gesture_update_impl(
+            &direct_gesture,
+            spans_ptr,
+            ctx.runtime_column_count,
+            1,
+            -140.0,
+            5.016,
+            gap,
+            viewport_span,
+            0.0,
+            &direct_update,
+        ),
+    );
+
+    var ctx_end = std.mem.zeroes(abi.OmniViewportGestureEndResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_end_gesture_impl(
+            @ptrCast(&ctx),
+            gap,
+            viewport_span,
+            abi.OMNI_CENTER_ON_OVERFLOW,
+            0,
+            5.033,
+            120.0,
+            0,
+            &ctx_end,
+        ),
+    );
+
+    var direct_end = std.mem.zeroes(abi.OmniViewportGestureEndResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_gesture_end_impl(
+            &direct_gesture,
+            spans_ptr,
+            ctx.runtime_column_count,
+            1,
+            gap,
+            viewport_span,
+            abi.OMNI_CENTER_ON_OVERFLOW,
+            0,
+            &direct_end,
+        ),
+    );
+
+    try std.testing.expectEqual(ctx_end.resolved_column_index, direct_end.resolved_column_index);
+    try expectApproxEq(ctx_end.spring_from, direct_end.spring_from);
+    try expectApproxEq(ctx_end.spring_to, direct_end.spring_to);
+    try expectApproxEq(ctx_end.initial_velocity, direct_end.initial_velocity);
+    try std.testing.expectEqual(@as(i64, @intCast(direct_end.resolved_column_index)), ctx.viewport_state.active_column_index);
+    try std.testing.expectEqual(@as(u8, 0), ctx.viewport_state.gesture_active);
+    try std.testing.expectEqual(@as(u8, 1), ctx.viewport_state.spring_active);
+}
+
+test "runtime viewport transition matches direct viewport kernel with derived spans" {
+    var ctx = std.mem.zeroes(OmniNiriLayoutContext);
+    const column_ids = [_]abi.OmniUuid128{ testUuid(41), testUuid(42), testUuid(43) };
+    setupViewportTestContext(
+        &ctx,
+        .{
+            testRuntimeColumn(column_ids[0], 0, 1, 0.3, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+            testRuntimeColumn(column_ids[1], 1, 1, 260.0, abi.OMNI_NIRI_SIZE_KIND_FIXED, false),
+            testRuntimeColumn(column_ids[2], 2, 1, 0.3, abi.OMNI_NIRI_SIZE_KIND_PROPORTION, false),
+        },
+    );
+
+    ctx.viewport_state.active_column_index = 1;
+    ctx.viewport_state.static_offset = -30.0;
+
+    const gap = 14.0;
+    const viewport_span = 960.0;
+    const requested_index: usize = 2;
+
+    var spans: [abi.MAX_WINDOWS]f64 = undefined;
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        deriveRuntimeViewportSpans(&ctx, gap, viewport_span, &spans),
+    );
+    const spans_ptr: [*c]const f64 = @ptrCast(&spans[0]);
+
+    var direct = std.mem.zeroes(abi.OmniViewportTransitionResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        viewport.omni_viewport_transition_to_column_impl(
+            spans_ptr,
+            ctx.runtime_column_count,
+            1,
+            requested_index,
+            gap,
+            viewport_span,
+            -30.0,
+            abi.OMNI_CENTER_NEVER,
+            0,
+            ctx.viewport_state.active_column_index,
+            2.0,
+            &direct,
+        ),
+    );
+
+    var from_ctx = std.mem.zeroes(abi.OmniViewportTransitionResult);
+    try std.testing.expectEqual(
+        abi.OMNI_OK,
+        omni_niri_ctx_viewport_transition_to_column_impl(
+            @ptrCast(&ctx),
+            requested_index,
+            gap,
+            viewport_span,
+            abi.OMNI_CENTER_NEVER,
+            0,
+            0,
+            2.0,
+            12.0,
+            60.0,
+            0,
+            &from_ctx,
+        ),
+    );
+
+    try std.testing.expectEqual(from_ctx.resolved_column_index, direct.resolved_column_index);
+    try expectApproxEq(from_ctx.offset_delta, direct.offset_delta);
+    try expectApproxEq(from_ctx.adjusted_target_offset, direct.adjusted_target_offset);
+    try expectApproxEq(from_ctx.target_offset, direct.target_offset);
+    try expectApproxEq(from_ctx.snap_delta, direct.snap_delta);
+    try std.testing.expectEqual(from_ctx.snap_to_target_immediately, direct.snap_to_target_immediately);
+
+    if (from_ctx.snap_to_target_immediately != 0) {
+        try expectApproxEq(ctx.viewport_state.static_offset, -30.0 + from_ctx.offset_delta + from_ctx.snap_delta);
+    } else {
+        try expectApproxEq(ctx.viewport_state.static_offset, from_ctx.target_offset);
+    }
+    try std.testing.expectEqual(@as(i64, @intCast(from_ctx.resolved_column_index)), ctx.viewport_state.active_column_index);
 }

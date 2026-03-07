@@ -1,58 +1,53 @@
 import AppKit
-import IOKit.pwr_mgt
+import CZigLayout
+
 @MainActor
 final class SleepPreventionManager {
     static let shared = SleepPreventionManager()
-    private var sleepAssertionID: IOPMAssertionID?
-    private var assertionTimer: Timer?
+
+    private var sleepAssertionID: UInt32?
     private var isUserSessionActive = true
+    private var isPreventionEnabled = false
+
     private init() {
         setupWorkspaceNotifications()
     }
+
     func preventSleep() {
-        assertionTimer?.invalidate()
-        assertionTimer = Timer.scheduledTimer(
-            withTimeInterval: 10.0,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshSleepAssertion()
-            }
-        }
-        assertionTimer?.fire()
+        isPreventionEnabled = true
+        reconcileAssertionOwnership()
     }
+
     func allowSleep() {
-        assertionTimer?.invalidate()
-        assertionTimer = nil
-        releaseSleepAssertion()
+        isPreventionEnabled = false
+        reconcileAssertionOwnership()
     }
-    private func refreshSleepAssertion() {
-        guard isUserSessionActive else { return }
-        if let assertionID = sleepAssertionID {
-            IOPMAssertionRelease(assertionID)
+
+    private func reconcileAssertionOwnership() {
+        let shouldHoldAssertion = isPreventionEnabled && isUserSessionActive
+
+        if shouldHoldAssertion {
+            acquireAssertionIfNeeded()
+        } else {
+            releaseSleepAssertion()
         }
-        var assertionID: IOPMAssertionID = 0
-        let reason = "OmniWM prevents sleep" as CFString
-        let result = IOPMAssertionCreateWithDescription(
-            kIOPMAssertPreventUserIdleDisplaySleep as CFString,
-            reason,
-            nil,
-            nil,
-            nil,
-            8,
-            nil,
-            &assertionID
-        )
-        if result == kIOReturnSuccess {
+    }
+
+    private func acquireAssertionIfNeeded() {
+        guard sleepAssertionID == nil else { return }
+
+        var assertionID: UInt32 = 0
+        if omni_sleep_prevention_create_assertion(&assertionID) == Int32(OMNI_OK) {
             sleepAssertionID = assertionID
         }
     }
+
     private func releaseSleepAssertion() {
-        if let assertionID = sleepAssertionID {
-            IOPMAssertionRelease(assertionID)
-            sleepAssertionID = nil
-        }
+        guard let assertionID = sleepAssertionID else { return }
+        _ = omni_sleep_prevention_release_assertion(assertionID)
+        sleepAssertionID = nil
     }
+
     private func setupWorkspaceNotifications() {
         let notificationCenter = NSWorkspace.shared.notificationCenter
         notificationCenter.addObserver(
@@ -68,10 +63,14 @@ final class SleepPreventionManager {
             object: nil
         )
     }
+
     @objc private func sessionDidResignActive() {
         isUserSessionActive = false
+        reconcileAssertionOwnership()
     }
+
     @objc private func sessionDidBecomeActive() {
         isUserSessionActive = true
+        reconcileAssertionOwnership()
     }
 }

@@ -1,5 +1,7 @@
 # Build artifacts
 .build/
+.zig-cache/
+zig-out/
 
 # SwiftPM
 .swiftpm/xcode/xcuserdata/

@@ -11,7 +11,34 @@ struct Monitor: Identifiable, Hashable {
     let visibleFrame: CGRect
     let hasNotch: Bool
     let name: String
+    let scale: CGFloat
+
+    init(
+        id: ID,
+        displayId: CGDirectDisplayID,
+        frame: CGRect,
+        visibleFrame: CGRect,
+        hasNotch: Bool,
+        name: String,
+        scale: CGFloat = 2.0
+    ) {
+        self.id = id
+        self.displayId = displayId
+        self.frame = frame
+        self.visibleFrame = visibleFrame
+        self.hasNotch = hasNotch
+        self.name = name
+        self.scale = scale
+    }
+
     static func current() -> [Monitor] {
+        if let zigMonitors = OmniMonitorQueryBridge.queryCurrentMonitors(), !zigMonitors.isEmpty {
+            return zigMonitors
+        }
+        return appKitCurrent()
+    }
+
+    private static func appKitCurrent() -> [Monitor] {
         NSScreen.screens.compactMap { screen -> Monitor? in
             guard let displayId = screen.displayId else { return nil }
             var hasNotch = false
@@ -24,10 +51,12 @@ struct Monitor: Identifiable, Hashable {
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame,
                 hasNotch: hasNotch,
-                name: screen.localizedName
+                name: screen.localizedName,
+                scale: screen.backingScaleFactor
             )
         }
     }
+
     static func fallback() -> Monitor {
         let frame = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let displayId = NSScreen.main?.displayId ?? CGMainDisplayID()
@@ -41,7 +70,8 @@ struct Monitor: Identifiable, Hashable {
             frame: frame,
             visibleFrame: frame,
             hasNotch: hasNotch,
-            name: "Fallback"
+            name: "Fallback",
+            scale: NSScreen.main?.backingScaleFactor ?? 2.0
         )
     }
 }

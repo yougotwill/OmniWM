@@ -29,8 +29,18 @@ REQUIRED_SYMBOLS=(
     "omni_border_runtime_apply_config"
     "omni_border_runtime_apply_presentation"
     "omni_border_runtime_submit_snapshot"
+    "omni_border_runtime_apply_motion"
     "omni_border_runtime_invalidate_displays"
     "omni_border_runtime_hide"
+    "omni_controller_create"
+    "omni_controller_destroy"
+    "omni_controller_start"
+    "omni_controller_stop"
+    "omni_controller_submit_hotkey"
+    "omni_controller_submit_os_event"
+    "omni_controller_apply_settings"
+    "omni_controller_tick"
+    "omni_controller_query_ui_state"
 )
 
 verify_required_symbols() {
@@ -135,7 +145,7 @@ if [[ "${APP_MODE}" == "true" ]]; then
 fi
 
 echo "==> Building Zig static library"
-./build-zig.sh
+zig build omni-layout --prefix .build
 
 ZIG_LIB=".build/zig/libomni_layout.a"
 if [[ -f "${ZIG_LIB}" ]]; then

@@ -148,6 +148,7 @@ fn solveAndLayoutNiriColumn(
             scale,
         );
         out_windows[global_idx] = .{
+            .window_id = .{ .bytes = [_]u8{0} ** 16 },
             .frame_x = base_rect.x,
             .frame_y = base_rect.y,
             .frame_width = base_rect.width,
@@ -266,6 +267,7 @@ pub fn omni_niri_layout_pass_v2_impl(
     const parsed_orientation = parseNiriOrientation(orientation) orelse return abi.OMNI_ERR_INVALID_ARGS;
     for (0..window_count) |i| {
         out_windows[i] = .{
+            .window_id = .{ .bytes = [_]u8{0} ** 16 },
             .frame_x = 0.0,
             .frame_y = 0.0,
             .frame_width = 0.0,

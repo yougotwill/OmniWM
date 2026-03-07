@@ -78,7 +78,7 @@ final class WindowModel {
             missingDetectionCountByKey.removeValue(forKey: key)
             return handle
         } else {
-            let handle = WindowHandle(id: UUID(), pid: pid, axElement: window.element)
+            let handle = WindowHandle(id: UUID(), pid: pid)
             let entry = Entry(
                 handle: handle,
                 axRef: window,

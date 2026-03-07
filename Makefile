@@ -12,6 +12,6 @@ lint-fix:
 check: lint
 
 # Build the Zig static library used by Swift.
-# Default output is universal (arm64 + x86_64). Set ZIG_TARGET for single-arch.
+# Default output is universal (arm64 + x86_64).
 zig-build:
-	./build-zig.sh
+	zig build omni-layout --prefix .build

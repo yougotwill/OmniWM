@@ -2,6 +2,36 @@ const std = @import("std");
 const abi = @import("abi_types.zig");
 const layout_context = @import("layout_context.zig");
 pub const OmniNiriRuntime = layout_context.OmniNiriLayoutContext;
+fn uuidEqual(lhs: abi.OmniUuid128, rhs: abi.OmniUuid128) bool {
+    return std.mem.eql(u8, lhs.bytes[0..], rhs.bytes[0..]);
+}
+fn runtimeWindowToRenderInput(
+    window: abi.OmniNiriRuntimeWindowState,
+    fullscreen_window_id: ?abi.OmniUuid128,
+) abi.OmniNiriWindowInput {
+    const is_fixed = window.height_kind == abi.OMNI_NIRI_HEIGHT_KIND_FIXED;
+    const fixed_value = @max(16.0, window.height_value);
+    const weight = if (is_fixed) 1.0 else @max(0.1, window.height_value);
+    const is_fullscreen = if (fullscreen_window_id) |fullscreen_id|
+        uuidEqual(fullscreen_id, window.window_id)
+    else
+        false;
+    return .{
+        .weight = weight,
+        .min_constraint = if (is_fixed) fixed_value else 16.0,
+        .max_constraint = if (is_fixed) fixed_value else 0.0,
+        .has_max_constraint = if (is_fixed) 1 else 0,
+        .is_constraint_fixed = if (is_fixed) 1 else 0,
+        .has_fixed_value = if (is_fixed) 1 else 0,
+        .fixed_value = if (is_fixed) fixed_value else 0.0,
+        .sizing_mode = if (is_fullscreen)
+            abi.OMNI_NIRI_SIZING_FULLSCREEN
+        else
+            abi.OMNI_NIRI_SIZING_NORMAL,
+        .render_offset_x = 0.0,
+        .render_offset_y = 0.0,
+    };
+}
 pub fn omni_niri_runtime_create_impl() [*c]OmniNiriRuntime {
     return @ptrCast(layout_context.omni_niri_layout_context_create_impl());
 }
@@ -56,27 +86,90 @@ pub fn omni_niri_runtime_apply_command_impl(
     out_result[0] = .{ .txn = txn_result };
     return rc;
 }
-pub fn omni_niri_runtime_render_impl(
+pub fn omni_niri_runtime_render_from_state_impl(
     runtime: [*c]OmniNiriRuntime,
     layout: [*c]layout_context.OmniNiriLayoutContext,
-    request: [*c]const abi.OmniNiriRuntimeRenderRequest,
+    request: [*c]const abi.OmniNiriRuntimeRenderFromStateRequest,
     out_output: [*c]abi.OmniNiriRuntimeRenderOutput,
 ) i32 {
     if (runtime == null or request == null or out_output == null) return abi.OMNI_ERR_INVALID_ARGS;
     const runtime_ctx: *OmniNiriRuntime = @ptrCast(&runtime[0]);
     const render_ctx: [*c]layout_context.OmniNiriLayoutContext = if (layout != null) layout else @ptrCast(runtime);
-    if (request[0].column_count != runtime_ctx.runtime_column_count or
-        request[0].window_count != runtime_ctx.runtime_window_count)
+    const runtime_column_count = runtime_ctx.runtime_column_count;
+    const runtime_window_count = runtime_ctx.runtime_window_count;
+    if (runtime_column_count > abi.MAX_WINDOWS or runtime_window_count > abi.MAX_WINDOWS) {
+        return abi.OMNI_ERR_OUT_OF_RANGE;
+    }
+    if (request[0].expected_column_count != runtime_column_count or
+        request[0].expected_window_count != runtime_window_count)
     {
         return abi.OMNI_ERR_OUT_OF_RANGE;
+    }
+    if (out_output[0].window_count != runtime_window_count or
+        out_output[0].column_count != runtime_column_count)
+    {
+        return abi.OMNI_ERR_OUT_OF_RANGE;
+    }
+    if (runtime_window_count > 0 and out_output[0].windows == null) return abi.OMNI_ERR_INVALID_ARGS;
+    if (runtime_column_count > 0 and out_output[0].columns == null) return abi.OMNI_ERR_INVALID_ARGS;
+    var synthesized_columns: [abi.MAX_WINDOWS]abi.OmniNiriColumnInput = undefined;
+    var derived_spans: [abi.MAX_WINDOWS]f64 = undefined;
+    var synthesized_windows: [abi.MAX_WINDOWS]abi.OmniNiriWindowInput = undefined;
+    const spans_rc = layout_context.deriveRuntimeViewportSpans(
+        runtime_ctx,
+        request[0].primary_gap,
+        request[0].viewport_span,
+        &derived_spans,
+    );
+    if (spans_rc != abi.OMNI_OK) return spans_rc;
+    const fullscreen_window_id: ?abi.OmniUuid128 = if (request[0].has_fullscreen_window_id != 0)
+        request[0].fullscreen_window_id
+    else
+        null;
+    const view_start = layout_context.runtimeViewportViewStart(
+        runtime_ctx,
+        request[0].sample_time,
+        &derived_spans,
+        runtime_column_count,
+        request[0].primary_gap,
+    );
+    for (0..runtime_column_count) |column_idx| {
+        const runtime_column = runtime_ctx.runtime_columns[column_idx];
+        if (runtime_column.window_start > runtime_window_count or
+            runtime_column.window_count > runtime_window_count - runtime_column.window_start)
+        {
+            return abi.OMNI_ERR_OUT_OF_RANGE;
+        }
+        const span = derived_spans[column_idx];
+        synthesized_columns[column_idx] = .{
+            .span = span,
+            .render_offset_x = 0.0,
+            .render_offset_y = 0.0,
+            .is_tabbed = runtime_column.is_tabbed,
+            .tab_indicator_width = 0.0,
+            .window_start = runtime_column.window_start,
+            .window_count = runtime_column.window_count,
+        };
+    }
+    for (0..runtime_window_count) |window_idx| {
+        const runtime_window = runtime_ctx.runtime_windows[window_idx];
+        if (runtime_window.height_kind != abi.OMNI_NIRI_HEIGHT_KIND_AUTO and
+            runtime_window.height_kind != abi.OMNI_NIRI_HEIGHT_KIND_FIXED)
+        {
+            return abi.OMNI_ERR_INVALID_ARGS;
+        }
+        synthesized_windows[window_idx] = runtimeWindowToRenderInput(
+            runtime_window,
+            fullscreen_window_id,
+        );
     }
     out_output[0].animation_active = 0;
     const rc = layout_context.omni_niri_layout_pass_v3_impl(
         render_ctx,
-        request[0].columns,
-        request[0].column_count,
-        request[0].windows,
-        request[0].window_count,
+        if (runtime_column_count > 0) @ptrCast(&synthesized_columns[0]) else null,
+        runtime_column_count,
+        if (runtime_window_count > 0) @ptrCast(&synthesized_windows[0]) else null,
+        runtime_window_count,
         request[0].working_x,
         request[0].working_y,
         request[0].working_width,
@@ -91,7 +184,7 @@ pub fn omni_niri_runtime_render_impl(
         request[0].fullscreen_height,
         request[0].primary_gap,
         request[0].secondary_gap,
-        request[0].view_start,
+        view_start,
         request[0].viewport_span,
         request[0].workspace_offset,
         request[0].scale,
@@ -102,13 +195,16 @@ pub fn omni_niri_runtime_render_impl(
         out_output[0].column_count,
     );
     if (rc != abi.OMNI_OK) return rc;
+    for (0..runtime_window_count) |window_idx| {
+        out_output[0].windows[window_idx].window_id = runtime_ctx.runtime_windows[window_idx].window_id;
+    }
     out_output[0].animation_active = layout_context.applyRuntimeAnimationToOutputs(
         runtime_ctx,
         request[0].sample_time,
         request[0].orientation,
         request[0].scale,
         out_output[0].windows,
-        out_output[0].window_count,
+        runtime_window_count,
     );
     return abi.OMNI_OK;
 }
@@ -181,8 +277,6 @@ pub fn omni_niri_runtime_viewport_begin_gesture_impl(
 }
 pub fn omni_niri_runtime_viewport_update_gesture_impl(
     runtime: [*c]OmniNiriRuntime,
-    spans: [*c]const f64,
-    span_count: usize,
     delta_pixels: f64,
     timestamp: f64,
     gap: f64,
@@ -191,8 +285,6 @@ pub fn omni_niri_runtime_viewport_update_gesture_impl(
 ) i32 {
     return layout_context.omni_niri_ctx_viewport_update_gesture_impl(
         @ptrCast(runtime),
-        spans,
-        span_count,
         delta_pixels,
         timestamp,
         gap,
@@ -202,8 +294,6 @@ pub fn omni_niri_runtime_viewport_update_gesture_impl(
 }
 pub fn omni_niri_runtime_viewport_end_gesture_impl(
     runtime: [*c]OmniNiriRuntime,
-    spans: [*c]const f64,
-    span_count: usize,
     gap: f64,
     viewport_span: f64,
     center_mode: u8,
@@ -215,8 +305,6 @@ pub fn omni_niri_runtime_viewport_end_gesture_impl(
 ) i32 {
     return layout_context.omni_niri_ctx_viewport_end_gesture_impl(
         @ptrCast(runtime),
-        spans,
-        span_count,
         gap,
         viewport_span,
         center_mode,
@@ -229,8 +317,6 @@ pub fn omni_niri_runtime_viewport_end_gesture_impl(
 }
 pub fn omni_niri_runtime_viewport_transition_to_column_impl(
     runtime: [*c]OmniNiriRuntime,
-    spans: [*c]const f64,
-    span_count: usize,
     requested_index: usize,
     gap: f64,
     viewport_span: f64,
@@ -245,8 +331,6 @@ pub fn omni_niri_runtime_viewport_transition_to_column_impl(
 ) i32 {
     return layout_context.omni_niri_ctx_viewport_transition_to_column_impl(
         @ptrCast(runtime),
-        spans,
-        span_count,
         requested_index,
         gap,
         viewport_span,

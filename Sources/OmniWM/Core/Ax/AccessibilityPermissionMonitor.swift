@@ -1,23 +1,27 @@
-import ApplicationServices
+import CZigLayout
 import Foundation
+
 @MainActor
 final class AccessibilityPermissionMonitor {
     static let shared = AccessibilityPermissionMonitor()
+
     private var task: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
     private(set) var isGranted: Bool
+
     private init() {
-        isGranted = AXIsProcessTrusted()
-        task = Task {
-            let notifications = DistributedNotificationCenter.default()
-                .notifications(named: Notification.Name("com.apple.accessibility.api"))
-            for await _ in notifications {
-                try? await Task.sleep(for: .milliseconds(250))
-                let status = AXIsProcessTrusted()
-                yield(status)
+        isGranted = omni_ax_permission_is_trusted() != 0
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let status = omni_ax_permission_is_trusted() != 0
+                self.yield(status)
+                let interval: Duration = status ? .milliseconds(750) : .milliseconds(250)
+                try? await Task.sleep(for: interval)
             }
         }
     }
+
     deinit {
         task?.cancel()
         let currentContinuations = Array(continuations.values)
@@ -25,16 +29,28 @@ final class AccessibilityPermissionMonitor {
             continuation.finish()
         }
     }
+
     func stream(initial: Bool = true) -> AsyncStream<Bool> {
         AsyncStream { continuation in
             let id = UUID()
             continuations[id] = continuation
-            if initial { continuation.yield(isGranted) }
+            if initial {
+                continuation.yield(isGranted)
+            }
             continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in self?.continuations[id] = nil }
+                Task { @MainActor in
+                    self?.continuations[id] = nil
+                }
             }
         }
     }
+
+    func refreshNow() -> Bool {
+        let status = omni_ax_permission_is_trusted() != 0
+        yield(status)
+        return status
+    }
+
     private func yield(_ value: Bool) {
         guard value != isGranted else { return }
         isGranted = value
