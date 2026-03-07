@@ -1,24 +1,19 @@
 import Carbon
 import Foundation
-
 @MainActor @Observable
 final class SecureInputMonitor {
     private(set) var isSecureInputActive: Bool = false
-
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var recoveryTimer: Timer?
     private var onStateChange: ((Bool) -> Void)?
-
     private static var sharedMonitor: SecureInputMonitor?
-
     func start(onStateChange: @escaping (Bool) -> Void) {
         self.onStateChange = onStateChange
         SecureInputMonitor.sharedMonitor = self
         setupEventTap()
         checkSecureInput()
     }
-
     func stop() {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
@@ -32,10 +27,8 @@ final class SecureInputMonitor {
         recoveryTimer = nil
         SecureInputMonitor.sharedMonitor = nil
     }
-
     private func setupEventTap() {
         let eventMask: CGEventMask = 1 << CGEventType.keyDown.rawValue
-
         let callback: CGEventTapCallBack = { _, type, event, _ in
             switch type {
             case .tapDisabledByUserInput:
@@ -58,7 +51,6 @@ final class SecureInputMonitor {
             }
             return Unmanaged.passUnretained(event)
         }
-
         eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -67,7 +59,6 @@ final class SecureInputMonitor {
             callback: callback,
             userInfo: nil
         )
-
         if let tap = eventTap {
             runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             if let source = runLoopSource {
@@ -76,7 +67,6 @@ final class SecureInputMonitor {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
     }
-
     private func handleSecureInputDetected() {
         guard !isSecureInputActive else { return }
         if IsSecureEventInputEnabled() {
@@ -85,7 +75,6 @@ final class SecureInputMonitor {
             startRecoveryTimer()
         }
     }
-
     private func checkSecureInputEnded() {
         if !IsSecureEventInputEnabled() {
             isSecureInputActive = false
@@ -93,7 +82,6 @@ final class SecureInputMonitor {
             stopRecoveryTimer()
         }
     }
-
     private func startRecoveryTimer() {
         stopRecoveryTimer()
         recoveryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -105,12 +93,10 @@ final class SecureInputMonitor {
             RunLoop.main.add(timer, forMode: .common)
         }
     }
-
     private func stopRecoveryTimer() {
         recoveryTimer?.invalidate()
         recoveryTimer = nil
     }
-
     private func checkSecureInput() {
         let newState = IsSecureEventInputEnabled()
         if newState != isSecureInputActive {

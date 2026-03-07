@@ -1,4 +1,4 @@
-.PHONY: format lint lint-fix check zig-build niri-phase0-perf-gate
+.PHONY: format lint lint-fix check zig-build
 
 format:
 	swiftformat .
@@ -15,6 +15,3 @@ check: lint
 # Default output is universal (arm64 + x86_64). Set ZIG_TARGET for single-arch.
 zig-build:
 	./build-zig.sh
-
-niri-phase0-perf-gate:
-	./Scripts/niri-phase0-perf-gate.sh

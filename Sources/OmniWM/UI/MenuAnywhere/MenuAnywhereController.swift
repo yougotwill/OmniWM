@@ -1,47 +1,36 @@
 @preconcurrency import AppKit
 @preconcurrency import ApplicationServices
-
 @MainActor
 final class MenuAnywhereController: NSObject, NSMenuDelegate {
     static let shared = MenuAnywhereController()
-
     private let menuExtractor = MenuExtractor()
     private weak var currentApp: NSRunningApplication?
     private var activeMenu: NSMenu?
     private let axFetchQueue = DispatchQueue(label: "com.omniwm.menufetch", qos: .userInitiated)
-
     private static let kAXPressAction = "AXPress" as CFString
     private static let appActivationDelay: TimeInterval = 0.1
-
     override private init() {
         super.init()
     }
-
     func showNativeMenu(at position: MenuAnywherePosition) {
         cleanupActiveMenu()
-
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         currentApp = app
-
         guard let menuBar = menuExtractor.getMenuBar(for: app.processIdentifier) else { return }
-
         let items = menuExtractor.buildMenu(
             from: menuBar,
             target: self,
             action: #selector(menuAction(_:))
         )
-
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
         menu.axRootElement = menuBar
         items.forEach(menu.addItem)
         activeMenu = menu
-
         let location = menuLocation(for: position)
         menu.popUp(positioning: nil, at: location, in: nil)
     }
-
     private func menuLocation(for position: MenuAnywherePosition) -> NSPoint {
         let mouseLocation = NSEvent.mouseLocation
         switch position {
@@ -63,15 +52,12 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
             )
         }
     }
-
     private func cleanupActiveMenu() {
         guard let menu = activeMenu else { return }
-
         cleanupMenuItems(menu.items)
         menu.removeAllItems()
         activeMenu = nil
     }
-
     private func cleanupMenuItems(_ items: [NSMenuItem]) {
         for item in items {
             if let submenu = item.submenu {
@@ -83,15 +69,12 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
             item.action = nil
         }
     }
-
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let obj = sender.representedObject,
               CFGetTypeID(obj as CFTypeRef) == AXUIElementGetTypeID(),
               let app = currentApp, !app.isTerminated
         else { return }
-
         let element = obj as! AXUIElement
-
         if !app.isActive {
             app.activate(options: [])
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.appActivationDelay) {
@@ -101,7 +84,6 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
             AXUIElementPerformAction(element, Self.kAXPressAction)
         }
     }
-
     func menuDidClose(_ menu: NSMenu) {
         if menu === activeMenu {
             DispatchQueue.main.async { [weak self] in
@@ -109,21 +91,16 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
             }
         }
     }
-
     func menuWillOpen(_ menu: NSMenu) {
         if menu === activeMenu { return }
-
         guard menu.items.isEmpty, let axRoot = menu.axRootElement else { return }
         guard menu.isPopulatingAsynchronously == false else { return }
-
         menu.isPopulatingAsynchronously = true
-
         let placeholder = NSMenuItem(title: "Loading...", action: nil, keyEquivalent: "")
         placeholder.isEnabled = false
         menu.addItem(placeholder)
         populateSubmenuAsync(menu: menu, axRoot: axRoot)
     }
-
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === activeMenu { return }
         guard menu.items.isEmpty, let axRoot = menu.axRootElement else { return }
@@ -133,7 +110,6 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         items.forEach(menu.addItem)
     }
-
     private func populateSubmenuAsync(menu: NSMenu, axRoot: AXUIElement) {
         nonisolated(unsafe) let menu = menu
         let extractor = menuExtractor
@@ -148,7 +124,6 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
                 }
                 return
             }
-
             let attrs = [
                 "AXTitle", "AXRole", "AXRoleDescription", "AXEnabled",
                 "AXMenuItemMarkChar", "AXMenuItemCmdChar", "AXMenuItemCmdModifiers", "AXChildren"
@@ -162,7 +137,6 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
                     itemsData.append([:])
                 }
             }
-
             DispatchQueue.main.async {
                 guard let self else { return }
                 let submenuItems = extractor.buildSubmenu(

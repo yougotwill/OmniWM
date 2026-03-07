@@ -1,16 +1,12 @@
 import CoreGraphics
 import Foundation
-
 struct OutputId: Hashable, Codable {
     let displayId: CGDirectDisplayID
-
     let name: String
-
     init(displayId: CGDirectDisplayID, name: String) {
         self.displayId = displayId
         self.name = name
     }
-
     init(from monitor: Monitor) {
         displayId = monitor.displayId
         name = monitor.name

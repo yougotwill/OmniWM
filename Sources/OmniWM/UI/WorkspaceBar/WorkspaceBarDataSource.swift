@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 @MainActor
 enum WorkspaceBarDataSource {
     private struct SortKey {
@@ -8,7 +7,6 @@ enum WorkspaceBarDataSource {
         let primary: Int
         let secondary: Int
     }
-
     static func workspaceBarItems(
         for monitor: Monitor,
         deduplicate: Bool,
@@ -20,13 +18,10 @@ enum WorkspaceBarDataSource {
         settings: SettingsStore
     ) -> [WorkspaceBarItem] {
         var workspaces = workspaceManager.workspaces(on: monitor.id)
-
         if hideEmpty {
             workspaces = workspaces.filter { !workspaceManager.entries(in: $0.id).isEmpty }
         }
-
         let activeWorkspaceId = workspaceManager.activeWorkspace(on: monitor.id)?.id
-
         return workspaces.map { workspace in
             let entries = workspaceManager.entries(in: workspace.id)
             let orderMap = orderMap(
@@ -51,7 +46,6 @@ enum WorkspaceBarDataSource {
                     focusedHandle: focusedHandle
                 )
             }
-
             return WorkspaceBarItem(
                 id: workspace.id,
                 name: settings.displayName(for: workspace.name),
@@ -60,7 +54,6 @@ enum WorkspaceBarDataSource {
             )
         }
     }
-
     private static func orderMap(
         for workspaceId: WorkspaceDescriptor.ID,
         entries: [WindowModel.Entry],
@@ -75,7 +68,6 @@ enum WorkspaceBarDataSource {
                 selectedNodeId: nil,
                 focusedHandle: focusedHandle
             )
-
             if let workspaceView = zigNiriEngine.workspaceView(for: workspaceId) {
                 var order: [WindowHandle: SortKey] = [:]
                 for (colIdx, column) in workspaceView.columns.enumerated() {
@@ -91,7 +83,6 @@ enum WorkspaceBarDataSource {
         }
         return nil
     }
-
     private static func sortEntries(
         _ entries: [WindowModel.Entry],
         orderMap: [WindowHandle: SortKey]?
@@ -99,21 +90,17 @@ enum WorkspaceBarDataSource {
         guard let orderMap else { return entries }
         let fallbackOrder = Dictionary(uniqueKeysWithValues: entries.enumerated()
             .map { ($0.element.handle, $0.offset) })
-
         return entries.sorted { lhs, rhs in
             let lhsKey = orderMap[lhs.handle] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
             let rhsKey = orderMap[rhs.handle] ?? SortKey(group: 2, primary: Int.max, secondary: Int.max)
-
             if lhsKey.group != rhsKey.group { return lhsKey.group < rhsKey.group }
             if lhsKey.primary != rhsKey.primary { return lhsKey.primary < rhsKey.primary }
             if lhsKey.secondary != rhsKey.secondary { return lhsKey.secondary < rhsKey.secondary }
-
             let lhsFallback = fallbackOrder[lhs.handle] ?? 0
             let rhsFallback = fallbackOrder[rhs.handle] ?? 0
             return lhsFallback < rhsFallback
         }
     }
-
     private static func createDedupedWindowItems(
         entries: [WindowModel.Entry],
         useLayoutOrder: Bool,
@@ -123,23 +110,18 @@ enum WorkspaceBarDataSource {
         if useLayoutOrder {
             var groupedByApp: [String: [WindowModel.Entry]] = [:]
             var orderedAppNames: [String] = []
-
             for entry in entries {
                 let appName = appInfoCache.name(for: entry.handle.pid) ?? "Unknown"
-
                 if groupedByApp[appName] == nil {
                     groupedByApp[appName] = []
                     orderedAppNames.append(appName)
                 }
-
                 groupedByApp[appName]?.append(entry)
             }
-
             return orderedAppNames.compactMap { appName in
                 guard let appEntries = groupedByApp[appName], let firstEntry = appEntries.first else { return nil }
                 let appInfo = appInfoCache.info(for: firstEntry.handle.pid)
                 let anyFocused = appEntries.contains { $0.handle.id == focusedHandle?.id }
-
                 let windowInfos = appEntries.map { entry -> WorkspaceBarWindowInfo in
                     WorkspaceBarWindowInfo(
                         id: entry.handle.id,
@@ -148,7 +130,6 @@ enum WorkspaceBarDataSource {
                         isFocused: entry.handle.id == focusedHandle?.id
                     )
                 }
-
                 return WorkspaceBarWindowItem(
                     id: firstEntry.handle.id,
                     windowId: firstEntry.windowId,
@@ -160,16 +141,13 @@ enum WorkspaceBarDataSource {
                 )
             }
         }
-
         let groupedByApp = Dictionary(grouping: entries) { entry -> String in
             appInfoCache.name(for: entry.handle.pid) ?? "Unknown"
         }
-
         return groupedByApp.map { appName, appEntries -> WorkspaceBarWindowItem in
             let firstEntry = appEntries.first!
             let appInfo = appInfoCache.info(for: firstEntry.handle.pid)
             let anyFocused = appEntries.contains { $0.handle.id == focusedHandle?.id }
-
             let windowInfos = appEntries.map { entry -> WorkspaceBarWindowInfo in
                 WorkspaceBarWindowInfo(
                     id: entry.handle.id,
@@ -178,7 +156,6 @@ enum WorkspaceBarDataSource {
                     isFocused: entry.handle.id == focusedHandle?.id
                 )
             }
-
             return WorkspaceBarWindowItem(
                 id: firstEntry.handle.id,
                 windowId: firstEntry.windowId,
@@ -190,7 +167,6 @@ enum WorkspaceBarDataSource {
             )
         }.sorted { $0.appName < $1.appName }
     }
-
     private static func createIndividualWindowItems(
         entries: [WindowModel.Entry],
         appInfoCache: AppInfoCache,
@@ -200,7 +176,6 @@ enum WorkspaceBarDataSource {
             let appInfo = appInfoCache.info(for: entry.handle.pid)
             let appName = appInfo?.name ?? "Unknown"
             let title = windowTitle(for: entry) ?? appName
-
             return WorkspaceBarWindowItem(
                 id: entry.handle.id,
                 windowId: entry.windowId,
@@ -219,7 +194,6 @@ enum WorkspaceBarDataSource {
             )
         }
     }
-
     private static func windowTitle(for entry: WindowModel.Entry) -> String? {
         guard let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)),
               !title.isEmpty else { return nil }

@@ -1,318 +1,239 @@
 import AppKit
 import Foundation
-
 @MainActor @Observable
 final class SettingsStore {
     private let defaults: UserDefaults
-
     var hotkeysEnabled: Bool {
         didSet { defaults.set(hotkeysEnabled, forKey: Keys.hotkeysEnabled) }
     }
-
     var focusFollowsMouse: Bool {
         didSet { defaults.set(focusFollowsMouse, forKey: Keys.focusFollowsMouse) }
     }
-
     var moveMouseToFocusedWindow: Bool {
         didSet { defaults.set(moveMouseToFocusedWindow, forKey: Keys.moveMouseToFocusedWindow) }
     }
-
     var focusFollowsWindowToMonitor: Bool {
         didSet { defaults.set(focusFollowsWindowToMonitor, forKey: Keys.focusFollowsWindowToMonitor) }
     }
-
     var mouseWarpEnabled: Bool {
         didSet { defaults.set(mouseWarpEnabled, forKey: Keys.mouseWarpEnabled) }
     }
-
     var mouseWarpMonitorOrder: [String] {
         didSet { saveMouseWarpMonitorOrder() }
     }
-
     var niriColumnWidthPresets: [Double] {
         didSet { saveNiriColumnWidthPresets() }
     }
-
     var mouseWarpMargin: Int {
         didSet { defaults.set(mouseWarpMargin, forKey: Keys.mouseWarpMargin) }
     }
-
     var gapSize: Double {
         didSet { defaults.set(gapSize, forKey: Keys.gapSize) }
     }
-
     var outerGapLeft: Double {
         didSet { defaults.set(outerGapLeft, forKey: Keys.outerGapLeft) }
     }
-
     var outerGapRight: Double {
         didSet { defaults.set(outerGapRight, forKey: Keys.outerGapRight) }
     }
-
     var outerGapTop: Double {
         didSet { defaults.set(outerGapTop, forKey: Keys.outerGapTop) }
     }
-
     var outerGapBottom: Double {
         didSet { defaults.set(outerGapBottom, forKey: Keys.outerGapBottom) }
     }
-
     var niriMaxWindowsPerColumn: Int {
         didSet { defaults.set(niriMaxWindowsPerColumn, forKey: Keys.niriMaxWindowsPerColumn) }
     }
-
     var niriMaxVisibleColumns: Int {
         didSet { defaults.set(niriMaxVisibleColumns, forKey: Keys.niriMaxVisibleColumns) }
     }
-
     var niriInfiniteLoop: Bool {
         didSet { defaults.set(niriInfiniteLoop, forKey: Keys.niriInfiniteLoop) }
     }
-
     var niriCenterFocusedColumn: CenterFocusedColumn {
         didSet { defaults.set(niriCenterFocusedColumn.rawValue, forKey: Keys.niriCenterFocusedColumn) }
     }
-
     var niriAlwaysCenterSingleColumn: Bool {
         didSet { defaults.set(niriAlwaysCenterSingleColumn, forKey: Keys.niriAlwaysCenterSingleColumn) }
     }
-
     var niriSingleWindowAspectRatio: SingleWindowAspectRatio {
         didSet { defaults.set(niriSingleWindowAspectRatio.rawValue, forKey: Keys.niriSingleWindowAspectRatio) }
     }
-
     var persistentWorkspacesRaw: String {
         didSet { defaults.set(persistentWorkspacesRaw, forKey: Keys.persistentWorkspaces) }
     }
-
     var workspaceAssignmentsRaw: String {
         didSet { defaults.set(workspaceAssignmentsRaw, forKey: Keys.workspaceAssignments) }
     }
-
     var workspaceConfigurations: [WorkspaceConfiguration] {
         didSet { saveWorkspaceConfigurations() }
     }
-
     var defaultLayoutType: LayoutType {
         didSet { defaults.set(defaultLayoutType.rawValue, forKey: Keys.defaultLayoutType) }
     }
-
     var bordersEnabled: Bool {
         didSet { defaults.set(bordersEnabled, forKey: Keys.bordersEnabled) }
     }
-
     var borderWidth: Double {
         didSet { defaults.set(borderWidth, forKey: Keys.borderWidth) }
     }
-
     var borderColorRed: Double {
         didSet { defaults.set(borderColorRed, forKey: Keys.borderColorRed) }
     }
-
     var borderColorGreen: Double {
         didSet { defaults.set(borderColorGreen, forKey: Keys.borderColorGreen) }
     }
-
     var borderColorBlue: Double {
         didSet { defaults.set(borderColorBlue, forKey: Keys.borderColorBlue) }
     }
-
     var borderColorAlpha: Double {
         didSet { defaults.set(borderColorAlpha, forKey: Keys.borderColorAlpha) }
     }
-
     var hotkeyBindings: [HotkeyBinding] {
         didSet { saveBindings() }
     }
-
     var workspaceBarEnabled: Bool {
         didSet { defaults.set(workspaceBarEnabled, forKey: Keys.workspaceBarEnabled) }
     }
-
     var workspaceBarShowLabels: Bool {
         didSet { defaults.set(workspaceBarShowLabels, forKey: Keys.workspaceBarShowLabels) }
     }
-
     var workspaceBarWindowLevel: WorkspaceBarWindowLevel {
         didSet { defaults.set(workspaceBarWindowLevel.rawValue, forKey: Keys.workspaceBarWindowLevel) }
     }
-
     var workspaceBarPosition: WorkspaceBarPosition {
         didSet { defaults.set(workspaceBarPosition.rawValue, forKey: Keys.workspaceBarPosition) }
     }
-
     var workspaceBarNotchAware: Bool {
         didSet { defaults.set(workspaceBarNotchAware, forKey: Keys.workspaceBarNotchAware) }
     }
-
     var workspaceBarDeduplicateAppIcons: Bool {
         didSet { defaults.set(workspaceBarDeduplicateAppIcons, forKey: Keys.workspaceBarDeduplicateAppIcons) }
     }
-
     var workspaceBarHideEmptyWorkspaces: Bool {
         didSet { defaults.set(workspaceBarHideEmptyWorkspaces, forKey: Keys.workspaceBarHideEmptyWorkspaces) }
     }
-
     var workspaceBarHeight: Double {
         didSet { defaults.set(workspaceBarHeight, forKey: Keys.workspaceBarHeight) }
     }
-
     var workspaceBarBackgroundOpacity: Double {
         didSet { defaults.set(workspaceBarBackgroundOpacity, forKey: Keys.workspaceBarBackgroundOpacity) }
     }
-
     var workspaceBarXOffset: Double {
         didSet { defaults.set(workspaceBarXOffset, forKey: Keys.workspaceBarXOffset) }
     }
-
     var workspaceBarYOffset: Double {
         didSet { defaults.set(workspaceBarYOffset, forKey: Keys.workspaceBarYOffset) }
     }
-
     var monitorBarSettings: [MonitorBarSettings] {
         didSet { MonitorSettingsStore.save(monitorBarSettings, to: defaults, key: Keys.monitorBarSettings) }
     }
-
     var appRules: [AppRule] {
         didSet { saveAppRules() }
     }
-
     var monitorOrientationSettings: [MonitorOrientationSettings] {
         didSet { MonitorSettingsStore.save(monitorOrientationSettings, to: defaults, key: Keys.monitorOrientationSettings) }
     }
-
     var monitorNiriSettings: [MonitorNiriSettings] {
         didSet { MonitorSettingsStore.save(monitorNiriSettings, to: defaults, key: Keys.monitorNiriSettings) }
     }
-
     var dwindleSmartSplit: Bool {
         didSet { defaults.set(dwindleSmartSplit, forKey: Keys.dwindleSmartSplit) }
     }
-
     var dwindleDefaultSplitRatio: Double {
         didSet { defaults.set(dwindleDefaultSplitRatio, forKey: Keys.dwindleDefaultSplitRatio) }
     }
-
     var dwindleSplitWidthMultiplier: Double {
         didSet { defaults.set(dwindleSplitWidthMultiplier, forKey: Keys.dwindleSplitWidthMultiplier) }
     }
-
     var dwindleSingleWindowAspectRatio: DwindleSingleWindowAspectRatio {
         didSet { defaults.set(dwindleSingleWindowAspectRatio.rawValue, forKey: Keys.dwindleSingleWindowAspectRatio) }
     }
-
     var dwindleUseGlobalGaps: Bool {
         didSet { defaults.set(dwindleUseGlobalGaps, forKey: Keys.dwindleUseGlobalGaps) }
     }
-
     var dwindleMoveToRootStable: Bool {
         didSet { defaults.set(dwindleMoveToRootStable, forKey: Keys.dwindleMoveToRootStable) }
     }
-
     var monitorDwindleSettings: [MonitorDwindleSettings] {
         didSet { MonitorSettingsStore.save(monitorDwindleSettings, to: defaults, key: Keys.monitorDwindleSettings) }
     }
-
     var preventSleepEnabled: Bool {
         didSet { defaults.set(preventSleepEnabled, forKey: Keys.preventSleepEnabled) }
     }
-
     var scrollGestureEnabled: Bool {
         didSet { defaults.set(scrollGestureEnabled, forKey: Keys.scrollGestureEnabled) }
     }
-
     var scrollSensitivity: Double {
         didSet { defaults.set(scrollSensitivity, forKey: Keys.scrollSensitivity) }
     }
-
     var scrollModifierKey: ScrollModifierKey {
         didSet { defaults.set(scrollModifierKey.rawValue, forKey: Keys.scrollModifierKey) }
     }
-
     var gestureFingerCount: GestureFingerCount {
         didSet { defaults.set(gestureFingerCount.rawValue, forKey: Keys.gestureFingerCount) }
     }
-
     var gestureInvertDirection: Bool {
         didSet { defaults.set(gestureInvertDirection, forKey: Keys.gestureInvertDirection) }
     }
-
     var menuAnywhereNativeEnabled: Bool {
         didSet { defaults.set(menuAnywhereNativeEnabled, forKey: Keys.menuAnywhereNativeEnabled) }
     }
-
     var menuAnywherePaletteEnabled: Bool {
         didSet { defaults.set(menuAnywherePaletteEnabled, forKey: Keys.menuAnywherePaletteEnabled) }
     }
-
     var menuAnywherePosition: MenuAnywherePosition {
         didSet { defaults.set(menuAnywherePosition.rawValue, forKey: Keys.menuAnywherePosition) }
     }
-
     var menuAnywhereShowShortcuts: Bool {
         didSet { defaults.set(menuAnywhereShowShortcuts, forKey: Keys.menuAnywhereShowShortcuts) }
     }
-
     var hiddenBarEnabled: Bool {
         didSet { defaults.set(hiddenBarEnabled, forKey: Keys.hiddenBarEnabled) }
     }
-
     var hiddenBarIsCollapsed: Bool {
         didSet { defaults.set(hiddenBarIsCollapsed, forKey: Keys.hiddenBarIsCollapsed) }
     }
-
     var quakeTerminalEnabled: Bool {
         didSet { defaults.set(quakeTerminalEnabled, forKey: Keys.quakeTerminalEnabled) }
     }
-
     var quakeTerminalPosition: QuakeTerminalPosition {
         didSet { defaults.set(quakeTerminalPosition.rawValue, forKey: Keys.quakeTerminalPosition) }
     }
-
     var quakeTerminalWidthPercent: Double {
         didSet { defaults.set(quakeTerminalWidthPercent, forKey: Keys.quakeTerminalWidthPercent) }
     }
-
     var quakeTerminalHeightPercent: Double {
         didSet { defaults.set(quakeTerminalHeightPercent, forKey: Keys.quakeTerminalHeightPercent) }
     }
-
     var quakeTerminalAnimationDuration: Double {
         didSet { defaults.set(quakeTerminalAnimationDuration, forKey: Keys.quakeTerminalAnimationDuration) }
     }
-
     var quakeTerminalAutoHide: Bool {
         didSet { defaults.set(quakeTerminalAutoHide, forKey: Keys.quakeTerminalAutoHide) }
     }
-
     var quakeTerminalOpacity: Double {
         didSet { defaults.set(quakeTerminalOpacity, forKey: Keys.quakeTerminalOpacity) }
     }
-
     var quakeTerminalMonitorMode: QuakeTerminalMonitorMode {
         didSet { defaults.set(quakeTerminalMonitorMode.rawValue, forKey: Keys.quakeTerminalMonitorMode) }
     }
-
     var quakeTerminalUseCustomFrame: Bool {
         didSet { defaults.set(quakeTerminalUseCustomFrame, forKey: Keys.quakeTerminalUseCustomFrame) }
     }
-
     private var quakeTerminalCustomFrameX: Double? {
         didSet { defaults.set(quakeTerminalCustomFrameX, forKey: Keys.quakeTerminalCustomFrameX) }
     }
-
     private var quakeTerminalCustomFrameY: Double? {
         didSet { defaults.set(quakeTerminalCustomFrameY, forKey: Keys.quakeTerminalCustomFrameY) }
     }
-
     private var quakeTerminalCustomFrameWidth: Double? {
         didSet { defaults.set(quakeTerminalCustomFrameWidth, forKey: Keys.quakeTerminalCustomFrameWidth) }
     }
-
     private var quakeTerminalCustomFrameHeight: Double? {
         didSet { defaults.set(quakeTerminalCustomFrameHeight, forKey: Keys.quakeTerminalCustomFrameHeight) }
     }
-
     var quakeTerminalCustomFrame: NSRect? {
         get {
             guard let x = quakeTerminalCustomFrameX,
@@ -337,16 +258,13 @@ final class SettingsStore {
             }
         }
     }
-
     func resetQuakeTerminalCustomFrame() {
         quakeTerminalUseCustomFrame = false
         quakeTerminalCustomFrame = nil
     }
-
     var appearanceMode: AppearanceMode {
         didSet { defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode) }
     }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hotkeysEnabled = defaults.object(forKey: Keys.hotkeysEnabled) as? Bool ?? true
@@ -358,12 +276,10 @@ final class SettingsStore {
         niriColumnWidthPresets = Self.loadNiriColumnWidthPresets(from: defaults)
         mouseWarpMargin = defaults.object(forKey: Keys.mouseWarpMargin) as? Int ?? 2
         gapSize = defaults.object(forKey: Keys.gapSize) as? Double ?? 8
-
         outerGapLeft = defaults.object(forKey: Keys.outerGapLeft) as? Double ?? 0
         outerGapRight = defaults.object(forKey: Keys.outerGapRight) as? Double ?? 0
         outerGapTop = defaults.object(forKey: Keys.outerGapTop) as? Double ?? 0
         outerGapBottom = defaults.object(forKey: Keys.outerGapBottom) as? Double ?? 0
-
         niriMaxWindowsPerColumn = defaults.object(forKey: Keys.niriMaxWindowsPerColumn) as? Int ?? 3
         niriMaxVisibleColumns = defaults.object(forKey: Keys.niriMaxVisibleColumns) as? Int ?? 2
         niriInfiniteLoop = defaults.object(forKey: Keys.niriInfiniteLoop) as? Bool ?? false
@@ -372,22 +288,17 @@ final class SettingsStore {
         niriAlwaysCenterSingleColumn = defaults.object(forKey: Keys.niriAlwaysCenterSingleColumn) as? Bool ?? true
         niriSingleWindowAspectRatio = SingleWindowAspectRatio(rawValue: defaults
             .string(forKey: Keys.niriSingleWindowAspectRatio) ?? "") ?? .ratio4x3
-
         persistentWorkspacesRaw = defaults.string(forKey: Keys.persistentWorkspaces) ?? ""
         workspaceAssignmentsRaw = defaults.string(forKey: Keys.workspaceAssignments) ?? ""
-
         workspaceConfigurations = Self.loadWorkspaceConfigurations(from: defaults)
         defaultLayoutType = LayoutType(rawValue: defaults.string(forKey: Keys.defaultLayoutType) ?? "") ?? .niri
-
         bordersEnabled = defaults.object(forKey: Keys.bordersEnabled) as? Bool ?? false
         borderWidth = defaults.object(forKey: Keys.borderWidth) as? Double ?? 4.0
         borderColorRed = defaults.object(forKey: Keys.borderColorRed) as? Double ?? 0.0
         borderColorGreen = defaults.object(forKey: Keys.borderColorGreen) as? Double ?? 0.5
         borderColorBlue = defaults.object(forKey: Keys.borderColorBlue) as? Double ?? 1.0
         borderColorAlpha = defaults.object(forKey: Keys.borderColorAlpha) as? Double ?? 1.0
-
         hotkeyBindings = Self.loadBindings(from: defaults)
-
         workspaceBarEnabled = defaults.object(forKey: Keys.workspaceBarEnabled) as? Bool ?? false
         workspaceBarShowLabels = defaults.object(forKey: Keys.workspaceBarShowLabels) as? Bool ?? true
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(
@@ -409,7 +320,6 @@ final class SettingsStore {
         appRules = Self.loadAppRules(from: defaults)
         monitorOrientationSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorOrientationSettings)
         monitorNiriSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorNiriSettings)
-
         dwindleSmartSplit = defaults.object(forKey: Keys.dwindleSmartSplit) as? Bool ?? false
         dwindleDefaultSplitRatio = defaults.object(forKey: Keys.dwindleDefaultSplitRatio) as? Double ?? 1.0
         dwindleSplitWidthMultiplier = defaults.object(forKey: Keys.dwindleSplitWidthMultiplier) as? Double ?? 1.0
@@ -419,7 +329,6 @@ final class SettingsStore {
         dwindleUseGlobalGaps = defaults.object(forKey: Keys.dwindleUseGlobalGaps) as? Bool ?? true
         dwindleMoveToRootStable = defaults.object(forKey: Keys.dwindleMoveToRootStable) as? Bool ?? true
         monitorDwindleSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorDwindleSettings)
-
         preventSleepEnabled = defaults.object(forKey: Keys.preventSleepEnabled) as? Bool ?? false
         scrollGestureEnabled = defaults.object(forKey: Keys.scrollGestureEnabled) as? Bool ?? true
         scrollSensitivity = defaults.object(forKey: Keys.scrollSensitivity) as? Double ?? 1.0
@@ -427,7 +336,6 @@ final class SettingsStore {
             .optionShift
         gestureFingerCount = GestureFingerCount(rawValue: defaults.integer(forKey: Keys.gestureFingerCount)) ?? .three
         gestureInvertDirection = defaults.object(forKey: Keys.gestureInvertDirection) as? Bool ?? true
-
         menuAnywhereNativeEnabled = defaults.object(forKey: Keys.menuAnywhereNativeEnabled) as? Bool ?? true
         menuAnywherePaletteEnabled = defaults.object(forKey: Keys.menuAnywherePaletteEnabled) as? Bool ?? true
         menuAnywherePosition = MenuAnywherePosition(
@@ -435,10 +343,8 @@ final class SettingsStore {
         ) ??
             .cursor
         menuAnywhereShowShortcuts = defaults.object(forKey: Keys.menuAnywhereShowShortcuts) as? Bool ?? true
-
         hiddenBarEnabled = defaults.object(forKey: Keys.hiddenBarEnabled) as? Bool ?? false
         hiddenBarIsCollapsed = defaults.object(forKey: Keys.hiddenBarIsCollapsed) as? Bool ?? false
-
         quakeTerminalEnabled = defaults.object(forKey: Keys.quakeTerminalEnabled) as? Bool ?? false
         quakeTerminalPosition = QuakeTerminalPosition(
             rawValue: defaults.string(forKey: Keys.quakeTerminalPosition) ?? ""
@@ -458,16 +364,13 @@ final class SettingsStore {
         quakeTerminalCustomFrameHeight = defaults.object(forKey: Keys.quakeTerminalCustomFrameHeight) as? Double
         appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .automatic
     }
-
     private static func loadBindings(from defaults: UserDefaults) -> [HotkeyBinding] {
         guard let data = defaults.data(forKey: Keys.hotkeyBindings),
               let bindings = try? JSONDecoder().decode([HotkeyBinding].self, from: data)
         else {
             return DefaultHotkeyBindings.all()
         }
-
         let merged = mergeWithDefaults(stored: bindings)
-
         let storedIds = Set(bindings.map(\.id))
         let mergedIds = Set(merged.map(\.id))
         if storedIds != mergedIds {
@@ -475,32 +378,25 @@ final class SettingsStore {
                 defaults.set(cleanedData, forKey: Keys.hotkeyBindings)
             }
         }
-
         return merged
     }
-
     private static func mergeWithDefaults(stored: [HotkeyBinding]) -> [HotkeyBinding] {
         let defaults = DefaultHotkeyBindings.all()
         let defaultIds = Set(defaults.map(\.id))
-
         var result = stored.filter { defaultIds.contains($0.id) }
-
         let storedIds = Set(result.map(\.id))
         for defaultBinding in defaults where !storedIds.contains(defaultBinding.id) {
             result.append(defaultBinding)
         }
         return result
     }
-
     private func saveBindings() {
         guard let data = try? JSONEncoder().encode(hotkeyBindings) else { return }
         defaults.set(data, forKey: Keys.hotkeyBindings)
     }
-
     func resetHotkeysToDefaults() {
         hotkeyBindings = DefaultHotkeyBindings.all()
     }
-
     func updateBinding(for commandId: String, newBinding: KeyBinding) {
         guard let index = hotkeyBindings.firstIndex(where: { $0.id == commandId }) else { return }
         hotkeyBindings[index] = HotkeyBinding(
@@ -509,18 +405,15 @@ final class SettingsStore {
             binding: newBinding
         )
     }
-
     func findConflicts(for binding: KeyBinding, excluding commandId: String) -> [HotkeyBinding] {
         hotkeyBindings.filter { $0.id != commandId && $0.binding.conflicts(with: binding) }
     }
-
     func persistentWorkspaceNames() -> [String] {
         if !workspaceConfigurations.isEmpty {
             return workspaceConfigurations
                 .filter(\.isPersistent)
                 .map(\.name)
         }
-
         let parts = persistentWorkspacesRaw.split { $0 == "," || $0 == "\n" || $0 == "\r" }
         var result: [String] = []
         var seen: Set<String> = []
@@ -534,11 +427,8 @@ final class SettingsStore {
         }
         return result
     }
-
     func workspaceToMonitorAssignments() -> [String: [MonitorDescription]] {
         if !workspaceConfigurations.isEmpty {
-            // TODO: WorkspaceConfiguration currently models a single preferred monitor.
-            // Legacy raw assignments support multiple fallback monitors per workspace.
             var result: [String: [MonitorDescription]] = [:]
             for config in workspaceConfigurations {
                 if let desc = config.monitorAssignment.toMonitorDescription() {
@@ -547,7 +437,6 @@ final class SettingsStore {
             }
             return result
         }
-
         var result: [String: [MonitorDescription]] = [:]
         let lines = workspaceAssignmentsRaw.split(whereSeparator: \.isNewline)
         for line in lines {
@@ -562,7 +451,6 @@ final class SettingsStore {
             let namePart = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
             let monitorsPart = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard case let .success(name) = WorkspaceName.parse(namePart) else { continue }
-
             let monitorTokens = monitorsPart.split(separator: ",")
             let monitors: [MonitorDescription] = monitorTokens.compactMap { token in
                 let raw = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -574,7 +462,6 @@ final class SettingsStore {
         }
         return result
     }
-
     func layoutType(for workspaceName: String) -> LayoutType {
         if let config = workspaceConfigurations.first(where: { $0.name == workspaceName }) {
             if config.layoutType == .defaultLayout {
@@ -584,18 +471,15 @@ final class SettingsStore {
         }
         return defaultLayoutType
     }
-
     func displayName(for workspaceName: String) -> String {
         workspaceConfigurations.first(where: { $0.name == workspaceName })?.effectiveDisplayName ?? workspaceName
     }
-
     private static func loadWorkspaceConfigurations(from defaults: UserDefaults) -> [WorkspaceConfiguration] {
         if let data = defaults.data(forKey: Keys.workspaceConfigurations),
            let configs = try? JSONDecoder().decode([WorkspaceConfiguration].self, from: data)
         {
             return configs
         }
-
         let migrated = defaults.bool(forKey: Keys.workspaceSettingsMigrated)
         if !migrated {
             let configs = migrateFromLegacySettings(defaults: defaults)
@@ -607,20 +491,16 @@ final class SettingsStore {
                 return configs
             }
         }
-
         return []
     }
-
     private static func migrateFromLegacySettings(defaults: UserDefaults) -> [WorkspaceConfiguration] {
         var result: [WorkspaceConfiguration] = []
         var seen: Set<String> = []
-
         let persistentRaw = defaults.string(forKey: Keys.persistentWorkspaces) ?? ""
         let persistentNames = persistentRaw
             .split { $0 == "," || $0 == "\n" || $0 == "\r" }
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-
         let assignmentsRaw = defaults.string(forKey: Keys.workspaceAssignments) ?? ""
         var assignments: [String: MonitorAssignment] = [:]
         for line in assignmentsRaw.split(whereSeparator: \.isNewline) {
@@ -632,12 +512,10 @@ final class SettingsStore {
             guard parts.count == 2 else { continue }
             let name = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
             let monitorStr = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-
             let firstMonitor = monitorStr.split(separator: ",").first
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? monitorStr
             assignments[name] = MonitorAssignment.fromString(firstMonitor)
         }
-
         for name in persistentNames {
             guard !seen.contains(name) else { continue }
             guard case .success = WorkspaceName.parse(name) else { continue }
@@ -649,7 +527,6 @@ final class SettingsStore {
                 isPersistent: true
             ))
         }
-
         for (name, assignment) in assignments where !seen.contains(name) {
             guard case .success = WorkspaceName.parse(name) else { continue }
             seen.insert(name)
@@ -660,44 +537,34 @@ final class SettingsStore {
                 isPersistent: false
             ))
         }
-
         return result
     }
-
     private func saveWorkspaceConfigurations() {
         guard let data = try? JSONEncoder().encode(workspaceConfigurations) else { return }
         defaults.set(data, forKey: Keys.workspaceConfigurations)
         defaults.set(true, forKey: Keys.workspaceSettingsMigrated)
     }
-
     func barSettings(for monitor: Monitor) -> MonitorBarSettings? {
         MonitorSettingsStore.get(for: monitor, in: monitorBarSettings)
     }
-
     func barSettings(for monitorName: String) -> MonitorBarSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorBarSettings)
     }
-
     func updateBarSettings(_ settings: MonitorBarSettings) {
         MonitorSettingsStore.update(settings, in: &monitorBarSettings)
     }
-
     func removeBarSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorBarSettings)
     }
-
     func removeBarSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorBarSettings)
     }
-
     func resolvedBarSettings(for monitor: Monitor) -> ResolvedBarSettings {
         resolvedBarSettings(override: barSettings(for: monitor))
     }
-
     func resolvedBarSettings(for monitorName: String) -> ResolvedBarSettings {
         resolvedBarSettings(override: barSettings(for: monitorName))
     }
-
     private func resolvedBarSettings(override: MonitorBarSettings?) -> ResolvedBarSettings {
         return ResolvedBarSettings(
             enabled: override?.enabled ?? workspaceBarEnabled,
@@ -713,7 +580,6 @@ final class SettingsStore {
             yOffset: override?.yOffset ?? workspaceBarYOffset
         )
     }
-
     private static func loadAppRules(from defaults: UserDefaults) -> [AppRule] {
         guard let data = defaults.data(forKey: Keys.appRules),
               let rules = try? JSONDecoder().decode([AppRule].self, from: data)
@@ -722,20 +588,16 @@ final class SettingsStore {
         }
         return rules
     }
-
     private func saveAppRules() {
         guard let data = try? JSONEncoder().encode(appRules) else { return }
         defaults.set(data, forKey: Keys.appRules)
     }
-
     func orientationSettings(for monitor: Monitor) -> MonitorOrientationSettings? {
         MonitorSettingsStore.get(for: monitor, in: monitorOrientationSettings)
     }
-
     func orientationSettings(for monitorName: String) -> MonitorOrientationSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorOrientationSettings)
     }
-
     func effectiveOrientation(for monitor: Monitor) -> Monitor.Orientation {
         if let override = orientationSettings(for: monitor),
            let orientation = override.orientation
@@ -744,47 +606,36 @@ final class SettingsStore {
         }
         return monitor.autoOrientation
     }
-
     func updateOrientationSettings(_ settings: MonitorOrientationSettings) {
         MonitorSettingsStore.update(settings, in: &monitorOrientationSettings)
     }
-
     func removeOrientationSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorOrientationSettings)
     }
-
     func removeOrientationSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorOrientationSettings)
     }
-
     func niriSettings(for monitor: Monitor) -> MonitorNiriSettings? {
         MonitorSettingsStore.get(for: monitor, in: monitorNiriSettings)
     }
-
     func niriSettings(for monitorName: String) -> MonitorNiriSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorNiriSettings)
     }
-
     func updateNiriSettings(_ settings: MonitorNiriSettings) {
         MonitorSettingsStore.update(settings, in: &monitorNiriSettings)
     }
-
     func removeNiriSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorNiriSettings)
     }
-
     func removeNiriSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorNiriSettings)
     }
-
     func resolvedNiriSettings(for monitor: Monitor) -> ResolvedNiriSettings {
         resolvedNiriSettings(override: niriSettings(for: monitor))
     }
-
     func resolvedNiriSettings(for monitorName: String) -> ResolvedNiriSettings {
         resolvedNiriSettings(override: niriSettings(for: monitorName))
     }
-
     private func resolvedNiriSettings(override: MonitorNiriSettings?) -> ResolvedNiriSettings {
         return ResolvedNiriSettings(
             maxVisibleColumns: override?.maxVisibleColumns ?? niriMaxVisibleColumns,
@@ -795,35 +646,27 @@ final class SettingsStore {
             infiniteLoop: override?.infiniteLoop ?? niriInfiniteLoop
         )
     }
-
     func dwindleSettings(for monitor: Monitor) -> MonitorDwindleSettings? {
         MonitorSettingsStore.get(for: monitor, in: monitorDwindleSettings)
     }
-
     func dwindleSettings(for monitorName: String) -> MonitorDwindleSettings? {
         MonitorSettingsStore.get(for: monitorName, in: monitorDwindleSettings)
     }
-
     func updateDwindleSettings(_ settings: MonitorDwindleSettings) {
         MonitorSettingsStore.update(settings, in: &monitorDwindleSettings)
     }
-
     func removeDwindleSettings(for monitor: Monitor) {
         MonitorSettingsStore.remove(for: monitor, from: &monitorDwindleSettings)
     }
-
     func removeDwindleSettings(for monitorName: String) {
         MonitorSettingsStore.remove(for: monitorName, from: &monitorDwindleSettings)
     }
-
     func resolvedDwindleSettings(for monitor: Monitor) -> ResolvedDwindleSettings {
         resolvedDwindleSettings(override: dwindleSettings(for: monitor))
     }
-
     func resolvedDwindleSettings(for monitorName: String) -> ResolvedDwindleSettings {
         resolvedDwindleSettings(override: dwindleSettings(for: monitorName))
     }
-
     private func resolvedDwindleSettings(override: MonitorDwindleSettings?) -> ResolvedDwindleSettings {
         let useGlobalGaps = override?.useGlobalGaps ?? dwindleUseGlobalGaps
         return ResolvedDwindleSettings(
@@ -839,7 +682,6 @@ final class SettingsStore {
             outerGapRight: useGlobalGaps ? CGFloat(outerGapRight) : CGFloat(override?.outerGapRight ?? outerGapRight)
         )
     }
-
     private static func loadMouseWarpMonitorOrder(from defaults: UserDefaults) -> [String] {
         guard let data = defaults.data(forKey: Keys.mouseWarpMonitorOrder),
               let order = try? JSONDecoder().decode([String].self, from: data)
@@ -848,14 +690,11 @@ final class SettingsStore {
         }
         return order
     }
-
     private func saveMouseWarpMonitorOrder() {
         guard let data = try? JSONEncoder().encode(mouseWarpMonitorOrder) else { return }
         defaults.set(data, forKey: Keys.mouseWarpMonitorOrder)
     }
-
     static let defaultColumnWidthPresets: [Double] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
-
     static func validatedPresets(_ presets: [Double]) -> [Double] {
         var result: [Double] = []
         for value in presets.map({ min(1.0, max(0.05, $0)) }).sorted() {
@@ -869,7 +708,6 @@ final class SettingsStore {
         }
         return result
     }
-
     private static func loadNiriColumnWidthPresets(from defaults: UserDefaults) -> [Double] {
         guard let data = defaults.data(forKey: Keys.niriColumnWidthPresets),
               let presets = try? JSONDecoder().decode([Double].self, from: data)
@@ -878,13 +716,11 @@ final class SettingsStore {
         }
         return validatedPresets(presets)
     }
-
     private func saveNiriColumnWidthPresets() {
         guard let data = try? JSONEncoder().encode(niriColumnWidthPresets) else { return }
         defaults.set(data, forKey: Keys.niriColumnWidthPresets)
     }
 }
-
 private enum Keys {
     static let hotkeysEnabled = "settings.hotkeysEnabled"
     static let focusFollowsMouse = "settings.focusFollowsMouse"
@@ -895,12 +731,10 @@ private enum Keys {
     static let niriColumnWidthPresets = "settings.niriColumnWidthPresets"
     static let mouseWarpMargin = "settings.mouseWarp.margin"
     static let gapSize = "settings.gapSize"
-
     static let outerGapLeft = "settings.outerGapLeft"
     static let outerGapRight = "settings.outerGapRight"
     static let outerGapTop = "settings.outerGapTop"
     static let outerGapBottom = "settings.outerGapBottom"
-
     static let niriMaxWindowsPerColumn = "settings.niriMaxWindowsPerColumn"
     static let niriMaxVisibleColumns = "settings.niriMaxVisibleColumns"
     static let niriInfiniteLoop = "settings.niriInfiniteLoop"
@@ -908,7 +742,6 @@ private enum Keys {
     static let niriAlwaysCenterSingleColumn = "settings.niriAlwaysCenterSingleColumn"
     static let niriSingleWindowAspectRatio = "settings.niriSingleWindowAspectRatio"
     static let monitorNiriSettings = "settings.monitorNiriSettings"
-
     static let dwindleSmartSplit = "settings.dwindleSmartSplit"
     static let dwindleDefaultSplitRatio = "settings.dwindleDefaultSplitRatio"
     static let dwindleSplitWidthMultiplier = "settings.dwindleSplitWidthMultiplier"
@@ -916,22 +749,18 @@ private enum Keys {
     static let dwindleUseGlobalGaps = "settings.dwindleUseGlobalGaps"
     static let dwindleMoveToRootStable = "settings.dwindleMoveToRootStable"
     static let monitorDwindleSettings = "settings.monitorDwindleSettings"
-
     static let persistentWorkspaces = "settings.persistentWorkspaces"
     static let workspaceAssignments = "settings.workspaceAssignments"
     static let workspaceConfigurations = "settings.workspaceConfigurations"
     static let defaultLayoutType = "settings.defaultLayoutType"
     static let workspaceSettingsMigrated = "settings.workspaceSettingsMigrated"
-
     static let bordersEnabled = "settings.bordersEnabled"
     static let borderWidth = "settings.borderWidth"
     static let borderColorRed = "settings.borderColorRed"
     static let borderColorGreen = "settings.borderColorGreen"
     static let borderColorBlue = "settings.borderColorBlue"
     static let borderColorAlpha = "settings.borderColorAlpha"
-
     static let hotkeyBindings = "settings.hotkeyBindings"
-
     static let workspaceBarEnabled = "settings.workspaceBar.enabled"
     static let workspaceBarShowLabels = "settings.workspaceBar.showLabels"
     static let workspaceBarWindowLevel = "settings.workspaceBar.windowLevel"
@@ -944,7 +773,6 @@ private enum Keys {
     static let workspaceBarXOffset = "settings.workspaceBar.xOffset"
     static let workspaceBarYOffset = "settings.workspaceBar.yOffset"
     static let monitorBarSettings = "settings.workspaceBar.monitorSettings"
-
     static let appRules = "settings.appRules"
     static let monitorOrientationSettings = "settings.monitorOrientationSettings"
     static let preventSleepEnabled = "settings.preventSleepEnabled"
@@ -953,15 +781,12 @@ private enum Keys {
     static let scrollModifierKey = "settings.scrollModifierKey"
     static let gestureFingerCount = "settings.gestureFingerCount"
     static let gestureInvertDirection = "settings.gestureInvertDirection"
-
     static let menuAnywhereNativeEnabled = "settings.menuAnywhere.nativeEnabled"
     static let menuAnywherePaletteEnabled = "settings.menuAnywhere.paletteEnabled"
     static let menuAnywherePosition = "settings.menuAnywhere.position"
     static let menuAnywhereShowShortcuts = "settings.menuAnywhere.showShortcuts"
-
     static let hiddenBarEnabled = "settings.hiddenBar.enabled"
     static let hiddenBarIsCollapsed = "settings.hiddenBar.isCollapsed"
-
     static let quakeTerminalEnabled = "settings.quakeTerminal.enabled"
     static let quakeTerminalPosition = "settings.quakeTerminal.position"
     static let quakeTerminalWidthPercent = "settings.quakeTerminal.widthPercent"
@@ -975,6 +800,5 @@ private enum Keys {
     static let quakeTerminalCustomFrameY = "settings.quakeTerminal.customFrameY"
     static let quakeTerminalCustomFrameWidth = "settings.quakeTerminal.customFrameWidth"
     static let quakeTerminalCustomFrameHeight = "settings.quakeTerminal.customFrameHeight"
-
     static let appearanceMode = "settings.appearanceMode"
 }

@@ -1,5 +1,4 @@
 import SwiftUI
-
 extension View {
     @ViewBuilder
     func omniGlassEffect<S: Shape>(in shape: S, prominent: Bool = false) -> some View {
@@ -25,7 +24,6 @@ extension View {
             }
         }
     }
-
     @ViewBuilder
     func omniBackgroundExtensionEffect() -> some View {
         if #available(macOS 26.0, *) {

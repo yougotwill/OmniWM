@@ -1,11 +1,9 @@
 import CoreGraphics
 import Foundation
-
 struct MonitorBarSettings: MonitorSettingsType {
     let id: UUID
     var monitorName: String
     var monitorDisplayId: CGDirectDisplayID?
-
     var enabled: Bool?
     var showLabels: Bool?
     var deduplicateAppIcons: Bool?
@@ -17,7 +15,6 @@ struct MonitorBarSettings: MonitorSettingsType {
     var backgroundOpacity: Double?
     var xOffset: Double?
     var yOffset: Double?
-
     init(
         id: UUID = UUID(),
         monitorName: String,
@@ -49,13 +46,11 @@ struct MonitorBarSettings: MonitorSettingsType {
         self.xOffset = xOffset
         self.yOffset = yOffset
     }
-
     private enum CodingKeys: String, CodingKey {
         case id, monitorName, monitorDisplayId, enabled, showLabels, deduplicateAppIcons
         case hideEmptyWorkspaces, notchAware, position, windowLevel
         case height, backgroundOpacity, xOffset, yOffset
     }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -75,7 +70,6 @@ struct MonitorBarSettings: MonitorSettingsType {
         xOffset = try container.decodeIfPresent(Double.self, forKey: .xOffset)
         yOffset = try container.decodeIfPresent(Double.self, forKey: .yOffset)
     }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -94,7 +88,6 @@ struct MonitorBarSettings: MonitorSettingsType {
         try container.encodeIfPresent(yOffset, forKey: .yOffset)
     }
 }
-
 struct ResolvedBarSettings {
     let enabled: Bool
     let showLabels: Bool

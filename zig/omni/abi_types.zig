@@ -7,17 +7,14 @@ pub const OmniAxisInput = extern struct {
     has_fixed_value: u8,
     fixed_value: f64,
 };
-
 pub const OmniAxisOutput = extern struct {
     value: f64,
     was_constrained: u8,
 };
-
 pub const OmniSnapResult = extern struct {
     view_pos: f64,
     column_index: usize,
 };
-
 pub const OmniViewportGestureState = extern struct {
     is_trackpad: u8,
     history_count: usize,
@@ -29,7 +26,6 @@ pub const OmniViewportGestureState = extern struct {
     history_deltas: [OMNI_VIEWPORT_GESTURE_HISTORY_CAP]f64,
     history_timestamps: [OMNI_VIEWPORT_GESTURE_HISTORY_CAP]f64,
 };
-
 pub const OmniViewportTransitionResult = extern struct {
     resolved_column_index: usize,
     offset_delta: f64,
@@ -38,13 +34,11 @@ pub const OmniViewportTransitionResult = extern struct {
     snap_delta: f64,
     snap_to_target_immediately: u8,
 };
-
 pub const OmniViewportEnsureVisibleResult = extern struct {
     target_offset: f64,
     offset_delta: f64,
     is_noop: u8,
 };
-
 pub const OmniViewportScrollResult = extern struct {
     applied: u8,
     new_offset: f64,
@@ -52,21 +46,18 @@ pub const OmniViewportScrollResult = extern struct {
     has_selection_steps: u8,
     selection_steps: i64,
 };
-
 pub const OmniViewportGestureUpdateResult = extern struct {
     current_view_offset: f64,
     selection_progress: f64,
     has_selection_steps: u8,
     selection_steps: i64,
 };
-
 pub const OmniViewportGestureEndResult = extern struct {
     resolved_column_index: usize,
     spring_from: f64,
     spring_to: f64,
     initial_velocity: f64,
 };
-
 pub const OmniNiriRuntimeViewportStatus = extern struct {
     current_offset: f64,
     target_offset: f64,
@@ -75,34 +66,29 @@ pub const OmniNiriRuntimeViewportStatus = extern struct {
     is_gesture: u8,
     is_animating: u8,
 };
-
 pub const OmniBorderColor = extern struct {
     red: f64,
     green: f64,
     blue: f64,
     alpha: f64,
 };
-
 pub const OmniBorderConfig = extern struct {
     enabled: u8,
     width: f64,
     color: OmniBorderColor,
 };
-
 pub const OmniBorderRect = extern struct {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 };
-
 pub const OmniBorderDisplayInfo = extern struct {
     display_id: u32,
     appkit_frame: OmniBorderRect,
     window_server_frame: OmniBorderRect,
     backing_scale: f64,
 };
-
 pub const OmniBorderPresentationInput = extern struct {
     config: OmniBorderConfig,
     has_focused_window_id: u8,
@@ -119,7 +105,6 @@ pub const OmniBorderPresentationInput = extern struct {
     displays: [*c]const OmniBorderDisplayInfo,
     display_count: usize,
 };
-
 pub const OmniBorderSnapshotInput = extern struct {
     config: OmniBorderConfig,
     has_focused_window_id: u8,
@@ -137,7 +122,6 @@ pub const OmniBorderSnapshotInput = extern struct {
     displays: [*c]const OmniBorderDisplayInfo,
     display_count: usize,
 };
-
 pub const OmniNiriColumnInput = extern struct {
     span: f64,
     render_offset_x: f64,
@@ -147,7 +131,6 @@ pub const OmniNiriColumnInput = extern struct {
     window_start: usize,
     window_count: usize,
 };
-
 pub const OmniNiriWindowInput = extern struct {
     weight: f64,
     min_constraint: f64,
@@ -160,7 +143,6 @@ pub const OmniNiriWindowInput = extern struct {
     render_offset_x: f64,
     render_offset_y: f64,
 };
-
 pub const OmniNiriWindowOutput = extern struct {
     frame_x: f64,
     frame_y: f64,
@@ -175,7 +157,6 @@ pub const OmniNiriWindowOutput = extern struct {
     hide_side: u8,
     column_index: usize,
 };
-
 pub const OmniNiriColumnOutput = extern struct {
     frame_x: f64,
     frame_y: f64,
@@ -184,7 +165,6 @@ pub const OmniNiriColumnOutput = extern struct {
     hide_side: u8,
     is_visible: u8,
 };
-
 pub const OmniNiriHitTestWindow = extern struct {
     window_index: usize,
     column_index: usize,
@@ -194,24 +174,20 @@ pub const OmniNiriHitTestWindow = extern struct {
     frame_height: f64,
     is_fullscreen: u8,
 };
-
 pub const OmniNiriColumnDropzoneMeta = extern struct {
     is_valid: u8,
     min_y: f64,
     max_y: f64,
     post_insertion_count: usize,
 };
-
 pub const OmniNiriResizeHitResult = extern struct {
     window_index: i64,
     edges: u8,
 };
-
 pub const OmniNiriMoveTargetResult = extern struct {
     window_index: i64,
     insert_position: u8,
 };
-
 pub const OmniNiriDropzoneInput = extern struct {
     target_frame_x: f64,
     target_frame_y: f64,
@@ -223,7 +199,6 @@ pub const OmniNiriDropzoneInput = extern struct {
     insert_position: u8,
     post_insertion_count: usize,
 };
-
 pub const OmniNiriDropzoneResult = extern struct {
     frame_x: f64,
     frame_y: f64,
@@ -231,7 +206,6 @@ pub const OmniNiriDropzoneResult = extern struct {
     frame_height: f64,
     is_valid: u8,
 };
-
 pub const OmniNiriResizeInput = extern struct {
     edges: u8,
     start_x: f64,
@@ -248,7 +222,6 @@ pub const OmniNiriResizeInput = extern struct {
     has_original_view_offset: u8,
     original_view_offset: f64,
 };
-
 pub const OmniNiriResizeResult = extern struct {
     changed_width: u8,
     new_column_width: f64,
@@ -257,11 +230,9 @@ pub const OmniNiriResizeResult = extern struct {
     adjust_view_offset: u8,
     new_view_offset: f64,
 };
-
 pub const OmniUuid128 = extern struct {
     bytes: [16]u8,
 };
-
 pub const OmniNiriStateColumnInput = extern struct {
     column_id: OmniUuid128,
     window_start: usize,
@@ -275,7 +246,6 @@ pub const OmniNiriStateColumnInput = extern struct {
     saved_width_kind: u8,
     saved_width_value: f64,
 };
-
 pub const OmniNiriStateWindowInput = extern struct {
     window_id: OmniUuid128,
     column_id: OmniUuid128,
@@ -284,7 +254,6 @@ pub const OmniNiriStateWindowInput = extern struct {
     height_kind: u8,
     height_value: f64,
 };
-
 pub const OmniNiriRuntimeColumnState = extern struct {
     column_id: OmniUuid128,
     window_start: usize,
@@ -298,7 +267,6 @@ pub const OmniNiriRuntimeColumnState = extern struct {
     saved_width_kind: u8,
     saved_width_value: f64,
 };
-
 pub const OmniNiriRuntimeWindowState = extern struct {
     window_id: OmniUuid128,
     column_id: OmniUuid128,
@@ -307,14 +275,12 @@ pub const OmniNiriRuntimeWindowState = extern struct {
     height_kind: u8,
     height_value: f64,
 };
-
 pub const OmniNiriRuntimeStateExport = extern struct {
     columns: [*c]const OmniNiriRuntimeColumnState,
     column_count: usize,
     windows: [*c]const OmniNiriRuntimeWindowState,
     window_count: usize,
 };
-
 pub const OmniNiriDeltaColumnRecord = extern struct {
     column_id: OmniUuid128,
     order_index: usize,
@@ -329,7 +295,6 @@ pub const OmniNiriDeltaColumnRecord = extern struct {
     saved_width_kind: u8,
     saved_width_value: f64,
 };
-
 pub const OmniNiriDeltaWindowRecord = extern struct {
     window_id: OmniUuid128,
     column_id: OmniUuid128,
@@ -339,7 +304,6 @@ pub const OmniNiriDeltaWindowRecord = extern struct {
     height_kind: u8,
     height_value: f64,
 };
-
 pub const OmniNiriTxnDeltaExport = extern struct {
     columns: [*c]const OmniNiriDeltaColumnRecord,
     column_count: usize,
@@ -368,7 +332,6 @@ pub const OmniNiriTxnDeltaExport = extern struct {
     moved_window_id: OmniUuid128,
     generation: u64,
 };
-
 pub const OmniNiriStateValidationResult = extern struct {
     column_count: usize,
     window_count: usize,
@@ -376,7 +339,6 @@ pub const OmniNiriStateValidationResult = extern struct {
     first_invalid_window_index: i64,
     first_error_code: i32,
 };
-
 pub const OmniNiriNavigationRequest = extern struct {
     op: u8,
     direction: u8,
@@ -390,7 +352,6 @@ pub const OmniNiriNavigationRequest = extern struct {
     target_column_index: i64,
     target_window_index: i64,
 };
-
 pub const OmniNiriNavigationResult = extern struct {
     has_target: u8,
     target_window_index: i64,
@@ -403,11 +364,9 @@ pub const OmniNiriNavigationResult = extern struct {
     refresh_tabbed_visibility_source: u8,
     refresh_tabbed_visibility_target: u8,
 };
-
 pub const OmniNiriNavigationApplyRequest = extern struct {
     request: OmniNiriNavigationRequest,
 };
-
 pub const OmniNiriNavigationApplyResult = extern struct {
     applied: u8,
     has_target_window_id: u8,
@@ -423,7 +382,6 @@ pub const OmniNiriNavigationApplyResult = extern struct {
     refresh_tabbed_visibility_target: u8,
     refresh_target_column_id: OmniUuid128,
 };
-
 pub const OmniNiriMutationRequest = extern struct {
     op: u8,
     direction: u8,
@@ -441,7 +399,6 @@ pub const OmniNiriMutationRequest = extern struct {
     focused_window_index: i64,
     incoming_spawn_mode: u8,
 };
-
 pub const OmniNiriMutationEdit = extern struct {
     kind: u8,
     subject_index: i64,
@@ -451,7 +408,6 @@ pub const OmniNiriMutationEdit = extern struct {
     scalar_a: f64,
     scalar_b: f64,
 };
-
 pub const OmniNiriMutationResult = extern struct {
     applied: u8,
     has_target_window: u8,
@@ -462,7 +418,6 @@ pub const OmniNiriMutationResult = extern struct {
     edit_count: usize,
     edits: [OMNI_NIRI_MUTATION_MAX_EDITS]OmniNiriMutationEdit,
 };
-
 pub const OmniNiriMutationApplyRequest = extern struct {
     request: OmniNiriMutationRequest,
     has_incoming_window_id: u8,
@@ -472,7 +427,6 @@ pub const OmniNiriMutationApplyRequest = extern struct {
     has_placeholder_column_id: u8,
     placeholder_column_id: OmniUuid128,
 };
-
 pub const OmniNiriMutationApplyResult = extern struct {
     applied: u8,
     has_target_window_id: u8,
@@ -487,14 +441,12 @@ pub const OmniNiriMutationApplyResult = extern struct {
     delegate_move_column_id: OmniUuid128,
     delegate_move_direction: u8,
 };
-
 pub const OmniNiriWorkspaceRequest = extern struct {
     op: u8,
     source_window_index: i64,
     source_column_index: i64,
     max_visible_columns: i64,
 };
-
 pub const OmniNiriWorkspaceEdit = extern struct {
     kind: u8,
     subject_index: i64,
@@ -502,13 +454,11 @@ pub const OmniNiriWorkspaceEdit = extern struct {
     value_a: i64,
     value_b: i64,
 };
-
 pub const OmniNiriWorkspaceResult = extern struct {
     applied: u8,
     edit_count: usize,
     edits: [OMNI_NIRI_WORKSPACE_MAX_EDITS]OmniNiriWorkspaceEdit,
 };
-
 pub const OmniNiriWorkspaceApplyRequest = extern struct {
     request: OmniNiriWorkspaceRequest,
     has_target_created_column_id: u8,
@@ -516,7 +466,6 @@ pub const OmniNiriWorkspaceApplyRequest = extern struct {
     has_source_placeholder_column_id: u8,
     source_placeholder_column_id: OmniUuid128,
 };
-
 pub const OmniNiriWorkspaceApplyResult = extern struct {
     applied: u8,
     has_source_selection_window_id: u8,
@@ -526,7 +475,6 @@ pub const OmniNiriWorkspaceApplyResult = extern struct {
     has_moved_window_id: u8,
     moved_window_id: OmniUuid128,
 };
-
 pub const OmniNiriTxnNavigationPayload = extern struct {
     op: u8,
     direction: u8,
@@ -545,7 +493,6 @@ pub const OmniNiriTxnNavigationPayload = extern struct {
     focus_column_index: i64,
     focus_window_index: i64,
 };
-
 pub const OmniNiriTxnMutationPayload = extern struct {
     op: u8,
     direction: u8,
@@ -580,7 +527,6 @@ pub const OmniNiriTxnMutationPayload = extern struct {
     custom_f64_a: f64,
     custom_f64_b: f64,
 };
-
 pub const OmniNiriTxnWorkspacePayload = extern struct {
     op: u8,
     has_source_window_id: u8,
@@ -593,7 +539,6 @@ pub const OmniNiriTxnWorkspacePayload = extern struct {
     has_source_placeholder_column_id: u8,
     source_placeholder_column_id: OmniUuid128,
 };
-
 pub const OmniNiriTxnRequest = extern struct {
     kind: u8,
     navigation: OmniNiriTxnNavigationPayload,
@@ -603,7 +548,6 @@ pub const OmniNiriTxnRequest = extern struct {
     max_delta_windows: usize,
     max_removed_ids: usize,
 };
-
 pub const OmniNiriTxnResult = extern struct {
     applied: u8,
     kind: u8,
@@ -621,23 +565,19 @@ pub const OmniNiriTxnResult = extern struct {
     removed_column_count: usize,
     removed_window_count: usize,
 };
-
 pub const OmniNiriRuntimeSeedRequest = extern struct {
     columns: [*c]const OmniNiriRuntimeColumnState,
     column_count: usize,
     windows: [*c]const OmniNiriRuntimeWindowState,
     window_count: usize,
 };
-
 pub const OmniNiriRuntimeCommandRequest = extern struct {
     txn: OmniNiriTxnRequest,
     sample_time: f64,
 };
-
 pub const OmniNiriRuntimeCommandResult = extern struct {
     txn: OmniNiriTxnResult,
 };
-
 pub const OmniNiriRuntimeRenderRequest = extern struct {
     columns: [*c]const OmniNiriColumnInput,
     column_count: usize,
@@ -664,7 +604,6 @@ pub const OmniNiriRuntimeRenderRequest = extern struct {
     orientation: u8,
     sample_time: f64,
 };
-
 pub const OmniNiriRuntimeRenderOutput = extern struct {
     windows: [*c]OmniNiriWindowOutput,
     window_count: usize,
@@ -672,7 +611,6 @@ pub const OmniNiriRuntimeRenderOutput = extern struct {
     column_count: usize,
     animation_active: u8,
 };
-
 pub const OmniDwindleSeedNode = extern struct {
     node_id: OmniUuid128,
     parent_index: i64,
@@ -685,28 +623,24 @@ pub const OmniDwindleSeedNode = extern struct {
     window_id: OmniUuid128,
     is_fullscreen: u8,
 };
-
 pub const OmniDwindleSeedState = extern struct {
     root_node_index: i64,
     selected_node_index: i64,
     has_preselection: u8,
     preselection_direction: u8,
 };
-
 pub const OmniDwindleRuntimeSettings = extern struct {
     smart_split: u8,
     default_split_ratio: f64,
     split_width_multiplier: f64,
     inner_gap: f64,
 };
-
 pub const OmniDwindleRect = extern struct {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 };
-
 pub const OmniDwindleLayoutRequest = extern struct {
     screen_x: f64,
     screen_y: f64,
@@ -722,7 +656,6 @@ pub const OmniDwindleLayoutRequest = extern struct {
     single_window_aspect_tolerance: f64,
     runtime_settings: OmniDwindleRuntimeSettings,
 };
-
 pub const OmniDwindleWindowConstraint = extern struct {
     window_id: OmniUuid128,
     min_width: f64,
@@ -733,7 +666,6 @@ pub const OmniDwindleWindowConstraint = extern struct {
     has_max_height: u8,
     is_fixed: u8,
 };
-
 pub const OmniDwindleWindowFrame = extern struct {
     window_id: OmniUuid128,
     frame_x: f64,
@@ -741,71 +673,55 @@ pub const OmniDwindleWindowFrame = extern struct {
     frame_width: f64,
     frame_height: f64,
 };
-
 pub const OmniDwindleAddWindowPayload = extern struct {
     window_id: OmniUuid128,
     has_active_window_frame: u8,
     active_window_frame: OmniDwindleRect,
 };
-
 pub const OmniDwindleRemoveWindowPayload = extern struct {
     window_id: OmniUuid128,
 };
-
 pub const OmniDwindleSyncWindowsPayload = extern struct {
     window_ids: [*c]const OmniUuid128,
     window_count: usize,
 };
-
 pub const OmniDwindleMoveFocusPayload = extern struct {
     direction: u8,
 };
-
 pub const OmniDwindleSwapWindowsPayload = extern struct {
     direction: u8,
 };
-
 pub const OmniDwindleToggleFullscreenPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleToggleOrientationPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleResizeSelectedPayload = extern struct {
     delta: f64,
     direction: u8,
 };
-
 pub const OmniDwindleBalanceSizesPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleCycleSplitRatioPayload = extern struct {
     forward: u8,
 };
-
 pub const OmniDwindleMoveSelectionToRootPayload = extern struct {
     stable: u8,
 };
-
 pub const OmniDwindleSwapSplitPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleSetPreselectionPayload = extern struct {
     direction: u8,
 };
-
 pub const OmniDwindleClearPreselectionPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleValidateSelectionPayload = extern struct {
     unused: u8,
 };
-
 pub const OmniDwindleOpPayload = extern union {
     add_window: OmniDwindleAddWindowPayload,
     remove_window: OmniDwindleRemoveWindowPayload,
@@ -823,13 +739,11 @@ pub const OmniDwindleOpPayload = extern union {
     clear_preselection: OmniDwindleClearPreselectionPayload,
     validate_selection: OmniDwindleValidateSelectionPayload,
 };
-
 pub const OmniDwindleOpRequest = extern struct {
     op: u8,
     payload: OmniDwindleOpPayload,
     runtime_settings: OmniDwindleRuntimeSettings,
 };
-
 pub const OmniDwindleOpResult = extern struct {
     applied: u8,
     has_selected_window_id: u8,
@@ -840,55 +754,41 @@ pub const OmniDwindleOpResult = extern struct {
     preselection_direction: u8,
     removed_window_count: usize,
 };
-
 pub const MAX_WINDOWS: usize = 512;
-
 pub const OMNI_OK: i32 = 0;
 pub const OMNI_ERR_INVALID_ARGS: i32 = -1;
 pub const OMNI_ERR_OUT_OF_RANGE: i32 = -2;
 pub const OMNI_ERR_PLATFORM: i32 = -3;
-
 pub const OMNI_BORDER_UPDATE_MODE_COALESCED: u8 = 0;
 pub const OMNI_BORDER_UPDATE_MODE_REALTIME: u8 = 1;
-
 pub const OMNI_CENTER_NEVER: u8 = 0;
 pub const OMNI_CENTER_ALWAYS: u8 = 1;
 pub const OMNI_CENTER_ON_OVERFLOW: u8 = 2;
-
 pub const OMNI_VIEWPORT_GESTURE_HISTORY_CAP: usize = 64;
-
 pub const OMNI_NIRI_ORIENTATION_HORIZONTAL: u8 = 0;
 pub const OMNI_NIRI_ORIENTATION_VERTICAL: u8 = 1;
-
 pub const OMNI_NIRI_SIZING_NORMAL: u8 = 0;
 pub const OMNI_NIRI_SIZING_FULLSCREEN: u8 = 1;
-
 pub const OMNI_NIRI_HIDE_NONE: u8 = 0;
 pub const OMNI_NIRI_HIDE_LEFT: u8 = 1;
 pub const OMNI_NIRI_HIDE_RIGHT: u8 = 2;
-
 pub const OMNI_NIRI_RESIZE_EDGE_TOP: u8 = 0b0001;
 pub const OMNI_NIRI_RESIZE_EDGE_BOTTOM: u8 = 0b0010;
 pub const OMNI_NIRI_RESIZE_EDGE_LEFT: u8 = 0b0100;
 pub const OMNI_NIRI_RESIZE_EDGE_RIGHT: u8 = 0b1000;
-
 pub const OMNI_NIRI_INSERT_BEFORE: u8 = 0;
 pub const OMNI_NIRI_INSERT_AFTER: u8 = 1;
 pub const OMNI_NIRI_INSERT_SWAP: u8 = 2;
-
 pub const OMNI_NIRI_SPAWN_NEW_COLUMN: u8 = 0;
 pub const OMNI_NIRI_SPAWN_FOCUSED_COLUMN: u8 = 1;
-
 pub const OMNI_NIRI_DIRECTION_LEFT: u8 = 0;
 pub const OMNI_NIRI_DIRECTION_RIGHT: u8 = 1;
 pub const OMNI_NIRI_DIRECTION_UP: u8 = 2;
 pub const OMNI_NIRI_DIRECTION_DOWN: u8 = 3;
-
 pub const OMNI_NIRI_TXN_LAYOUT: u8 = 0;
 pub const OMNI_NIRI_TXN_NAVIGATION: u8 = 1;
 pub const OMNI_NIRI_TXN_MUTATION: u8 = 2;
 pub const OMNI_NIRI_TXN_WORKSPACE: u8 = 3;
-
 pub const OMNI_NIRI_NAV_OP_MOVE_BY_COLUMNS: u8 = 0;
 pub const OMNI_NIRI_NAV_OP_MOVE_VERTICAL: u8 = 1;
 pub const OMNI_NIRI_NAV_OP_FOCUS_TARGET: u8 = 2;
@@ -900,13 +800,10 @@ pub const OMNI_NIRI_NAV_OP_FOCUS_COLUMN_INDEX: u8 = 7;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_INDEX: u8 = 8;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_TOP: u8 = 9;
 pub const OMNI_NIRI_NAV_OP_FOCUS_WINDOW_BOTTOM: u8 = 10;
-
 pub const OMNI_NIRI_SIZE_KIND_PROPORTION: u8 = 0;
 pub const OMNI_NIRI_SIZE_KIND_FIXED: u8 = 1;
-
 pub const OMNI_NIRI_HEIGHT_KIND_AUTO: u8 = 0;
 pub const OMNI_NIRI_HEIGHT_KIND_FIXED: u8 = 1;
-
 pub const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL: u8 = 0;
 pub const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL: u8 = 1;
 pub const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL: u8 = 2;
@@ -933,11 +830,9 @@ pub const OMNI_NIRI_MUTATION_OP_SET_COLUMN_WIDTH: u8 = 22;
 pub const OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH: u8 = 23;
 pub const OMNI_NIRI_MUTATION_OP_SET_WINDOW_HEIGHT: u8 = 24;
 pub const OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE: u8 = 25;
-
 pub const OMNI_NIRI_MUTATION_NODE_NONE: u8 = 0;
 pub const OMNI_NIRI_MUTATION_NODE_WINDOW: u8 = 1;
 pub const OMNI_NIRI_MUTATION_NODE_COLUMN: u8 = 2;
-
 pub const OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE: u8 = 0;
 pub const OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS: u8 = 1;
 pub const OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX: u8 = 2;
@@ -957,13 +852,10 @@ pub const OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_INTO_COLUMN: u8 = 15;
 pub const OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_IN_NEW_COLUMN: u8 = 16;
 pub const OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX: u8 = 17;
 pub const OMNI_NIRI_MUTATION_EDIT_RESET_ALL_COLUMN_CACHED_WIDTHS: u8 = 18;
-
 pub const OMNI_NIRI_MUTATION_MAX_EDITS: usize = 32;
 pub const OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS: usize = 2;
-
 pub const OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE: u8 = 0;
 pub const OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE: u8 = 1;
-
 pub const OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_WINDOW: u8 = 0;
 pub const OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_NONE: u8 = 1;
 pub const OMNI_NIRI_WORKSPACE_EDIT_REUSE_TARGET_EMPTY_COLUMN: u8 = 2;
@@ -973,22 +865,16 @@ pub const OMNI_NIRI_WORKSPACE_EDIT_REMOVE_SOURCE_COLUMN_IF_EMPTY: u8 = 5;
 pub const OMNI_NIRI_WORKSPACE_EDIT_ENSURE_SOURCE_PLACEHOLDER_IF_NO_COLUMNS: u8 = 6;
 pub const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_WINDOW: u8 = 7;
 pub const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_COLUMN_FIRST_WINDOW: u8 = 8;
-
 pub const OMNI_NIRI_WORKSPACE_MAX_EDITS: usize = 16;
-
 pub const OMNI_DWINDLE_MAX_NODES: usize = (MAX_WINDOWS * 2) - 1;
-
 pub const OMNI_DWINDLE_NODE_SPLIT: u8 = 0;
 pub const OMNI_DWINDLE_NODE_LEAF: u8 = 1;
-
 pub const OMNI_DWINDLE_ORIENTATION_HORIZONTAL: u8 = 0;
 pub const OMNI_DWINDLE_ORIENTATION_VERTICAL: u8 = 1;
-
 pub const OMNI_DWINDLE_DIRECTION_LEFT: u8 = 0;
 pub const OMNI_DWINDLE_DIRECTION_RIGHT: u8 = 1;
 pub const OMNI_DWINDLE_DIRECTION_UP: u8 = 2;
 pub const OMNI_DWINDLE_DIRECTION_DOWN: u8 = 3;
-
 pub const OMNI_DWINDLE_OP_ADD_WINDOW: u8 = 0;
 pub const OMNI_DWINDLE_OP_REMOVE_WINDOW: u8 = 1;
 pub const OMNI_DWINDLE_OP_SYNC_WINDOWS: u8 = 2;

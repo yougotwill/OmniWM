@@ -1,7 +1,6 @@
 import CZigLayout
 import AppKit
 import Foundation
-
 final class ViewGesture {
     var gestureState: OmniViewportGestureState
     var currentViewOffset: Double {
@@ -17,41 +16,35 @@ final class ViewGesture {
         get { gestureState.delta_from_tracker }
         set { gestureState.delta_from_tracker = newValue }
     }
-
     init(currentViewOffset: Double, isTrackpad: Bool) {
         gestureState = ZigNiriViewportMath.gestureBegin(
             currentViewOffset: CGFloat(currentViewOffset),
             isTrackpad: isTrackpad
         )
     }
-
     func applyDelta(_ delta: Double) {
         gestureState.current_view_offset += delta
         gestureState.stationary_view_offset += delta
         gestureState.delta_from_tracker += delta
     }
-
     func current() -> Double {
         if let anim = animation {
             return currentViewOffset + (anim.value(at: CACurrentMediaTime()) - anim.from)
         }
         return currentViewOffset
     }
-
     func value(at time: TimeInterval) -> Double {
         if let anim = animation {
             return currentViewOffset + (anim.value(at: time) - anim.from)
         }
         return currentViewOffset
     }
-
     func currentVelocity() -> Double {
         if let anim = animation {
             return anim.velocity(at: CACurrentMediaTime())
         }
         return ZigNiriViewportMath.gestureVelocity(state: gestureState)
     }
-
     func velocity(at time: TimeInterval) -> Double {
         if let anim = animation {
             return anim.velocity(at: time)
@@ -59,12 +52,10 @@ final class ViewGesture {
         return ZigNiriViewportMath.gestureVelocity(state: gestureState)
     }
 }
-
 enum ViewOffset {
     case `static`(CGFloat)
     case gesture(ViewGesture)
     case spring(SpringAnimation)
-
     func current() -> CGFloat {
         switch self {
         case let .static(offset):
@@ -75,7 +66,6 @@ enum ViewOffset {
             CGFloat(anim.value(at: CACurrentMediaTime()))
         }
     }
-
     func value(at time: TimeInterval) -> CGFloat {
         switch self {
         case let .static(offset):
@@ -86,7 +76,6 @@ enum ViewOffset {
             CGFloat(anim.value(at: time))
         }
     }
-
     func target() -> CGFloat {
         switch self {
         case let .static(offset):
@@ -97,7 +86,6 @@ enum ViewOffset {
             CGFloat(anim.target)
         }
     }
-
     var isAnimating: Bool {
         switch self {
         case .spring:
@@ -108,17 +96,14 @@ enum ViewOffset {
             return false
         }
     }
-
     var isGesture: Bool {
         if case .gesture = self { return true }
         return false
     }
-
     var gestureRef: ViewGesture? {
         if case let .gesture(g) = self { return g }
         return nil
     }
-
     mutating func offset(delta: Double) {
         switch self {
         case .static(let offset):
@@ -129,7 +114,6 @@ enum ViewOffset {
             g.applyDelta(delta)
         }
     }
-
     func currentVelocity(at time: TimeInterval = CACurrentMediaTime()) -> Double {
         switch self {
         case .static:
@@ -140,7 +124,6 @@ enum ViewOffset {
             anim.velocity(at: time)
         }
     }
-
     func velocity(at time: TimeInterval) -> Double {
         switch self {
         case .static:
@@ -152,23 +135,14 @@ enum ViewOffset {
         }
     }
 }
-
 struct ViewportState {
     var activeColumnIndex: Int = 0
-
     var viewOffsetPixels: ViewOffset = .static(0.0)
-
     var selectionProgress: CGFloat = 0.0
-
     var selectedNodeId: NodeId?
-
     var viewOffsetToRestore: CGFloat?
-
     var activatePrevColumnOnRemoval: CGFloat?
-
     let springConfig: SpringConfig = .snappy
-
     var animationClock: AnimationClock?
-
     var displayRefreshRate: Double = 60.0
 }

@@ -2,19 +2,15 @@ const std = @import("std");
 const abi = @import("abi_types.zig");
 const geometry = @import("geometry.zig");
 const state_validation = @import("state_validation.zig");
-
 const OmniNiriStateColumnInput = abi.OmniNiriStateColumnInput;
 const OmniNiriStateWindowInput = abi.OmniNiriStateWindowInput;
 const OmniNiriWorkspaceRequest = abi.OmniNiriWorkspaceRequest;
 const OmniNiriWorkspaceResult = abi.OmniNiriWorkspaceResult;
 const OmniNiriWorkspaceEdit = abi.OmniNiriWorkspaceEdit;
-
 const OMNI_OK = abi.OMNI_OK;
 const OMNI_ERR_INVALID_ARGS = abi.OMNI_ERR_INVALID_ARGS;
-
 const OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE = abi.OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE;
 const OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE = abi.OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE;
-
 const OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_WINDOW = abi.OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_WINDOW;
 const OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_NONE = abi.OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_NONE;
 const OMNI_NIRI_WORKSPACE_EDIT_REUSE_TARGET_EMPTY_COLUMN = abi.OMNI_NIRI_WORKSPACE_EDIT_REUSE_TARGET_EMPTY_COLUMN;
@@ -24,15 +20,12 @@ const OMNI_NIRI_WORKSPACE_EDIT_REMOVE_SOURCE_COLUMN_IF_EMPTY = abi.OMNI_NIRI_WOR
 const OMNI_NIRI_WORKSPACE_EDIT_ENSURE_SOURCE_PLACEHOLDER_IF_NO_COLUMNS = abi.OMNI_NIRI_WORKSPACE_EDIT_ENSURE_SOURCE_PLACEHOLDER_IF_NO_COLUMNS;
 const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_WINDOW = abi.OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_WINDOW;
 const OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_COLUMN_FIRST_WINDOW = abi.OMNI_NIRI_WORKSPACE_EDIT_SET_TARGET_SELECTION_MOVED_COLUMN_FIRST_WINDOW;
-
 const OMNI_NIRI_WORKSPACE_MAX_EDITS = abi.OMNI_NIRI_WORKSPACE_MAX_EDITS;
-
 const SelectedContext = struct {
     column_index: usize,
     row_index: usize,
     window_index: usize,
 };
-
 fn initWorkspaceResult(out_result: *OmniNiriWorkspaceResult) void {
     const empty_edit = OmniNiriWorkspaceEdit{
         .kind = OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_NONE,
@@ -47,7 +40,6 @@ fn initWorkspaceResult(out_result: *OmniNiriWorkspaceResult) void {
         .edits = [_]OmniNiriWorkspaceEdit{empty_edit} ** OMNI_NIRI_WORKSPACE_MAX_EDITS,
     };
 }
-
 fn addWorkspaceEdit(
     out_result: *OmniNiriWorkspaceResult,
     kind: u8,
@@ -67,7 +59,6 @@ fn addWorkspaceEdit(
     out_result.edit_count += 1;
     return OMNI_OK;
 }
-
 fn snapshotHasAnyWindow(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -77,7 +68,6 @@ fn snapshotHasAnyWindow(
     }
     return false;
 }
-
 fn firstEmptyColumnIndex(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -87,7 +77,6 @@ fn firstEmptyColumnIndex(
     }
     return null;
 }
-
 fn parseWindowContextByIndexOptional(
     columns: [*c]const OmniNiriStateColumnInput,
     windows: [*c]const OmniNiriStateWindowInput,
@@ -97,26 +86,21 @@ fn parseWindowContextByIndexOptional(
 ) ?SelectedContext {
     const window_index = std.math.cast(usize, window_index_raw) orelse return null;
     if (window_index >= window_count) return null;
-
     const column_index = windows[window_index].column_index;
     if (column_index >= column_count) return null;
-
     const column = columns[column_index];
     if (!geometry.rangeContains(column.window_start, column.window_count, window_index)) return null;
-
     return .{
         .column_index = column_index,
         .row_index = window_index - column.window_start,
         .window_index = window_index,
     };
 }
-
 fn parseColumnIndexOptional(raw: i64, column_count: usize) ?usize {
     const idx = std.math.cast(usize, raw) orelse return null;
     if (idx >= column_count) return null;
     return idx;
 }
-
 fn fallbackWindowOnRemoval(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -124,35 +108,28 @@ fn fallbackWindowOnRemoval(
 ) ?usize {
     const source_column = columns[selected.column_index];
     if (source_column.window_count == 0) return null;
-
     if (selected.row_index + 1 < source_column.window_count) {
         return selected.window_index + 1;
     }
-
     if (selected.row_index > 0) {
         return selected.window_index - 1;
     }
-
     if (selected.column_index > 0) {
         const prev_column = columns[selected.column_index - 1];
         if (prev_column.window_count > 0) return prev_column.window_start;
     }
-
     if (selected.column_index + 1 < column_count) {
         const next_column = columns[selected.column_index + 1];
         if (next_column.window_count > 0) return next_column.window_start;
     }
-
     var idx: usize = 0;
     while (idx < column_count) : (idx += 1) {
         if (idx == selected.column_index) continue;
         const column = columns[idx];
         if (column.window_count > 0) return column.window_start;
     }
-
     return null;
 }
-
 fn fallbackWindowOnColumnMove(
     source_columns: [*c]const OmniNiriStateColumnInput,
     source_column_count: usize,
@@ -162,15 +139,12 @@ fn fallbackWindowOnColumnMove(
         const prev_column = source_columns[source_column_index - 1];
         if (prev_column.window_count > 0) return prev_column.window_start;
     }
-
     if (source_column_index + 1 < source_column_count) {
         const next_column = source_columns[source_column_index + 1];
         if (next_column.window_count > 0) return next_column.window_start;
     }
-
     return null;
 }
-
 fn addSourceSelectionEdit(
     out_result: *OmniNiriWorkspaceResult,
     window_index: ?usize,
@@ -186,7 +160,6 @@ fn addSourceSelectionEdit(
             -1,
         );
     }
-
     return addWorkspaceEdit(
         out_result,
         OMNI_NIRI_WORKSPACE_EDIT_SET_SOURCE_SELECTION_NONE,
@@ -196,7 +169,6 @@ fn addSourceSelectionEdit(
         -1,
     );
 }
-
 fn planMoveWindowToWorkspace(
     source_columns: [*c]const OmniNiriStateColumnInput,
     source_column_count: usize,
@@ -209,7 +181,6 @@ fn planMoveWindowToWorkspace(
 ) i32 {
     const max_visible_columns = std.math.cast(usize, request.max_visible_columns) orelse return OMNI_ERR_INVALID_ARGS;
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
-
     const source = parseWindowContextByIndexOptional(
         source_columns,
         source_windows,
@@ -217,7 +188,6 @@ fn planMoveWindowToWorkspace(
         source_window_count,
         request.source_window_index,
     ) orelse return OMNI_OK;
-
     const target_has_windows = snapshotHasAnyWindow(target_columns, target_column_count);
     if (!target_has_windows) {
         if (firstEmptyColumnIndex(target_columns, target_column_count)) |empty_idx| {
@@ -256,7 +226,6 @@ fn planMoveWindowToWorkspace(
         );
         if (create_rc != OMNI_OK) return create_rc;
     }
-
     const source_column_i64 = std.math.cast(i64, source.column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const cleanup_rc = addWorkspaceEdit(
         out_result,
@@ -267,11 +236,9 @@ fn planMoveWindowToWorkspace(
         -1,
     );
     if (cleanup_rc != OMNI_OK) return cleanup_rc;
-
     const fallback = fallbackWindowOnRemoval(source_columns, source_column_count, source);
     const source_selection_rc = addSourceSelectionEdit(out_result, fallback);
     if (source_selection_rc != OMNI_OK) return source_selection_rc;
-
     const source_window_i64 = std.math.cast(i64, source.window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const target_selection_rc = addWorkspaceEdit(
         out_result,
@@ -282,11 +249,9 @@ fn planMoveWindowToWorkspace(
         -1,
     );
     if (target_selection_rc != OMNI_OK) return target_selection_rc;
-
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planMoveColumnToWorkspace(
     source_columns: [*c]const OmniNiriStateColumnInput,
     source_column_count: usize,
@@ -296,7 +261,6 @@ fn planMoveColumnToWorkspace(
     out_result: *OmniNiriWorkspaceResult,
 ) i32 {
     const source_column_index = parseColumnIndexOptional(request.source_column_index, source_column_count) orelse return OMNI_OK;
-
     if (!snapshotHasAnyWindow(target_columns, target_column_count)) {
         const prune_rc = addWorkspaceEdit(
             out_result,
@@ -308,7 +272,6 @@ fn planMoveColumnToWorkspace(
         );
         if (prune_rc != OMNI_OK) return prune_rc;
     }
-
     if (source_column_count == 1) {
         const placeholder_rc = addWorkspaceEdit(
             out_result,
@@ -320,11 +283,9 @@ fn planMoveColumnToWorkspace(
         );
         if (placeholder_rc != OMNI_OK) return placeholder_rc;
     }
-
     const fallback = fallbackWindowOnColumnMove(source_columns, source_column_count, source_column_index);
     const source_selection_rc = addSourceSelectionEdit(out_result, fallback);
     if (source_selection_rc != OMNI_OK) return source_selection_rc;
-
     const source_column_i64 = std.math.cast(i64, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const target_selection_rc = addWorkspaceEdit(
         out_result,
@@ -335,11 +296,9 @@ fn planMoveColumnToWorkspace(
         -1,
     );
     if (target_selection_rc != OMNI_OK) return target_selection_rc;
-
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn validateSnapshot(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -361,7 +320,6 @@ fn validateSnapshot(
         &validation,
     );
 }
-
 pub fn omni_niri_workspace_plan_impl(
     source_columns: [*c]const OmniNiriStateColumnInput,
     source_column_count: usize,
@@ -379,7 +337,6 @@ pub fn omni_niri_workspace_plan_impl(
     if (source_window_count > 0 and source_windows == null) return OMNI_ERR_INVALID_ARGS;
     if (target_column_count > 0 and target_columns == null) return OMNI_ERR_INVALID_ARGS;
     if (target_window_count > 0 and target_windows == null) return OMNI_ERR_INVALID_ARGS;
-
     const source_validation_rc = validateSnapshot(
         source_columns,
         source_column_count,
@@ -387,7 +344,6 @@ pub fn omni_niri_workspace_plan_impl(
         source_window_count,
     );
     if (source_validation_rc != OMNI_OK) return source_validation_rc;
-
     const target_validation_rc = validateSnapshot(
         target_columns,
         target_column_count,
@@ -395,10 +351,8 @@ pub fn omni_niri_workspace_plan_impl(
         target_window_count,
     );
     if (target_validation_rc != OMNI_OK) return target_validation_rc;
-
     var resolved_result: OmniNiriWorkspaceResult = undefined;
     initWorkspaceResult(&resolved_result);
-
     const req = request[0];
     const rc: i32 = switch (req.op) {
         OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE => planMoveWindowToWorkspace(
@@ -422,7 +376,6 @@ pub fn omni_niri_workspace_plan_impl(
         else => OMNI_ERR_INVALID_ARGS,
     };
     if (rc != OMNI_OK) return rc;
-
     out_result[0] = resolved_result;
     return OMNI_OK;
 }

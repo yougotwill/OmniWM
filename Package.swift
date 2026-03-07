@@ -1,6 +1,5 @@
 // swift-tools-version: 6.2
 import PackageDescription
-
 let package = Package(
     name: "OmniWM",
     platforms: [
@@ -57,14 +56,6 @@ let package = Package(
             path: "Sources/OmniWMApp",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
-            ]
-        ),
-        .testTarget(
-            name: "OmniWMBenchmarkTests",
-            dependencies: ["OmniWM", "CZigLayout"],
-            path: "Tests/OmniWMBenchmarkTests",
-            resources: [
-                .process("Fixtures")
             ]
         )
     ]

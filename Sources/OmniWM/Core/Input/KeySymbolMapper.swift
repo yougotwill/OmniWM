@@ -1,6 +1,5 @@
 import Carbon
 import Foundation
-
 enum KeySymbolMapper {
     static func modifierSymbols(_ modifiers: UInt32) -> String {
         var symbols = ""
@@ -10,7 +9,6 @@ enum KeySymbolMapper {
         if modifiers & UInt32(cmdKey) != 0 { symbols += "⌘" }
         return symbols
     }
-
     static func keySymbol(_ keyCode: UInt32) -> String {
         switch Int(keyCode) {
         case kVK_ANSI_A: "A"
@@ -89,11 +87,9 @@ enum KeySymbolMapper {
         default: "?"
         }
     }
-
     static func displayString(keyCode: UInt32, modifiers: UInt32) -> String {
         modifierSymbols(modifiers) + keySymbol(keyCode)
     }
-
     static func modifierNames(_ modifiers: UInt32) -> String {
         var names: [String] = []
         if modifiers & UInt32(controlKey) != 0 { names.append("Control") }
@@ -102,7 +98,6 @@ enum KeySymbolMapper {
         if modifiers & UInt32(cmdKey) != 0 { names.append("Command") }
         return names.joined(separator: "+")
     }
-
     static func keyName(_ keyCode: UInt32) -> String {
         switch Int(keyCode) {
         case kVK_ANSI_A: "A"
@@ -181,13 +176,11 @@ enum KeySymbolMapper {
         default: "?"
         }
     }
-
     static func humanReadableString(keyCode: UInt32, modifiers: UInt32) -> String {
         let mods = modifierNames(modifiers)
         let key = keyName(keyCode)
         return mods.isEmpty ? key : mods + "+" + key
     }
-
     static let nameToKeyCode: [String: UInt32] = {
         var map: [String: UInt32] = [:]
         for code: UInt32 in 0...127 {
@@ -196,14 +189,12 @@ enum KeySymbolMapper {
         }
         return map
     }()
-
     static let nameToModifier: [String: UInt32] = [
         "Control": UInt32(controlKey),
         "Option": UInt32(optionKey),
         "Shift": UInt32(shiftKey),
         "Command": UInt32(cmdKey),
     ]
-
     static func fromHumanReadable(_ string: String) -> KeyBinding? {
         if string == "Unassigned" { return .unassigned }
         let parts = string.components(separatedBy: "+")

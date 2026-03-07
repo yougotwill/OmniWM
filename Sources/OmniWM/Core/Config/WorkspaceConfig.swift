@@ -1,12 +1,9 @@
 import Foundation
-
 enum LayoutType: String, Codable, CaseIterable, Identifiable {
     case defaultLayout = "default"
     case niri
     case dwindle
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .defaultLayout: "Default"
@@ -15,14 +12,12 @@ enum LayoutType: String, Codable, CaseIterable, Identifiable {
         }
     }
 }
-
 enum MonitorAssignment: Equatable, Hashable {
     case any
     case main
     case secondary
     case numbered(Int)
     case pattern(String)
-
     var displayName: String {
         switch self {
         case .any: "Any"
@@ -32,7 +27,6 @@ enum MonitorAssignment: Equatable, Hashable {
         case let .pattern(p): "Pattern: \(p)"
         }
     }
-
     func toMonitorDescription() -> MonitorDescription? {
         switch self {
         case .any: return nil
@@ -46,7 +40,6 @@ enum MonitorAssignment: Equatable, Hashable {
             return nil
         }
     }
-
     static func fromString(_ raw: String) -> MonitorAssignment {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         switch trimmed.lowercased() {
@@ -60,16 +53,13 @@ enum MonitorAssignment: Equatable, Hashable {
         }
     }
 }
-
 extension MonitorAssignment: Codable {
     private enum CodingKeys: String, CodingKey {
         case type, value
     }
-
     private enum AssignmentType: String, Codable {
         case any, main, secondary, numbered, pattern
     }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(AssignmentType.self, forKey: .type)
@@ -85,7 +75,6 @@ extension MonitorAssignment: Codable {
             self = .pattern(value)
         }
     }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -104,7 +93,6 @@ extension MonitorAssignment: Codable {
         }
     }
 }
-
 struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String
@@ -112,11 +100,9 @@ struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
     var monitorAssignment: MonitorAssignment
     var layoutType: LayoutType
     var isPersistent: Bool
-
     var effectiveDisplayName: String {
         displayName.flatMap { $0.isEmpty ? nil : $0 } ?? name
     }
-
     init(
         id: UUID = UUID(),
         name: String,
@@ -132,7 +118,6 @@ struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
         self.layoutType = layoutType
         self.isPersistent = isPersistent
     }
-
     func with(layoutType: LayoutType) -> WorkspaceConfiguration {
         var copy = self
         copy.layoutType = layoutType

@@ -8,7 +8,6 @@ const navigation = @import("navigation.zig");
 const mutation = @import("mutation.zig");
 const viewport = @import("viewport.zig");
 const workspace = @import("workspace.zig");
-
 const ID_SLOT_COUNT: usize = abi.MAX_WINDOWS * 2;
 const EMPTY_SLOT: i64 = -1;
 pub const RUNTIME_ANIMATION_NONE: u8 = 0;
@@ -27,7 +26,6 @@ const NIRI_VIEWPORT_REDUCED_DAMPING: f64 = 0.98;
 const NIRI_VIEWPORT_REDUCED_EPSILON: f64 = 0.4;
 const NIRI_VIEWPORT_REDUCED_VELOCITY_EPSILON: f64 = 6.0;
 const NIRI_VIEWPORT_MIN_REFRESH_RATE: f64 = 1.0;
-
 const RuntimeRenderFrame = extern struct {
     window_id: abi.OmniUuid128,
     x: f64,
@@ -35,7 +33,6 @@ const RuntimeRenderFrame = extern struct {
     width: f64,
     height: f64,
 };
-
 const RuntimeAnimationState = extern struct {
     active_kind: u8,
     started_at: f64,
@@ -43,7 +40,6 @@ const RuntimeAnimationState = extern struct {
     last_render_count: usize,
     last_render_frames: [abi.MAX_WINDOWS]RuntimeRenderFrame,
 };
-
 const RuntimeViewportSpringState = extern struct {
     from: f64,
     to: f64,
@@ -55,7 +51,6 @@ const RuntimeViewportSpringState = extern struct {
     velocity_epsilon: f64,
     display_refresh_rate: f64,
 };
-
 const RuntimeViewportState = extern struct {
     active_column_index: i64,
     static_offset: f64,
@@ -65,23 +60,19 @@ const RuntimeViewportState = extern struct {
     spring_active: u8,
     spring_state: RuntimeViewportSpringState,
 };
-
 pub const OmniNiriLayoutContext = extern struct {
     interaction_window_count: usize,
     interaction_windows: [abi.MAX_WINDOWS]abi.OmniNiriHitTestWindow,
     column_count: usize,
     column_dropzones: [abi.MAX_WINDOWS]abi.OmniNiriColumnDropzoneMeta,
-
     runtime_column_count: usize,
     runtime_columns: [abi.MAX_WINDOWS]abi.OmniNiriRuntimeColumnState,
     runtime_window_count: usize,
     runtime_windows: [abi.MAX_WINDOWS]abi.OmniNiriRuntimeWindowState,
-
     runtime_column_id_slots: [ID_SLOT_COUNT]i64,
     runtime_window_id_slots: [ID_SLOT_COUNT]i64,
     animation_state: RuntimeAnimationState,
     viewport_state: RuntimeViewportState,
-
     last_delta_generation: u64,
     last_delta_column_count: usize,
     last_delta_columns: [abi.MAX_WINDOWS]abi.OmniNiriDeltaColumnRecord,
@@ -109,7 +100,6 @@ pub const OmniNiriLayoutContext = extern struct {
     last_delta_has_moved_window_id: u8,
     last_delta_moved_window_id: abi.OmniUuid128,
 };
-
 const RuntimeState = struct {
     column_count: usize,
     columns: [abi.MAX_WINDOWS]abi.OmniNiriRuntimeColumnState,
@@ -118,7 +108,6 @@ const RuntimeState = struct {
     column_id_slots: [ID_SLOT_COUNT]i64,
     window_id_slots: [ID_SLOT_COUNT]i64,
 };
-
 const MutationApplyHints = struct {
     refresh_count: usize,
     refresh_column_ids: [abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS]abi.OmniUuid128,
@@ -127,7 +116,6 @@ const MutationApplyHints = struct {
     delegate_move_column_id: abi.OmniUuid128,
     delegate_move_direction: u8,
 };
-
 const TxnDeltaMeta = struct {
     refresh_count: usize,
     refresh_column_ids: [abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS]abi.OmniUuid128,
@@ -147,11 +135,9 @@ const TxnDeltaMeta = struct {
     has_moved_window_id: bool,
     moved_window_id: abi.OmniUuid128,
 };
-
 fn zeroUuid() abi.OmniUuid128 {
     return .{ .bytes = [_]u8{0} ** 16 };
 }
-
 fn zeroRuntimeRenderFrame() RuntimeRenderFrame {
     return .{
         .window_id = zeroUuid(),
@@ -161,7 +147,6 @@ fn zeroRuntimeRenderFrame() RuntimeRenderFrame {
         .height = 0,
     };
 }
-
 fn initRuntimeAnimationState() RuntimeAnimationState {
     return .{
         .active_kind = RUNTIME_ANIMATION_NONE,
@@ -171,7 +156,6 @@ fn initRuntimeAnimationState() RuntimeAnimationState {
         .last_render_frames = [_]RuntimeRenderFrame{zeroRuntimeRenderFrame()} ** abi.MAX_WINDOWS,
     };
 }
-
 fn zeroViewportGestureState() abi.OmniViewportGestureState {
     return .{
         .is_trackpad = 0,
@@ -185,7 +169,6 @@ fn zeroViewportGestureState() abi.OmniViewportGestureState {
         .history_timestamps = [_]f64{0} ** abi.OMNI_VIEWPORT_GESTURE_HISTORY_CAP,
     };
 }
-
 fn zeroRuntimeViewportSpringState() RuntimeViewportSpringState {
     return .{
         .from = 0,
@@ -199,7 +182,6 @@ fn zeroRuntimeViewportSpringState() RuntimeViewportSpringState {
         .display_refresh_rate = 60,
     };
 }
-
 fn initRuntimeViewportState() RuntimeViewportState {
     return .{
         .active_column_index = 0,
@@ -211,7 +193,6 @@ fn initRuntimeViewportState() RuntimeViewportState {
         .spring_state = zeroRuntimeViewportSpringState(),
     };
 }
-
 fn initMutationApplyHints() MutationApplyHints {
     return .{
         .refresh_count = 0,
@@ -222,7 +203,6 @@ fn initMutationApplyHints() MutationApplyHints {
         .delegate_move_direction = 0,
     };
 }
-
 fn initTxnDeltaMeta() TxnDeltaMeta {
     return .{
         .refresh_count = 0,
@@ -244,7 +224,6 @@ fn initTxnDeltaMeta() TxnDeltaMeta {
         .moved_window_id = zeroUuid(),
     };
 }
-
 fn resetDeltaBuffers(ctx: *OmniNiriLayoutContext) void {
     ctx.last_delta_generation = 0;
     ctx.last_delta_column_count = 0;
@@ -268,7 +247,6 @@ fn resetDeltaBuffers(ctx: *OmniNiriLayoutContext) void {
     ctx.last_delta_has_moved_window_id = 0;
     ctx.last_delta_moved_window_id = zeroUuid();
 }
-
 fn initMutationApplyResult(out_result: [*c]abi.OmniNiriMutationApplyResult) void {
     out_result[0] = .{
         .applied = 0,
@@ -285,7 +263,6 @@ fn initMutationApplyResult(out_result: [*c]abi.OmniNiriMutationApplyResult) void
         .delegate_move_direction = 0,
     };
 }
-
 fn initWorkspaceApplyResult(out_result: [*c]abi.OmniNiriWorkspaceApplyResult) void {
     out_result[0] = .{
         .applied = 0,
@@ -297,7 +274,6 @@ fn initWorkspaceApplyResult(out_result: [*c]abi.OmniNiriWorkspaceApplyResult) vo
         .moved_window_id = zeroUuid(),
     };
 }
-
 fn initNavigationApplyResult(out_result: [*c]abi.OmniNiriNavigationApplyResult) void {
     out_result[0] = .{
         .applied = 0,
@@ -315,30 +291,24 @@ fn initNavigationApplyResult(out_result: [*c]abi.OmniNiriNavigationApplyResult) 
         .refresh_target_column_id = zeroUuid(),
     };
 }
-
 fn resetContext(ctx: *OmniNiriLayoutContext) void {
     ctx.interaction_window_count = 0;
     ctx.column_count = 0;
-
     ctx.runtime_column_count = 0;
     ctx.runtime_window_count = 0;
-
     for (0..ID_SLOT_COUNT) |idx| {
         ctx.runtime_column_id_slots[idx] = EMPTY_SLOT;
         ctx.runtime_window_id_slots[idx] = EMPTY_SLOT;
     }
-
     ctx.animation_state = initRuntimeAnimationState();
     ctx.viewport_state = initRuntimeViewportState();
     resetDeltaBuffers(ctx);
 }
-
 fn clearRuntimeAnimationState(ctx: *OmniNiriLayoutContext) void {
     ctx.animation_state.active_kind = RUNTIME_ANIMATION_NONE;
     ctx.animation_state.started_at = 0;
     ctx.animation_state.duration = 0;
 }
-
 pub fn startRuntimeAnimation(
     ctx: *OmniNiriLayoutContext,
     kind: u8,
@@ -349,26 +319,21 @@ pub fn startRuntimeAnimation(
     ctx.animation_state.started_at = started_at;
     ctx.animation_state.duration = @max(0.01, duration);
 }
-
 fn syncRuntimeAnimationState(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
 ) bool {
     if (ctx.animation_state.active_kind == RUNTIME_ANIMATION_NONE) return false;
-
     const elapsed = @max(0.0, sample_time - ctx.animation_state.started_at);
     if (elapsed >= ctx.animation_state.duration) {
         clearRuntimeAnimationState(ctx);
         return false;
     }
-
     return true;
 }
-
 fn clampViewportRefreshRate(display_refresh_rate: f64) f64 {
     return @max(display_refresh_rate, NIRI_VIEWPORT_MIN_REFRESH_RATE);
 }
-
 fn viewportTargetOffset(ctx: *const OmniNiriLayoutContext) f64 {
     if (ctx.viewport_state.spring_active != 0) {
         return ctx.viewport_state.spring_state.to;
@@ -378,12 +343,10 @@ fn viewportTargetOffset(ctx: *const OmniNiriLayoutContext) f64 {
     }
     return ctx.viewport_state.static_offset;
 }
-
 fn viewportSpringAngularFrequency(response: f64) f64 {
     if (!(response > 0)) return 0;
     return (2.0 * std.math.pi) / response;
 }
-
 fn viewportSpringDisplacement(
     spring: *const RuntimeViewportSpringState,
     sample_time: f64,
@@ -391,11 +354,9 @@ fn viewportSpringDisplacement(
     const elapsed = @max(0.0, sample_time - spring.started_at);
     const omega0 = viewportSpringAngularFrequency(spring.response);
     if (!(omega0 > 0)) return 0;
-
     const zeta = spring.damping_fraction;
     const initial_displacement = spring.from - spring.to;
     const initial_velocity = spring.initial_velocity;
-
     if (zeta < 1.0) {
         const omega_d = omega0 * @sqrt(@max(0.0, 1.0 - zeta * zeta));
         if (!(omega_d > 0)) return 0;
@@ -405,13 +366,11 @@ fn viewportSpringDisplacement(
         const b = (initial_velocity + zeta * omega0 * initial_displacement) / omega_d;
         return exp_term * (initial_displacement * cos_term + b * sin_term);
     }
-
     if (@abs(zeta - 1.0) <= 0.0001) {
         const exp_term = std.math.exp(-omega0 * elapsed);
         const c2 = initial_velocity + omega0 * initial_displacement;
         return exp_term * (initial_displacement + c2 * elapsed);
     }
-
     const omega_z = omega0 * @sqrt(@max(0.0, zeta * zeta - 1.0));
     const r1 = -omega0 * zeta + omega_z;
     const r2 = -omega0 * zeta - omega_z;
@@ -422,7 +381,6 @@ fn viewportSpringDisplacement(
     const c1 = initial_displacement - c2;
     return c1 * std.math.exp(r1 * elapsed) + c2 * std.math.exp(r2 * elapsed);
 }
-
 fn viewportSpringVelocityValue(
     spring: *const RuntimeViewportSpringState,
     sample_time: f64,
@@ -430,11 +388,9 @@ fn viewportSpringVelocityValue(
     const elapsed = @max(0.0, sample_time - spring.started_at);
     const omega0 = viewportSpringAngularFrequency(spring.response);
     if (!(omega0 > 0)) return 0;
-
     const zeta = spring.damping_fraction;
     const initial_displacement = spring.from - spring.to;
     const initial_velocity = spring.initial_velocity;
-
     if (zeta < 1.0) {
         const omega_d = omega0 * @sqrt(@max(0.0, 1.0 - zeta * zeta));
         if (!(omega_d > 0)) return 0;
@@ -446,13 +402,11 @@ fn viewportSpringVelocityValue(
             ((-zeta * omega0) * (initial_displacement * cos_term + b * sin_term) +
             (-initial_displacement * omega_d * sin_term + b * omega_d * cos_term));
     }
-
     if (@abs(zeta - 1.0) <= 0.0001) {
         const exp_term = std.math.exp(-omega0 * elapsed);
         const c2 = initial_velocity + omega0 * initial_displacement;
         return exp_term * (initial_velocity - omega0 * c2 * elapsed);
     }
-
     const omega_z = omega0 * @sqrt(@max(0.0, zeta * zeta - 1.0));
     const r1 = -omega0 * zeta + omega_z;
     const r2 = -omega0 * zeta - omega_z;
@@ -463,14 +417,12 @@ fn viewportSpringVelocityValue(
     const c1 = initial_displacement - c2;
     return c1 * r1 * std.math.exp(r1 * elapsed) + c2 * r2 * std.math.exp(r2 * elapsed);
 }
-
 fn viewportSpringValue(
     spring: *const RuntimeViewportSpringState,
     sample_time: f64,
 ) f64 {
     return spring.to + viewportSpringDisplacement(spring, sample_time);
 }
-
 fn viewportSpringIsComplete(
     spring: *const RuntimeViewportSpringState,
     sample_time: f64,
@@ -483,17 +435,14 @@ fn viewportSpringIsComplete(
     return @abs(position - spring.to) < scaled_epsilon and
         @abs(velocity) < scaled_velocity_epsilon;
 }
-
 fn clearViewportSpring(ctx: *OmniNiriLayoutContext) void {
     ctx.viewport_state.spring_active = 0;
     ctx.viewport_state.spring_state = zeroRuntimeViewportSpringState();
 }
-
 fn clearViewportGesture(ctx: *OmniNiriLayoutContext) void {
     ctx.viewport_state.gesture_active = 0;
     ctx.viewport_state.gesture_state = zeroViewportGestureState();
 }
-
 fn sampleViewportOffset(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -506,14 +455,11 @@ fn sampleViewportOffset(
         }
         return viewportSpringValue(&ctx.viewport_state.spring_state, sample_time);
     }
-
     if (ctx.viewport_state.gesture_active != 0) {
         return ctx.viewport_state.gesture_state.current_view_offset;
     }
-
     return ctx.viewport_state.static_offset;
 }
-
 fn currentViewportVelocity(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -526,7 +472,6 @@ fn currentViewportVelocity(
         }
         return viewportSpringVelocityValue(&ctx.viewport_state.spring_state, sample_time);
     }
-
     if (ctx.viewport_state.gesture_active != 0) {
         var velocity: f64 = 0;
         const rc = viewport.omni_viewport_gesture_velocity_impl(
@@ -535,32 +480,26 @@ fn currentViewportVelocity(
         );
         return if (rc == abi.OMNI_OK) velocity else 0;
     }
-
     return 0;
 }
-
 fn shiftViewportOffset(
     ctx: *OmniNiriLayoutContext,
     delta: f64,
 ) void {
     if (@abs(delta) <= std.math.floatEps(f64)) return;
-
     if (ctx.viewport_state.spring_active != 0) {
         ctx.viewport_state.spring_state.from += delta;
         ctx.viewport_state.spring_state.to += delta;
         return;
     }
-
     if (ctx.viewport_state.gesture_active != 0) {
         ctx.viewport_state.gesture_state.current_view_offset += delta;
         ctx.viewport_state.gesture_state.stationary_view_offset += delta;
         ctx.viewport_state.gesture_state.delta_from_tracker += delta;
         return;
     }
-
     ctx.viewport_state.static_offset += delta;
 }
-
 fn configureViewportSpring(
     spring: *RuntimeViewportSpringState,
     from: f64,
@@ -582,7 +521,6 @@ fn configureViewportSpring(
         .display_refresh_rate = clampViewportRefreshRate(display_refresh_rate),
     };
 }
-
 fn startViewportSpring(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -605,7 +543,6 @@ fn startViewportSpring(
         reduce_motion,
     );
 }
-
 fn cancelViewportMotion(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -614,7 +551,6 @@ fn cancelViewportMotion(
     clearViewportSpring(ctx);
     clearViewportGesture(ctx);
 }
-
 fn viewportAnimationActive(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -622,7 +558,6 @@ fn viewportAnimationActive(
     _ = sampleViewportOffset(ctx, sample_time);
     return ctx.viewport_state.spring_active != 0 or ctx.viewport_state.gesture_active != 0;
 }
-
 fn rectFromWindowOutput(window: abi.OmniNiriWindowOutput) geometry.Rect {
     return .{
         .x = window.frame_x,
@@ -631,7 +566,6 @@ fn rectFromWindowOutput(window: abi.OmniNiriWindowOutput) geometry.Rect {
         .height = window.frame_height,
     };
 }
-
 fn applyAnimatedRectToWindowOutput(
     window: *allowzero abi.OmniNiriWindowOutput,
     rect: geometry.Rect,
@@ -643,7 +577,6 @@ fn applyAnimatedRectToWindowOutput(
     window.animated_width = rounded.width;
     window.animated_height = rounded.height;
 }
-
 fn interpolateRect(from: geometry.Rect, to: geometry.Rect, progress: f64) geometry.Rect {
     const clamped = geometry.clampFloat(progress, 0.0, 1.0);
     return .{
@@ -653,7 +586,6 @@ fn interpolateRect(from: geometry.Rect, to: geometry.Rect, progress: f64) geomet
         .height = from.height + (to.height - from.height) * clamped,
     };
 }
-
 fn shiftedRect(rect: geometry.Rect, orientation: u8, offset: f64) geometry.Rect {
     return if (orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
         .{
@@ -670,7 +602,6 @@ fn shiftedRect(rect: geometry.Rect, orientation: u8, offset: f64) geometry.Rect 
             .height = rect.height,
         };
 }
-
 fn findLastRenderFrame(
     animation: *const RuntimeAnimationState,
     window_id: abi.OmniUuid128,
@@ -682,7 +613,6 @@ fn findLastRenderFrame(
     }
     return null;
 }
-
 fn snapshotRuntimeRenderFrames(
     ctx: *OmniNiriLayoutContext,
     windows: [*c]const abi.OmniNiriWindowOutput,
@@ -700,7 +630,6 @@ fn snapshotRuntimeRenderFrames(
         };
     }
 }
-
 pub fn applyRuntimeAnimationToOutputs(
     ctx: *OmniNiriLayoutContext,
     sample_time: f64,
@@ -714,13 +643,11 @@ pub fn applyRuntimeAnimationToOutputs(
         snapshotRuntimeRenderFrames(ctx, windows, window_count);
         return @intFromBool(viewportAnimationActive(ctx, sample_time));
     }
-
     const progress = geometry.clampFloat(
         (sample_time - ctx.animation_state.started_at) / ctx.animation_state.duration,
         0.0,
         1.0,
     );
-
     switch (ctx.animation_state.active_kind) {
         RUNTIME_ANIMATION_MUTATION => {
             for (0..window_count) |idx| {
@@ -754,11 +681,9 @@ pub fn applyRuntimeAnimationToOutputs(
         },
         else => {},
     }
-
     snapshotRuntimeRenderFrames(ctx, windows, window_count);
     return 1;
 }
-
 pub fn omni_niri_ctx_viewport_status_impl(
     context: [*c]OmniNiriLayoutContext,
     sample_time: f64,
@@ -766,7 +691,6 @@ pub fn omni_niri_ctx_viewport_status_impl(
 ) i32 {
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_status == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     out_status[0] = .{
         .current_offset = sampleViewportOffset(ctx, sample_time),
         .target_offset = viewportTargetOffset(ctx),
@@ -777,14 +701,12 @@ pub fn omni_niri_ctx_viewport_status_impl(
     };
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_begin_gesture_impl(
     context: [*c]OmniNiriLayoutContext,
     sample_time: f64,
     is_trackpad: u8,
 ) i32 {
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
-
     cancelViewportMotion(ctx, sample_time);
     const rc = viewport.omni_viewport_gesture_begin_impl(
         ctx.viewport_state.static_offset,
@@ -792,12 +714,10 @@ pub fn omni_niri_ctx_viewport_begin_gesture_impl(
         @ptrCast(&ctx.viewport_state.gesture_state),
     );
     if (rc != abi.OMNI_OK) return rc;
-
     ctx.viewport_state.gesture_active = 1;
     ctx.viewport_state.selection_progress = 0;
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_update_gesture_impl(
     context: [*c]OmniNiriLayoutContext,
     spans: [*c]const f64,
@@ -811,7 +731,6 @@ pub fn omni_niri_ctx_viewport_update_gesture_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
-
     const clamped_active_index: usize = if (span_count == 0)
         0
     else blk: {
@@ -821,7 +740,6 @@ pub fn omni_niri_ctx_viewport_update_gesture_impl(
             @as(usize, @intCast(ctx.viewport_state.active_column_index));
         break :blk @min(current, span_count - 1);
     };
-
     const rc = viewport.omni_viewport_gesture_update_impl(
         @ptrCast(&ctx.viewport_state.gesture_state),
         spans,
@@ -835,11 +753,9 @@ pub fn omni_niri_ctx_viewport_update_gesture_impl(
         out_result,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     ctx.viewport_state.selection_progress = out_result[0].selection_progress;
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_end_gesture_impl(
     context: [*c]OmniNiriLayoutContext,
     spans: [*c]const f64,
@@ -856,7 +772,6 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (ctx.viewport_state.gesture_active == 0) return abi.OMNI_ERR_INVALID_ARGS;
-
     const clamped_active_index: usize = if (span_count == 0)
         0
     else blk: {
@@ -866,7 +781,6 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
             @as(usize, @intCast(ctx.viewport_state.active_column_index));
         break :blk @min(current, span_count - 1);
     };
-
     const rc = viewport.omni_viewport_gesture_end_impl(
         @ptrCast(&ctx.viewport_state.gesture_state),
         spans,
@@ -879,7 +793,6 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
         out_result,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     ctx.viewport_state.active_column_index = @intCast(out_result[0].resolved_column_index);
     ctx.viewport_state.selection_progress = 0;
     startViewportSpring(
@@ -893,7 +806,6 @@ pub fn omni_niri_ctx_viewport_end_gesture_impl(
     );
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_transition_to_column_impl(
     context: [*c]OmniNiriLayoutContext,
     spans: [*c]const f64,
@@ -913,7 +825,6 @@ pub fn omni_niri_ctx_viewport_transition_to_column_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (span_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     const current_active_index: usize = blk: {
         const current = if (ctx.viewport_state.active_column_index < 0)
             0
@@ -921,7 +832,6 @@ pub fn omni_niri_ctx_viewport_transition_to_column_impl(
             @as(usize, @intCast(ctx.viewport_state.active_column_index));
         break :blk @min(current, span_count - 1);
     };
-
     const rc = viewport.omni_viewport_transition_to_column_impl(
         spans,
         span_count,
@@ -937,15 +847,12 @@ pub fn omni_niri_ctx_viewport_transition_to_column_impl(
         out_result,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     shiftViewportOffset(ctx, out_result[0].offset_delta);
     ctx.viewport_state.active_column_index = @intCast(out_result[0].resolved_column_index);
-
     if (out_result[0].snap_to_target_immediately != 0) {
         shiftViewportOffset(ctx, out_result[0].snap_delta);
         return abi.OMNI_OK;
     }
-
     if (animate != 0) {
         const current_offset = sampleViewportOffset(ctx, sample_time);
         const velocity = currentViewportVelocity(ctx, sample_time);
@@ -962,10 +869,8 @@ pub fn omni_niri_ctx_viewport_transition_to_column_impl(
         cancelViewportMotion(ctx, sample_time);
         ctx.viewport_state.static_offset = out_result[0].target_offset;
     }
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_set_offset_impl(
     context: [*c]OmniNiriLayoutContext,
     offset: f64,
@@ -976,7 +881,6 @@ pub fn omni_niri_ctx_viewport_set_offset_impl(
     ctx.viewport_state.static_offset = offset;
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_viewport_cancel_impl(
     context: [*c]OmniNiriLayoutContext,
     sample_time: f64,
@@ -986,47 +890,39 @@ pub fn omni_niri_ctx_viewport_cancel_impl(
     ctx.viewport_state.selection_progress = 0;
     return abi.OMNI_OK;
 }
-
 fn asMutableContext(context: [*c]OmniNiriLayoutContext) ?*OmniNiriLayoutContext {
     if (context == null) return null;
     const ptr: *OmniNiriLayoutContext = @ptrCast(&context[0]);
     return ptr;
 }
-
 fn asConstContext(context: [*c]const OmniNiriLayoutContext) ?*const OmniNiriLayoutContext {
     if (context == null) return null;
     const ptr: *const OmniNiriLayoutContext = @ptrCast(&context[0]);
     return ptr;
 }
-
 fn contextHitWindowsPtr(ctx: *const OmniNiriLayoutContext) [*c]const abi.OmniNiriHitTestWindow {
     if (ctx.interaction_window_count == 0) return null;
     const ptr: *const abi.OmniNiriHitTestWindow = &ctx.interaction_windows[0];
     return @ptrCast(ptr);
 }
-
 fn runtimeColumnsStatePtr(state: *const RuntimeState) [*c]const abi.OmniNiriStateColumnInput {
     if (state.column_count == 0) return null;
     const ptr: *const abi.OmniNiriStateColumnInput = @ptrCast(&state.columns[0]);
     return @ptrCast(ptr);
 }
-
 fn runtimeWindowsStatePtr(state: *const RuntimeState) [*c]const abi.OmniNiriStateWindowInput {
     if (state.window_count == 0) return null;
     const ptr: *const abi.OmniNiriStateWindowInput = @ptrCast(&state.windows[0]);
     return @ptrCast(ptr);
 }
-
 fn clearSlots(slots: *[ID_SLOT_COUNT]i64) void {
     for (0..ID_SLOT_COUNT) |idx| {
         slots[idx] = EMPTY_SLOT;
     }
 }
-
 fn uuidEqual(a: abi.OmniUuid128, b: abi.OmniUuid128) bool {
     return std.mem.eql(u8, a.bytes[0..], b.bytes[0..]);
 }
-
 fn uuidHash(uuid: abi.OmniUuid128) u64 {
     var hash: u64 = 1469598103934665603;
     for (uuid.bytes) |byte| {
@@ -1035,16 +931,13 @@ fn uuidHash(uuid: abi.OmniUuid128) u64 {
     }
     return hash;
 }
-
 fn slotForUuid(uuid: abi.OmniUuid128) usize {
     const hashed = uuidHash(uuid) % @as(u64, ID_SLOT_COUNT);
     return @intCast(hashed);
 }
-
 fn insertColumnIdSlot(state: *RuntimeState, column_index: usize) i32 {
     const column_id = state.columns[column_index].column_id;
     var slot = slotForUuid(column_id);
-
     var probe: usize = 0;
     while (probe < ID_SLOT_COUNT) : (probe += 1) {
         const raw = state.column_id_slots[slot];
@@ -1052,21 +945,16 @@ fn insertColumnIdSlot(state: *RuntimeState, column_index: usize) i32 {
             state.column_id_slots[slot] = std.math.cast(i64, column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             return abi.OMNI_OK;
         }
-
         const existing_index = std.math.cast(usize, raw) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (existing_index >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
         if (uuidEqual(state.columns[existing_index].column_id, column_id)) return abi.OMNI_ERR_INVALID_ARGS;
-
         slot = (slot + 1) % ID_SLOT_COUNT;
     }
-
     return abi.OMNI_ERR_OUT_OF_RANGE;
 }
-
 fn insertWindowIdSlot(state: *RuntimeState, window_index: usize) i32 {
     const window_id = state.windows[window_index].window_id;
     var slot = slotForUuid(window_id);
-
     var probe: usize = 0;
     while (probe < ID_SLOT_COUNT) : (probe += 1) {
         const raw = state.window_id_slots[slot];
@@ -1074,96 +962,74 @@ fn insertWindowIdSlot(state: *RuntimeState, window_index: usize) i32 {
             state.window_id_slots[slot] = std.math.cast(i64, window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             return abi.OMNI_OK;
         }
-
         const existing_index = std.math.cast(usize, raw) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (existing_index >= state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
         if (uuidEqual(state.windows[existing_index].window_id, window_id)) return abi.OMNI_ERR_INVALID_ARGS;
-
         slot = (slot + 1) % ID_SLOT_COUNT;
     }
-
     return abi.OMNI_ERR_OUT_OF_RANGE;
 }
-
 fn rebuildRuntimeIdCaches(state: *RuntimeState) i32 {
     clearSlots(&state.column_id_slots);
     clearSlots(&state.window_id_slots);
-
     for (0..state.column_count) |idx| {
         const rc = insertColumnIdSlot(state, idx);
         if (rc != abi.OMNI_OK) return rc;
     }
-
     for (0..state.window_count) |idx| {
         const rc = insertWindowIdSlot(state, idx);
         if (rc != abi.OMNI_OK) return rc;
     }
-
     return abi.OMNI_OK;
 }
-
 fn findColumnIndexById(state: *const RuntimeState, column_id: abi.OmniUuid128) ?usize {
     if (state.column_count == 0) return null;
     var slot = slotForUuid(column_id);
-
     var probe: usize = 0;
     while (probe < ID_SLOT_COUNT) : (probe += 1) {
         const raw = state.column_id_slots[slot];
         if (raw == EMPTY_SLOT) return null;
-
         const idx = std.math.cast(usize, raw) orelse return null;
         if (idx < state.column_count and uuidEqual(state.columns[idx].column_id, column_id)) {
             return idx;
         }
-
         slot = (slot + 1) % ID_SLOT_COUNT;
     }
-
     return null;
 }
-
 fn findColumnIndexByIdLinear(state: *const RuntimeState, column_id: abi.OmniUuid128) ?usize {
     for (0..state.column_count) |idx| {
         if (uuidEqual(state.columns[idx].column_id, column_id)) return idx;
     }
     return null;
 }
-
 fn findColumnIndexByIdCoherent(state: *const RuntimeState, column_id: abi.OmniUuid128) ?usize {
     return findColumnIndexById(state, column_id) orelse findColumnIndexByIdLinear(state, column_id);
 }
-
 fn findWindowIndexById(state: *const RuntimeState, window_id: abi.OmniUuid128) ?usize {
     if (state.window_count == 0) return null;
     var slot = slotForUuid(window_id);
-
     var probe: usize = 0;
     while (probe < ID_SLOT_COUNT) : (probe += 1) {
         const raw = state.window_id_slots[slot];
         if (raw == EMPTY_SLOT) return null;
-
         const idx = std.math.cast(usize, raw) orelse return null;
         if (idx < state.window_count and uuidEqual(state.windows[idx].window_id, window_id)) {
             return idx;
         }
-
         slot = (slot + 1) % ID_SLOT_COUNT;
     }
-
     return null;
 }
-
 fn findWindowIndexByIdLinear(state: *const RuntimeState, window_id: abi.OmniUuid128) ?usize {
     for (0..state.window_count) |idx| {
         if (uuidEqual(state.windows[idx].window_id, window_id)) return idx;
     }
     return null;
 }
-
 fn findWindowIndexByIdCoherent(state: *const RuntimeState, window_id: abi.OmniUuid128) ?usize {
     return findWindowIndexById(state, window_id) orelse findWindowIndexByIdLinear(state, window_id);
 }
-
 fn runtimeStateFromContext(ctx: *const OmniNiriLayoutContext) RuntimeState {
     return .{
         .column_count = ctx.runtime_column_count,
@@ -1174,7 +1040,6 @@ fn runtimeStateFromContext(ctx: *const OmniNiriLayoutContext) RuntimeState {
         .window_id_slots = ctx.runtime_window_id_slots,
     };
 }
-
 fn commitRuntimeState(ctx: *OmniNiriLayoutContext, state: *const RuntimeState) void {
     ctx.runtime_column_count = state.column_count;
     ctx.runtime_columns = state.columns;
@@ -1183,7 +1048,6 @@ fn commitRuntimeState(ctx: *OmniNiriLayoutContext, state: *const RuntimeState) v
     ctx.runtime_column_id_slots = state.column_id_slots;
     ctx.runtime_window_id_slots = state.window_id_slots;
 }
-
 fn initTxnResult(out_result: [*c]abi.OmniNiriTxnResult) void {
     out_result[0] = .{
         .applied = 0,
@@ -1203,20 +1067,17 @@ fn initTxnResult(out_result: [*c]abi.OmniNiriTxnResult) void {
         .removed_window_count = 0,
     };
 }
-
 fn storeTxnDeltaForContext(
     ctx: *OmniNiriLayoutContext,
     pre_state: ?*const RuntimeState,
     meta: *const TxnDeltaMeta,
 ) i32 {
     var post_state = runtimeStateFromContext(ctx);
-
     ctx.last_delta_generation +%= 1;
     ctx.last_delta_column_count = post_state.column_count;
     ctx.last_delta_window_count = post_state.window_count;
     ctx.last_delta_removed_column_count = 0;
     ctx.last_delta_removed_window_count = 0;
-
     for (0..post_state.column_count) |idx| {
         const column = post_state.columns[idx];
         ctx.last_delta_columns[idx] = .{
@@ -1234,7 +1095,6 @@ fn storeTxnDeltaForContext(
             .saved_width_value = column.saved_width_value,
         };
     }
-
     for (0..post_state.window_count) |idx| {
         const window = post_state.windows[idx];
         var row_index: usize = 0;
@@ -1244,7 +1104,6 @@ fn storeTxnDeltaForContext(
                 row_index = idx - column.window_start;
             }
         }
-
         ctx.last_delta_windows[idx] = .{
             .window_id = window.window_id,
             .column_id = window.column_id,
@@ -1255,7 +1114,6 @@ fn storeTxnDeltaForContext(
             .height_value = window.height_value,
         };
     }
-
     if (pre_state) |before| {
         for (0..before.column_count) |idx| {
             const column_id = before.columns[idx].column_id;
@@ -1265,7 +1123,6 @@ fn storeTxnDeltaForContext(
                 ctx.last_delta_removed_column_count += 1;
             }
         }
-
         for (0..before.window_count) |idx| {
             const window_id = before.windows[idx].window_id;
             if (findWindowIndexById(&post_state, window_id) == null) {
@@ -1275,7 +1132,6 @@ fn storeTxnDeltaForContext(
             }
         }
     }
-
     ctx.last_delta_refresh_count = std.math.cast(u8, @min(meta.refresh_count, abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS)) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const refresh_count: usize = @intCast(ctx.last_delta_refresh_count);
     for (0..refresh_count) |idx| {
@@ -1285,7 +1141,6 @@ fn storeTxnDeltaForContext(
     ctx.last_delta_has_delegate_move_column = @intFromBool(meta.has_delegate_move_column);
     ctx.last_delta_delegate_move_column_id = meta.delegate_move_column_id;
     ctx.last_delta_delegate_move_direction = meta.delegate_move_direction;
-
     ctx.last_delta_has_target_window_id = @intFromBool(meta.has_target_window_id);
     ctx.last_delta_target_window_id = meta.target_window_id;
     ctx.last_delta_has_target_node_id = @intFromBool(meta.has_target_node_id);
@@ -1297,10 +1152,8 @@ fn storeTxnDeltaForContext(
     ctx.last_delta_target_selection_window_id = meta.target_selection_window_id;
     ctx.last_delta_has_moved_window_id = @intFromBool(meta.has_moved_window_id);
     ctx.last_delta_moved_window_id = meta.moved_window_id;
-
     return abi.OMNI_OK;
 }
-
 fn validateRuntimeState(state: *RuntimeState) i32 {
     var validation = abi.OmniNiriStateValidationResult{
         .column_count = 0,
@@ -1309,7 +1162,6 @@ fn validateRuntimeState(state: *RuntimeState) i32 {
         .first_invalid_window_index = -1,
         .first_error_code = abi.OMNI_OK,
     };
-
     return state_validation.omni_niri_validate_state_snapshot_impl(
         runtimeColumnsStatePtr(state),
         state.column_count,
@@ -1318,56 +1170,44 @@ fn validateRuntimeState(state: *RuntimeState) i32 {
         &validation,
     );
 }
-
 fn recomputeRuntimeTopology(state: *RuntimeState) i32 {
     if (state.column_count > abi.MAX_WINDOWS or state.window_count > abi.MAX_WINDOWS) {
         return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     var cursor: usize = 0;
     for (0..state.column_count) |column_idx| {
         var column = &state.columns[column_idx];
         if (column.window_count > state.window_count - cursor) {
             return abi.OMNI_ERR_OUT_OF_RANGE;
         }
-
         column.window_start = cursor;
         if (column.window_count == 0) {
             column.active_tile_idx = 0;
         } else if (column.active_tile_idx >= column.window_count) {
             column.active_tile_idx = column.window_count - 1;
         }
-
         for (0..column.window_count) |row_idx| {
             const window_idx = cursor + row_idx;
             state.windows[window_idx].column_index = column_idx;
             state.windows[window_idx].column_id = column.column_id;
         }
-
         cursor += column.window_count;
     }
-
     if (cursor != state.window_count) return abi.OMNI_ERR_INVALID_ARGS;
     return abi.OMNI_OK;
 }
-
 fn refreshRuntimeState(state: *RuntimeState) i32 {
     const topology_rc = recomputeRuntimeTopology(state);
     if (topology_rc != abi.OMNI_OK) return topology_rc;
-
     const validation_rc = validateRuntimeState(state);
     if (validation_rc != abi.OMNI_OK) return validation_rc;
-
     return rebuildRuntimeIdCaches(state);
 }
-
 fn refreshRuntimeStateFast(state: *RuntimeState) i32 {
-    // Fast-path recompute used in hot mutation loops. Callers should validate at txn boundaries.
     const topology_rc = recomputeRuntimeTopology(state);
     if (topology_rc != abi.OMNI_OK) return topology_rc;
     return rebuildRuntimeIdCaches(state);
 }
-
 fn removeWindowAt(state: *RuntimeState, index: usize) abi.OmniNiriRuntimeWindowState {
     const removed = state.windows[index];
     var cursor = index;
@@ -1377,21 +1217,17 @@ fn removeWindowAt(state: *RuntimeState, index: usize) abi.OmniNiriRuntimeWindowS
     state.window_count -= 1;
     return removed;
 }
-
 fn insertWindowAt(state: *RuntimeState, index: usize, window: abi.OmniNiriRuntimeWindowState) i32 {
     if (state.window_count >= abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (index > state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var cursor = state.window_count;
     while (cursor > index) : (cursor -= 1) {
         state.windows[cursor] = state.windows[cursor - 1];
     }
-
     state.windows[index] = window;
     state.window_count += 1;
     return abi.OMNI_OK;
 }
-
 fn removeColumnAt(state: *RuntimeState, index: usize) abi.OmniNiriRuntimeColumnState {
     const removed = state.columns[index];
     var cursor = index;
@@ -1401,21 +1237,17 @@ fn removeColumnAt(state: *RuntimeState, index: usize) abi.OmniNiriRuntimeColumnS
     state.column_count -= 1;
     return removed;
 }
-
 fn insertColumnAt(state: *RuntimeState, index: usize, column: abi.OmniNiriRuntimeColumnState) i32 {
     if (state.column_count >= abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (index > state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var cursor = state.column_count;
     while (cursor > index) : (cursor -= 1) {
         state.columns[cursor] = state.columns[cursor - 1];
     }
-
     state.columns[index] = column;
     state.column_count += 1;
     return abi.OMNI_OK;
 }
-
 fn removeWindowRange(
     state: *RuntimeState,
     start_index: usize,
@@ -1425,20 +1257,16 @@ fn removeWindowRange(
     if (count == 0) return abi.OMNI_OK;
     if (start_index > state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (count > state.window_count - start_index) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     for (0..count) |idx| {
         out_removed[idx] = state.windows[start_index + idx];
     }
-
     var cursor = start_index;
     while (cursor + count < state.window_count) : (cursor += 1) {
         state.windows[cursor] = state.windows[cursor + count];
     }
-
     state.window_count -= count;
     return abi.OMNI_OK;
 }
-
 fn appendWindowBatch(
     state: *RuntimeState,
     windows: *const [abi.MAX_WINDOWS]abi.OmniNiriRuntimeWindowState,
@@ -1451,23 +1279,19 @@ fn appendWindowBatch(
     state.window_count += count;
     return abi.OMNI_OK;
 }
-
 fn clampSizeValue(value: f64) f64 {
     return @max(0.5, @min(2.0, value));
 }
-
 fn visibleCountFromRaw(raw_count: i64) i32 {
     const count = std.math.cast(usize, raw_count) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (count == 0) return abi.OMNI_ERR_INVALID_ARGS;
     return std.math.cast(i32, count) orelse abi.OMNI_ERR_OUT_OF_RANGE;
 }
-
 fn proportionalSizeForVisibleCount(raw_count: i64) i32 {
     const count_i32 = visibleCountFromRaw(raw_count);
     if (count_i32 < 0) return count_i32;
     return count_i32;
 }
-
 fn columnWindowStart(state: *const RuntimeState, column_index: usize) usize {
     var start: usize = 0;
     for (0..column_index) |idx| {
@@ -1475,7 +1299,6 @@ fn columnWindowStart(state: *const RuntimeState, column_index: usize) usize {
     }
     return start;
 }
-
 fn preColumnId(
     ids: *const [abi.MAX_WINDOWS]abi.OmniUuid128,
     count: usize,
@@ -1485,7 +1308,6 @@ fn preColumnId(
     if (idx >= count) return null;
     return ids[idx];
 }
-
 fn preWindowId(
     ids: *const [abi.MAX_WINDOWS]abi.OmniUuid128,
     count: usize,
@@ -1495,7 +1317,6 @@ fn preWindowId(
     if (idx >= count) return null;
     return ids[idx];
 }
-
 fn capturePreIds(
     state: *const RuntimeState,
     out_column_ids: *[abi.MAX_WINDOWS]abi.OmniUuid128,
@@ -1504,43 +1325,35 @@ fn capturePreIds(
     for (0..state.column_count) |idx| {
         out_column_ids[idx] = state.columns[idx].column_id;
     }
-
     for (0..state.window_count) |idx| {
         out_window_ids[idx] = state.windows[idx].window_id;
     }
 }
-
 fn ensureUniqueColumnId(state: *const RuntimeState, column_id: abi.OmniUuid128) i32 {
     if (findColumnIndexByIdLinear(state, column_id) != null) return abi.OMNI_ERR_INVALID_ARGS;
     return abi.OMNI_OK;
 }
-
 fn ensureUniqueWindowId(state: *const RuntimeState, window_id: abi.OmniUuid128) i32 {
     if (findWindowIndexByIdLinear(state, window_id) != null) return abi.OMNI_ERR_INVALID_ARGS;
     return abi.OMNI_OK;
 }
-
 fn appendRefreshHint(hints: *MutationApplyHints, column_id: abi.OmniUuid128) void {
     var idx: usize = 0;
     while (idx < hints.refresh_count) : (idx += 1) {
         if (uuidEqual(hints.refresh_column_ids[idx], column_id)) return;
     }
-
     if (hints.refresh_count >= abi.OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS) return;
     hints.refresh_column_ids[hints.refresh_count] = column_id;
     hints.refresh_count += 1;
 }
-
 fn i64ToU8(raw: i64) i32 {
     const value = std.math.cast(u8, raw) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     return std.math.cast(i32, value) orelse abi.OMNI_ERR_OUT_OF_RANGE;
 }
-
 fn workspaceFail(code: i32, tag: []const u8) i32 {
     _ = tag;
     return code;
 }
-
 fn applyMutationEdit(
     state: *RuntimeState,
     apply_request: abi.OmniNiriMutationApplyRequest,
@@ -1553,7 +1366,6 @@ fn applyMutationEdit(
 ) i32 {
     var mutated = false;
     var requires_refresh = false;
-
     switch (edit.kind) {
         abi.OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE => {
             const column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1568,10 +1380,8 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS => {
             const lhs_window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_window_id = preWindowId(pre_window_ids, pre_window_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const lhs_idx = findWindowIndexById(state, lhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findWindowIndexById(state, rhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const temp = state.windows[lhs_idx];
             state.windows[lhs_idx] = state.windows[rhs_idx];
             state.windows[rhs_idx] = temp;
@@ -1581,21 +1391,17 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX => {
             const moving_window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column_id = preColumnId(pre_column_ids, pre_column_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const moving_idx = findWindowIndexById(state, moving_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const source_column_idx = state.windows[moving_idx].column_index;
             if (source_column_idx >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const target_column_idx = findColumnIndexById(state, target_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column = state.columns[target_column_idx];
             const source_column = state.columns[source_column_idx];
-
             var insert_row: usize = 0;
             if (edit.value_a >= 0) {
                 const raw_row = std.math.cast(usize, edit.value_a) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 insert_row = @min(raw_row, target_column.window_count);
             }
-
             var target_abs = target_column.window_start + insert_row;
             if (source_column_idx == target_column_idx) {
                 if (moving_idx < target_abs and target_abs > 0) {
@@ -1604,11 +1410,9 @@ fn applyMutationEdit(
             } else if (source_column_idx < target_column_idx and target_abs > 0) {
                 target_abs -= 1;
             }
-
             const moved = removeWindowAt(state, moving_idx);
             if (source_column.window_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
             state.columns[source_column_idx].window_count -= 1;
-
             const insert_rc = insertWindowAt(state, target_abs, moved);
             if (insert_rc != abi.OMNI_OK) return insert_rc;
             state.columns[target_column_idx].window_count += 1;
@@ -1618,10 +1422,8 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_SWAP_COLUMN_WIDTH_STATE => {
             const lhs_column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_column_id = preColumnId(pre_column_ids, pre_column_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const lhs_idx = findColumnIndexById(state, lhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findColumnIndexById(state, rhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const temp = state.columns[lhs_idx];
             state.columns[lhs_idx].size_value = state.columns[rhs_idx].size_value;
             state.columns[lhs_idx].width_kind = state.columns[rhs_idx].width_kind;
@@ -1629,7 +1431,6 @@ fn applyMutationEdit(
             state.columns[lhs_idx].has_saved_width = state.columns[rhs_idx].has_saved_width;
             state.columns[lhs_idx].saved_width_kind = state.columns[rhs_idx].saved_width_kind;
             state.columns[lhs_idx].saved_width_value = state.columns[rhs_idx].saved_width_value;
-
             state.columns[rhs_idx].size_value = temp.size_value;
             state.columns[rhs_idx].width_kind = temp.width_kind;
             state.columns[rhs_idx].is_full_width = temp.is_full_width;
@@ -1641,15 +1442,12 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOW_SIZE_HEIGHT => {
             const lhs_window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_window_id = preWindowId(pre_window_ids, pre_window_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const lhs_idx = findWindowIndexById(state, lhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findWindowIndexById(state, rhs_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const temp = state.windows[lhs_idx];
             state.windows[lhs_idx].size_value = state.windows[rhs_idx].size_value;
             state.windows[lhs_idx].height_kind = state.windows[rhs_idx].height_kind;
             state.windows[lhs_idx].height_value = state.windows[rhs_idx].height_value;
-
             state.windows[rhs_idx].size_value = temp.size_value;
             state.windows[rhs_idx].height_kind = temp.height_kind;
             state.windows[rhs_idx].height_value = temp.height_value;
@@ -1666,19 +1464,16 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY => {
             const column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const column_idx_opt = findColumnIndexById(state, column_id);
-
             if (column_idx_opt) |column_idx| {
                 if (state.columns[column_idx].window_count == 0) {
                     _ = removeColumnAt(state, column_idx);
                     mutated = true;
                     requires_refresh = true;
-
                     if (state.column_count == 0) {
                         if (apply_request.has_placeholder_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
                         const placeholder_id = apply_request.placeholder_column_id;
                         const unique_rc = ensureUniqueColumnId(state, placeholder_id);
                         if (unique_rc != abi.OMNI_OK) return unique_rc;
-
                         const add_rc = insertColumnAt(state, 0, .{
                             .column_id = placeholder_id,
                             .window_start = 0,
@@ -1705,7 +1500,6 @@ fn applyMutationEdit(
             const column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const direction_i32 = i64ToU8(edit.value_a);
             if (direction_i32 < 0) return direction_i32;
-
             hints.has_delegate_move_column = true;
             hints.delegate_move_column_id = column_id;
             hints.delegate_move_direction = @intCast(direction_i32);
@@ -1714,10 +1508,8 @@ fn applyMutationEdit(
             if (apply_request.has_created_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
             const unique_rc = ensureUniqueColumnId(state, apply_request.created_column_id);
             if (unique_rc != abi.OMNI_OK) return unique_rc;
-
             const moving_window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const source_column_id = preColumnId(pre_column_ids, pre_column_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const source_column_idx_initial = findColumnIndexByIdCoherent(state, source_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const direction_i32 = i64ToU8(edit.value_a);
             if (direction_i32 < 0) return direction_i32;
@@ -1725,16 +1517,13 @@ fn applyMutationEdit(
             if (direction != abi.OMNI_NIRI_DIRECTION_LEFT and direction != abi.OMNI_NIRI_DIRECTION_RIGHT) {
                 return abi.OMNI_ERR_INVALID_ARGS;
             }
-
             const visible_i32 = proportionalSizeForVisibleCount(edit.value_b);
             if (visible_i32 < 0) return visible_i32;
             const visible_count: usize = @intCast(visible_i32);
-
             const insert_index = if (direction == abi.OMNI_NIRI_DIRECTION_RIGHT)
                 source_column_idx_initial + 1
             else
                 source_column_idx_initial;
-
             const add_rc = insertColumnAt(state, insert_index, .{
                 .column_id = apply_request.created_column_id,
                 .window_start = 0,
@@ -1749,19 +1538,15 @@ fn applyMutationEdit(
                 .saved_width_value = 1.0,
             });
             if (add_rc != abi.OMNI_OK) return add_rc;
-
             const moving_idx = findWindowIndexByIdCoherent(state, moving_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const source_column_idx = findColumnIndexByIdCoherent(state, source_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const new_column_idx = findColumnIndexByIdCoherent(state, apply_request.created_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const target_start = columnWindowStart(state, new_column_idx);
             var insert_abs = target_start;
             if (moving_idx < insert_abs and insert_abs > 0) insert_abs -= 1;
-
             const moved = removeWindowAt(state, moving_idx);
             if (state.columns[source_column_idx].window_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
             state.columns[source_column_idx].window_count -= 1;
-
             const insert_rc = insertWindowAt(state, insert_abs, moved);
             if (insert_rc != abi.OMNI_OK) return insert_rc;
             state.columns[new_column_idx].window_count += 1;
@@ -1772,18 +1557,15 @@ fn applyMutationEdit(
             if (apply_request.has_created_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
             const unique_rc = ensureUniqueColumnId(state, apply_request.created_column_id);
             if (unique_rc != abi.OMNI_OK) return unique_rc;
-
             const moving_window_id = preWindowId(pre_window_ids, pre_window_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const visible_i32 = proportionalSizeForVisibleCount(edit.value_a);
             if (visible_i32 < 0) return visible_i32;
             const visible_count: usize = @intCast(visible_i32);
-
             var insert_index: usize = 0;
             if (edit.related_index > 0) {
                 const raw_index = std.math.cast(usize, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 insert_index = @min(raw_index, state.column_count);
             }
-
             const add_rc = insertColumnAt(state, insert_index, .{
                 .column_id = apply_request.created_column_id,
                 .window_start = 0,
@@ -1798,20 +1580,16 @@ fn applyMutationEdit(
                 .saved_width_value = 1.0,
             });
             if (add_rc != abi.OMNI_OK) return add_rc;
-
             const moving_idx = findWindowIndexByIdCoherent(state, moving_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const source_column_idx = state.windows[moving_idx].column_index;
             if (source_column_idx >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
             const new_column_idx = findColumnIndexByIdCoherent(state, apply_request.created_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const target_start = columnWindowStart(state, new_column_idx);
             var insert_abs = target_start;
             if (moving_idx < insert_abs and insert_abs > 0) insert_abs -= 1;
-
             const moved = removeWindowAt(state, moving_idx);
             if (state.columns[source_column_idx].window_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
             state.columns[source_column_idx].window_count -= 1;
-
             const insert_rc = insertWindowAt(state, insert_abs, moved);
             if (insert_rc != abi.OMNI_OK) return insert_rc;
             state.columns[new_column_idx].window_count += 1;
@@ -1821,21 +1599,17 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_SWAP_COLUMNS => {
             const lhs_column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_column_id = preColumnId(pre_column_ids, pre_column_count, edit.related_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const lhs_idx = findColumnIndexById(state, lhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const rhs_idx = findColumnIndexById(state, rhs_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (lhs_idx == rhs_idx) {
-                // no-op
             } else {
                 const old = state.*;
                 const temp = state.columns[lhs_idx];
                 state.columns[lhs_idx] = state.columns[rhs_idx];
                 state.columns[rhs_idx] = temp;
-
                 var dst_cursor: usize = 0;
                 for (0..state.column_count) |column_idx| {
                     const column_id = state.columns[column_idx].column_id;
-
                     var old_index_opt: ?usize = null;
                     for (0..old.column_count) |old_idx| {
                         if (uuidEqual(old.columns[old_idx].column_id, column_id)) {
@@ -1845,13 +1619,11 @@ fn applyMutationEdit(
                     }
                     const old_index = old_index_opt orelse return abi.OMNI_ERR_INVALID_ARGS;
                     const old_column = old.columns[old_index];
-
                     for (0..old_column.window_count) |row_idx| {
                         state.windows[dst_cursor + row_idx] = old.windows[old_column.window_start + row_idx];
                     }
                     dst_cursor += old_column.window_count;
                 }
-
                 mutated = true;
                 requires_refresh = true;
             }
@@ -1869,7 +1641,6 @@ fn applyMutationEdit(
             const column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const column_idx = findColumnIndexById(state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const column = state.columns[column_idx];
-
             for (0..column.window_count) |row_idx| {
                 const window_idx = column.window_start + row_idx;
                 state.windows[window_idx].size_value = clampSizeValue(state.windows[window_idx].size_value * edit.scalar_a);
@@ -1880,7 +1651,6 @@ fn applyMutationEdit(
         },
         abi.OMNI_NIRI_MUTATION_EDIT_BALANCE_COLUMNS => {
             if (edit.scalar_a <= 0) return abi.OMNI_ERR_INVALID_ARGS;
-
             for (0..state.column_count) |col_idx| {
                 state.columns[col_idx].size_value = edit.scalar_a;
                 state.columns[col_idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
@@ -1896,14 +1666,12 @@ fn applyMutationEdit(
                     state.windows[window_idx].height_value = 1.0;
                 }
             }
-
             mutated = true;
         },
         abi.OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_INTO_COLUMN => {
             if (apply_request.has_incoming_window_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
             const unique_rc = ensureUniqueWindowId(state, apply_request.incoming_window_id);
             if (unique_rc != abi.OMNI_OK) return unique_rc;
-
             const target_column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column_idx = findColumnIndexById(state, target_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column = state.columns[target_column_idx];
@@ -1912,7 +1680,6 @@ fn applyMutationEdit(
             const visible_count: usize = @intCast(visible_i32);
             state.columns[target_column_idx].size_value = 1.0 / @as(f64, @floatFromInt(visible_count));
             state.columns[target_column_idx].width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
-
             const insert_abs = target_column.window_start + target_column.window_count;
             const insert_rc = insertWindowAt(state, insert_abs, .{
                 .window_id = apply_request.incoming_window_id,
@@ -1923,7 +1690,6 @@ fn applyMutationEdit(
                 .height_value = 1.0,
             });
             if (insert_rc != abi.OMNI_OK) return insert_rc;
-
             state.columns[target_column_idx].window_count += 1;
             mutated = true;
             requires_refresh = true;
@@ -1931,23 +1697,19 @@ fn applyMutationEdit(
         abi.OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_IN_NEW_COLUMN => {
             if (apply_request.has_incoming_window_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
             if (apply_request.has_created_column_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
-
             const unique_window_rc = ensureUniqueWindowId(state, apply_request.incoming_window_id);
             if (unique_window_rc != abi.OMNI_OK) return unique_window_rc;
             const unique_column_rc = ensureUniqueColumnId(state, apply_request.created_column_id);
             if (unique_column_rc != abi.OMNI_OK) return unique_column_rc;
-
             const visible_i32 = proportionalSizeForVisibleCount(edit.value_a);
             if (visible_i32 < 0) return visible_i32;
             const visible_count: usize = @intCast(visible_i32);
-
             var insert_index = state.column_count;
             if (edit.subject_index >= 0) {
                 const reference_column_id = preColumnId(pre_column_ids, pre_column_count, edit.subject_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 const reference_index = findColumnIndexById(state, reference_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
                 insert_index = reference_index + 1;
             }
-
             const add_rc = insertColumnAt(state, insert_index, .{
                 .column_id = apply_request.created_column_id,
                 .window_start = 0,
@@ -1964,11 +1726,9 @@ fn applyMutationEdit(
             if (add_rc != abi.OMNI_OK) return add_rc;
             const cache_rc = refreshRuntimeState(state);
             if (cache_rc != abi.OMNI_OK) return cache_rc;
-
             const target_idx = findColumnIndexById(state, apply_request.created_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const target_column = state.columns[target_idx];
             const insert_abs = target_column.window_start + target_column.window_count;
-
             const insert_window_rc = insertWindowAt(state, insert_abs, .{
                 .window_id = apply_request.incoming_window_id,
                 .column_id = target_column.column_id,
@@ -1978,7 +1738,6 @@ fn applyMutationEdit(
                 .height_value = 1.0,
             });
             if (insert_window_rc != abi.OMNI_OK) return insert_window_rc;
-
             state.columns[target_idx].window_count += 1;
             mutated = true;
             requires_refresh = true;
@@ -1989,7 +1748,6 @@ fn applyMutationEdit(
             const source_column_idx = state.windows[window_idx].column_index;
             if (source_column_idx >= state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
             if (state.columns[source_column_idx].window_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             _ = removeWindowAt(state, window_idx);
             state.columns[source_column_idx].window_count -= 1;
             mutated = true;
@@ -2000,12 +1758,9 @@ fn applyMutationEdit(
         },
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
-
     if (mutated and requires_refresh) return refreshRuntimeStateFast(state);
-
     return abi.OMNI_OK;
 }
-
 fn updateInteractionContextFromLayout(
     ctx: *OmniNiriLayoutContext,
     columns: [*c]const abi.OmniNiriColumnInput,
@@ -2020,10 +1775,8 @@ fn updateInteractionContextFromLayout(
     if (column_count > 0 and columns == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (window_count > 0 and windows == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (window_count > 0 and out_windows == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     ctx.interaction_window_count = window_count;
     ctx.column_count = column_count;
-
     for (0..column_count) |idx| {
         ctx.column_dropzones[idx] = .{
             .is_valid = 0,
@@ -2032,27 +1785,22 @@ fn updateInteractionContextFromLayout(
             .post_insertion_count = 0,
         };
     }
-
     for (0..column_count) |column_idx| {
         const column = columns[column_idx];
         if (!geometry.isSubrangeWithinTotal(window_count, column.window_start, column.window_count)) {
             return abi.OMNI_ERR_OUT_OF_RANGE;
         }
-
         if (column.window_count == 0) continue;
-
         const first_window_idx = column.window_start;
         const last_window_idx = column.window_start + column.window_count - 1;
         const first_window = out_windows[first_window_idx];
         const last_window = out_windows[last_window_idx];
-
         ctx.column_dropzones[column_idx] = .{
             .is_valid = 1,
             .min_y = first_window.frame_y,
             .max_y = last_window.frame_y + last_window.frame_height,
             .post_insertion_count = column.window_count + 1,
         };
-
         for (0..column.window_count) |local_window_idx| {
             const global_window_idx = column.window_start + local_window_idx;
             const window_output = out_windows[global_window_idx];
@@ -2068,22 +1816,18 @@ fn updateInteractionContextFromLayout(
             };
         }
     }
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_layout_context_create_impl() [*c]OmniNiriLayoutContext {
     const ctx = std.heap.c_allocator.create(OmniNiriLayoutContext) catch return null;
     ctx.* = undefined;
     resetContext(ctx);
     return @ptrCast(ctx);
 }
-
 pub fn omni_niri_layout_context_destroy_impl(context: [*c]OmniNiriLayoutContext) void {
     const ctx = asMutableContext(context) orelse return;
     std.heap.c_allocator.destroy(ctx);
 }
-
 pub fn omni_niri_layout_context_set_interaction_impl(
     context: [*c]OmniNiriLayoutContext,
     windows: [*c]const abi.OmniNiriHitTestWindow,
@@ -2097,20 +1841,16 @@ pub fn omni_niri_layout_context_set_interaction_impl(
     }
     if (window_count > 0 and windows == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (column_count > 0 and column_dropzones == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     ctx.interaction_window_count = window_count;
     ctx.column_count = column_count;
-
     for (0..window_count) |idx| {
         ctx.interaction_windows[idx] = windows[idx];
     }
     for (0..column_count) |idx| {
         ctx.column_dropzones[idx] = column_dropzones[idx];
     }
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_layout_pass_v3_impl(
     context: [*c]OmniNiriLayoutContext,
     columns: [*c]const abi.OmniNiriColumnInput,
@@ -2142,7 +1882,6 @@ pub fn omni_niri_layout_pass_v3_impl(
     out_column_count: usize,
 ) i32 {
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
-
     const rc = layout_pass.omni_niri_layout_pass_v2_impl(
         columns,
         column_count,
@@ -2173,7 +1912,6 @@ pub fn omni_niri_layout_pass_v3_impl(
         out_column_count,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     return updateInteractionContextFromLayout(
         ctx,
         columns,
@@ -2183,7 +1921,6 @@ pub fn omni_niri_layout_pass_v3_impl(
         out_windows,
     );
 }
-
 pub fn omni_niri_ctx_hit_test_tiled_impl(
     context: [*c]const OmniNiriLayoutContext,
     point_x: f64,
@@ -2199,7 +1936,6 @@ pub fn omni_niri_ctx_hit_test_tiled_impl(
         out_window_index,
     );
 }
-
 pub fn omni_niri_ctx_hit_test_resize_impl(
     context: [*c]const OmniNiriLayoutContext,
     point_x: f64,
@@ -2217,7 +1953,6 @@ pub fn omni_niri_ctx_hit_test_resize_impl(
         out_result,
     );
 }
-
 pub fn omni_niri_ctx_hit_test_move_target_impl(
     context: [*c]const OmniNiriLayoutContext,
     point_x: f64,
@@ -2237,7 +1972,6 @@ pub fn omni_niri_ctx_hit_test_move_target_impl(
         out_result,
     );
 }
-
 pub fn omni_niri_ctx_insertion_dropzone_impl(
     context: [*c]const OmniNiriLayoutContext,
     target_window_index: i64,
@@ -2247,7 +1981,6 @@ pub fn omni_niri_ctx_insertion_dropzone_impl(
 ) i32 {
     const ctx = asConstContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     out_result[0] = .{
         .frame_x = 0,
         .frame_y = 0,
@@ -2255,16 +1988,12 @@ pub fn omni_niri_ctx_insertion_dropzone_impl(
         .frame_height = 0,
         .is_valid = 0,
     };
-
     const target_idx = std.math.cast(usize, target_window_index) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (target_idx >= ctx.interaction_window_count) return abi.OMNI_ERR_INVALID_ARGS;
-
     const target = ctx.interaction_windows[target_idx];
     if (target.column_index >= ctx.column_count) return abi.OMNI_ERR_INVALID_ARGS;
-
     const column_meta = ctx.column_dropzones[target.column_index];
     if (column_meta.is_valid == 0) return abi.OMNI_OK;
-
     var input = abi.OmniNiriDropzoneInput{
         .target_frame_x = target.frame_x,
         .target_frame_y = target.frame_y,
@@ -2278,7 +2007,6 @@ pub fn omni_niri_ctx_insertion_dropzone_impl(
     };
     return interaction.omni_niri_insertion_dropzone_impl(&input, out_result);
 }
-
 pub fn omni_niri_ctx_seed_runtime_state_impl(
     context: [*c]OmniNiriLayoutContext,
     columns: [*c]const abi.OmniNiriRuntimeColumnState,
@@ -2292,47 +2020,39 @@ pub fn omni_niri_ctx_seed_runtime_state_impl(
     }
     if (column_count > 0 and columns == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (window_count > 0 and windows == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     var runtime_state: RuntimeState = undefined;
     runtime_state.column_count = column_count;
     runtime_state.window_count = window_count;
     clearSlots(&runtime_state.column_id_slots);
     clearSlots(&runtime_state.window_id_slots);
-
     for (0..column_count) |idx| {
         runtime_state.columns[idx] = columns[idx];
     }
     for (0..window_count) |idx| {
         runtime_state.windows[idx] = windows[idx];
     }
-
     const refresh_rc = refreshRuntimeState(&runtime_state);
     if (refresh_rc != abi.OMNI_OK) return refresh_rc;
-
     commitRuntimeState(ctx, &runtime_state);
     const meta = initTxnDeltaMeta();
     const delta_rc = storeTxnDeltaForContext(ctx, null, &meta);
     if (delta_rc != abi.OMNI_OK) return delta_rc;
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_export_runtime_state_impl(
     context: [*c]const OmniNiriLayoutContext,
     out_export: [*c]abi.OmniNiriRuntimeStateExport,
 ) i32 {
     const ctx = asConstContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_export == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     out_export[0] = .{
         .columns = if (ctx.runtime_column_count > 0) @ptrCast(&ctx.runtime_columns[0]) else null,
         .column_count = ctx.runtime_column_count,
         .windows = if (ctx.runtime_window_count > 0) @ptrCast(&ctx.runtime_windows[0]) else null,
         .window_count = ctx.runtime_window_count,
     };
-
     return abi.OMNI_OK;
 }
-
 fn appendRefreshColumnMeta(meta: *TxnDeltaMeta, column_id: abi.OmniUuid128) void {
     var idx: usize = 0;
     while (idx < meta.refresh_count) : (idx += 1) {
@@ -2342,7 +2062,6 @@ fn appendRefreshColumnMeta(meta: *TxnDeltaMeta, column_id: abi.OmniUuid128) void
     meta.refresh_column_ids[meta.refresh_count] = column_id;
     meta.refresh_count += 1;
 }
-
 fn resolveOptionalWindowIndexById(
     state: *const RuntimeState,
     has_window_id: u8,
@@ -2353,12 +2072,10 @@ fn resolveOptionalWindowIndexById(
         out_index.* = -1;
         return abi.OMNI_OK;
     }
-
     const idx = findWindowIndexByIdCoherent(state, window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     return abi.OMNI_OK;
 }
-
 fn resolveOptionalColumnIndexById(
     state: *const RuntimeState,
     has_column_id: u8,
@@ -2369,12 +2086,10 @@ fn resolveOptionalColumnIndexById(
         out_index.* = -1;
         return abi.OMNI_OK;
     }
-
     const idx = findColumnIndexByIdCoherent(state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     out_index.* = std.math.cast(i64, idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     return abi.OMNI_OK;
 }
-
 fn resolveNavigationSelection(
     source_state: *const RuntimeState,
     payload: abi.OmniNiriTxnNavigationPayload,
@@ -2384,7 +2099,6 @@ fn resolveNavigationSelection(
 ) i32 {
     var selected_window_index: i64 = -1;
     var selected_column_index: i64 = -1;
-
     var rc = resolveOptionalWindowIndexById(
         source_state,
         payload.has_source_window_id,
@@ -2392,7 +2106,6 @@ fn resolveNavigationSelection(
         &selected_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalColumnIndexById(
         source_state,
         payload.has_source_column_id,
@@ -2400,45 +2113,37 @@ fn resolveNavigationSelection(
         &selected_column_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     var selected_row_index: i64 = -1;
     if (selected_window_index >= 0) {
         const window_idx = std.math.cast(usize, selected_window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (window_idx >= source_state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
         const derived_column_idx = source_state.windows[window_idx].column_index;
         if (derived_column_idx >= source_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
         if (selected_column_index >= 0) {
             const selected_column_idx = std.math.cast(usize, selected_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (selected_column_idx != derived_column_idx) return abi.OMNI_ERR_OUT_OF_RANGE;
         } else {
             selected_column_index = std.math.cast(i64, derived_column_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         }
-
         const column = source_state.columns[derived_column_idx];
         if (window_idx < column.window_start or window_idx >= column.window_start + column.window_count) {
             return abi.OMNI_ERR_OUT_OF_RANGE;
         }
-
         selected_row_index = std.math.cast(i64, window_idx - column.window_start) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     } else if (selected_column_index >= 0) {
         const selected_column_idx = std.math.cast(usize, selected_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (selected_column_idx >= source_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
         const column = source_state.columns[selected_column_idx];
         if (column.window_count > 0) {
             selected_window_index = std.math.cast(i64, column.window_start) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             selected_row_index = 0;
         }
     }
-
     out_selected_window_index.* = selected_window_index;
     out_selected_column_index.* = selected_column_index;
     out_selected_row_index.* = selected_row_index;
     return abi.OMNI_OK;
 }
-
 fn resolveMutationSelectedNode(
     runtime_state: *const RuntimeState,
     has_selected_node_id: u8,
@@ -2448,24 +2153,19 @@ fn resolveMutationSelectedNode(
 ) i32 {
     out_kind.* = abi.OMNI_NIRI_MUTATION_NODE_NONE;
     out_index.* = -1;
-
     if (has_selected_node_id == 0) return abi.OMNI_OK;
-
     if (findWindowIndexByIdCoherent(runtime_state, selected_node_id)) |window_idx| {
         out_kind.* = abi.OMNI_NIRI_MUTATION_NODE_WINDOW;
         out_index.* = std.math.cast(i64, window_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         return abi.OMNI_OK;
     }
-
     if (findColumnIndexByIdCoherent(runtime_state, selected_node_id)) |column_idx| {
         out_kind.* = abi.OMNI_NIRI_MUTATION_NODE_COLUMN;
         out_index.* = std.math.cast(i64, column_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         return abi.OMNI_OK;
     }
-
     return abi.OMNI_OK;
 }
-
 fn navigationOpRequiresSelection(op: u8) bool {
     return switch (op) {
         abi.OMNI_NIRI_NAV_OP_MOVE_BY_COLUMNS,
@@ -2480,7 +2180,6 @@ fn navigationOpRequiresSelection(op: u8) bool {
         else => false,
     };
 }
-
 fn mutationOpRequiresSourceWindow(op: u8) bool {
     return switch (op) {
         abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL,
@@ -2501,7 +2200,6 @@ fn mutationOpRequiresSourceWindow(op: u8) bool {
         else => false,
     };
 }
-
 fn mutationOpRequiresSourceColumn(op: u8) bool {
     return switch (op) {
         abi.OMNI_NIRI_MUTATION_OP_MOVE_COLUMN,
@@ -2515,14 +2213,12 @@ fn mutationOpRequiresSourceColumn(op: u8) bool {
         else => false,
     };
 }
-
 fn mutationOpRequiresTargetColumn(op: u8) bool {
     return switch (op) {
         abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_TO_COLUMN => true,
         else => false,
     };
 }
-
 fn mutationOpTriggersStructuralAnimation(op: u8) bool {
     return switch (op) {
         abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL,
@@ -2547,7 +2243,6 @@ fn mutationOpTriggersStructuralAnimation(op: u8) bool {
         else => false,
     };
 }
-
 fn applyDirectMutationTxn(
     source_ctx: *OmniNiriLayoutContext,
     runtime_state: *RuntimeState,
@@ -2558,20 +2253,17 @@ fn applyDirectMutationTxn(
     source_delta_meta: *TxnDeltaMeta,
 ) ?i32 {
     var mutated = false;
-
     switch (payload.op) {
         abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY => {
             if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
             const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const is_tabbed: u8 = if (payload.custom_u8_a != 0) 1 else 0;
             var column = &runtime_state.columns[column_idx];
             if (column.is_tabbed != is_tabbed) {
                 column.is_tabbed = is_tabbed;
                 mutated = true;
             }
-
             const clamped_active: usize = if (column.window_count == 0)
                 0
             else
@@ -2580,7 +2272,6 @@ fn applyDirectMutationTxn(
                 column.active_tile_idx = clamped_active;
                 mutated = true;
             }
-
             if (mutated) {
                 appendRefreshColumnMeta(source_delta_meta, column.column_id);
             }
@@ -2589,12 +2280,10 @@ fn applyDirectMutationTxn(
             if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
             const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             var column = &runtime_state.columns[column_idx];
             if (column.window_count == 0) {
                 return abi.OMNI_OK;
             }
-
             const requested = payload.custom_i64_a;
             const requested_idx: usize = if (requested < 0)
                 0
@@ -2613,7 +2302,6 @@ fn applyDirectMutationTxn(
             if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
             const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const width_kind = payload.custom_u8_a;
             if (width_kind != abi.OMNI_NIRI_SIZE_KIND_PROPORTION and
                 width_kind != abi.OMNI_NIRI_SIZE_KIND_FIXED)
@@ -2622,7 +2310,6 @@ fn applyDirectMutationTxn(
             }
             const width_value = payload.custom_f64_a;
             if (!(std.math.isFinite(width_value)) or width_value <= 0) return abi.OMNI_ERR_INVALID_ARGS;
-
             var column = &runtime_state.columns[column_idx];
             if (column.width_kind != width_kind or
                 column.size_value != width_value or
@@ -2642,7 +2329,6 @@ fn applyDirectMutationTxn(
             if (source_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
             const column_idx = std.math.cast(usize, source_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (column_idx >= runtime_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             var column = &runtime_state.columns[column_idx];
             if (column.is_full_width != 0) {
                 var restored_kind: u8 = abi.OMNI_NIRI_SIZE_KIND_PROPORTION;
@@ -2651,7 +2337,6 @@ fn applyDirectMutationTxn(
                     restored_kind = column.saved_width_kind;
                     restored_value = column.saved_width_value;
                 }
-
                 column.size_value = restored_value;
                 column.width_kind = restored_kind;
                 column.is_full_width = 0;
@@ -2671,7 +2356,6 @@ fn applyDirectMutationTxn(
             if (source_window_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
             const window_idx = std.math.cast(usize, source_window_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (window_idx >= runtime_state.window_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const height_kind = payload.custom_u8_a;
             if (height_kind != abi.OMNI_NIRI_HEIGHT_KIND_AUTO and
                 height_kind != abi.OMNI_NIRI_HEIGHT_KIND_FIXED)
@@ -2680,7 +2364,6 @@ fn applyDirectMutationTxn(
             }
             const height_value = payload.custom_f64_a;
             if (!(std.math.isFinite(height_value))) return abi.OMNI_ERR_INVALID_ARGS;
-
             const size_value: f64 = if (height_kind == abi.OMNI_NIRI_HEIGHT_KIND_AUTO)
                 height_value
             else
@@ -2703,9 +2386,7 @@ fn applyDirectMutationTxn(
                 runtime_state.columns[0].column_id
             else
                 zeroUuid();
-
             if (uuidEqual(placeholder_id, zeroUuid())) return abi.OMNI_ERR_INVALID_ARGS;
-
             const already_empty = runtime_state.window_count == 0 and
                 runtime_state.column_count == 1 and
                 uuidEqual(runtime_state.columns[0].column_id, placeholder_id) and
@@ -2721,7 +2402,6 @@ fn applyDirectMutationTxn(
             if (already_empty) {
                 return abi.OMNI_OK;
             }
-
             runtime_state.window_count = 0;
             runtime_state.column_count = 1;
             runtime_state.columns[0] = .{
@@ -2741,14 +2421,11 @@ fn applyDirectMutationTxn(
         },
         else => return null,
     }
-
     if (!mutated) {
         return abi.OMNI_OK;
     }
-
     const refresh_rc = refreshRuntimeState(runtime_state);
     if (refresh_rc != abi.OMNI_OK) return refresh_rc;
-
     commitRuntimeState(source_ctx, runtime_state);
     out_result[0].applied = 1;
     out_result[0].changed_source_context = 1;
@@ -2757,7 +2434,6 @@ fn applyDirectMutationTxn(
     );
     return abi.OMNI_OK;
 }
-
 fn applyNavigationTxn(
     source_ctx: *OmniNiriLayoutContext,
     source_state: *RuntimeState,
@@ -2771,7 +2447,6 @@ fn applyNavigationTxn(
     {
         return abi.OMNI_ERR_INVALID_ARGS;
     }
-
     var selected_window_index: i64 = -1;
     var selected_column_index: i64 = -1;
     var selected_row_index: i64 = -1;
@@ -2783,7 +2458,6 @@ fn applyNavigationTxn(
         &selected_row_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     var target_column_index_from_id: i64 = -1;
     rc = resolveOptionalColumnIndexById(
         source_state,
@@ -2792,7 +2466,6 @@ fn applyNavigationTxn(
         &target_column_index_from_id,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     var target_window_index_from_id: i64 = -1;
     rc = resolveOptionalWindowIndexById(
         source_state,
@@ -2801,32 +2474,27 @@ fn applyNavigationTxn(
         &target_window_index_from_id,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     const target_column_index: i64 = if (target_column_index_from_id >= 0)
         target_column_index_from_id
     else
         payload.focus_column_index;
-
     var target_window_index: i64 = payload.focus_window_index;
     if (target_window_index_from_id >= 0) {
         if (selected_column_index < 0) return abi.OMNI_ERR_INVALID_ARGS;
         const selected_column_idx = std.math.cast(usize, selected_column_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (selected_column_idx >= source_state.column_count) return abi.OMNI_ERR_OUT_OF_RANGE;
         const selected_column = source_state.columns[selected_column_idx];
-
         const target_window_idx = std.math.cast(usize, target_window_index_from_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (target_window_idx < selected_column.window_start or
             target_window_idx >= selected_column.window_start + selected_column.window_count)
         {
             return abi.OMNI_ERR_OUT_OF_RANGE;
         }
-
         target_window_index = std.math.cast(
             i64,
             target_window_idx - selected_column.window_start,
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     const request: abi.OmniNiriNavigationRequest = .{
         .op = payload.op,
         .direction = payload.direction,
@@ -2840,7 +2508,6 @@ fn applyNavigationTxn(
         .target_column_index = target_column_index,
         .target_window_index = target_window_index,
     };
-
     var nav_result: abi.OmniNiriNavigationResult = undefined;
     const nav_rc = navigation.omni_niri_navigation_resolve_impl(
         runtimeColumnsStatePtr(source_state),
@@ -2851,11 +2518,9 @@ fn applyNavigationTxn(
         &nav_result,
     );
     if (nav_rc != abi.OMNI_OK) return nav_rc;
-
     var pre_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     capturePreIds(source_state, &pre_column_ids, &pre_window_ids);
-
     if (nav_result.has_target != 0) {
         const target_window_id = preWindowId(
             &pre_window_ids,
@@ -2867,16 +2532,13 @@ fn applyNavigationTxn(
         source_delta_meta.has_target_window_id = true;
         source_delta_meta.target_window_id = target_window_id;
     }
-
     var mutated = false;
-
     if (nav_result.update_source_active_tile != 0) {
         const column_id = preColumnId(
             &pre_column_ids,
             source_state.column_count,
             nav_result.source_column_index,
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
         const column_idx = findColumnIndexById(source_state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         const row_idx = std.math.cast(usize, nav_result.source_active_tile_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (source_state.columns[column_idx].active_tile_idx != row_idx) {
@@ -2884,14 +2546,12 @@ fn applyNavigationTxn(
             mutated = true;
         }
     }
-
     if (nav_result.update_target_active_tile != 0) {
         const column_id = preColumnId(
             &pre_column_ids,
             source_state.column_count,
             nav_result.target_column_index,
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
         const column_idx = findColumnIndexById(source_state, column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         const row_idx = std.math.cast(usize, nav_result.target_active_tile_idx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (source_state.columns[column_idx].active_tile_idx != row_idx) {
@@ -2899,7 +2559,6 @@ fn applyNavigationTxn(
             mutated = true;
         }
     }
-
     if (nav_result.refresh_tabbed_visibility_source != 0) {
         const column_id = preColumnId(
             &pre_column_ids,
@@ -2908,7 +2567,6 @@ fn applyNavigationTxn(
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         appendRefreshColumnMeta(source_delta_meta, column_id);
     }
-
     if (nav_result.refresh_tabbed_visibility_target != 0) {
         const column_id = preColumnId(
             &pre_column_ids,
@@ -2917,22 +2575,17 @@ fn applyNavigationTxn(
         ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         appendRefreshColumnMeta(source_delta_meta, column_id);
     }
-
     if (mutated) {
         const refresh_rc = refreshRuntimeStateFast(source_state);
         if (refresh_rc != abi.OMNI_OK) return refresh_rc;
-
         const validation_rc = validateRuntimeState(source_state);
         if (validation_rc != abi.OMNI_OK) return validation_rc;
-
         commitRuntimeState(source_ctx, source_state);
         out_result[0].applied = 1;
         out_result[0].changed_source_context = 1;
     }
-
     return abi.OMNI_OK;
 }
-
 fn applyMutationTxn(
     source_ctx: *OmniNiriLayoutContext,
     runtime_state: *RuntimeState,
@@ -2949,13 +2602,11 @@ fn applyMutationTxn(
     if (mutationOpRequiresTargetColumn(payload.op) and payload.has_target_column_id == 0) {
         return abi.OMNI_ERR_INVALID_ARGS;
     }
-
     var source_window_index: i64 = -1;
     var target_window_index: i64 = -1;
     var source_column_index: i64 = -1;
     var target_column_index: i64 = -1;
     var focused_window_index: i64 = -1;
-
     var rc = resolveOptionalWindowIndexById(
         runtime_state,
         payload.has_source_window_id,
@@ -2963,7 +2614,6 @@ fn applyMutationTxn(
         &source_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalWindowIndexById(
         runtime_state,
         payload.has_target_window_id,
@@ -2971,7 +2621,6 @@ fn applyMutationTxn(
         &target_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalColumnIndexById(
         runtime_state,
         payload.has_source_column_id,
@@ -2979,7 +2628,6 @@ fn applyMutationTxn(
         &source_column_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalColumnIndexById(
         runtime_state,
         payload.has_target_column_id,
@@ -2987,7 +2635,6 @@ fn applyMutationTxn(
         &target_column_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalWindowIndexById(
         runtime_state,
         payload.has_focused_window_id,
@@ -2995,7 +2642,6 @@ fn applyMutationTxn(
         &focused_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     if (applyDirectMutationTxn(
         source_ctx,
         runtime_state,
@@ -3007,7 +2653,6 @@ fn applyMutationTxn(
     )) |direct_rc| {
         return direct_rc;
     }
-
     var selected_node_kind: u8 = abi.OMNI_NIRI_MUTATION_NODE_NONE;
     var selected_node_index: i64 = -1;
     rc = resolveMutationSelectedNode(
@@ -3018,7 +2663,6 @@ fn applyMutationTxn(
         &selected_node_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     const request: abi.OmniNiriMutationRequest = .{
         .op = payload.op,
         .direction = payload.direction,
@@ -3036,7 +2680,6 @@ fn applyMutationTxn(
         .focused_window_index = focused_window_index,
         .incoming_spawn_mode = payload.incoming_spawn_mode,
     };
-
     const apply_request: abi.OmniNiriMutationApplyRequest = .{
         .request = request,
         .has_incoming_window_id = payload.has_incoming_window_id,
@@ -3046,7 +2689,6 @@ fn applyMutationTxn(
         .has_placeholder_column_id = payload.has_placeholder_column_id,
         .placeholder_column_id = payload.placeholder_column_id,
     };
-
     var plan_result: abi.OmniNiriMutationResult = undefined;
     const planner_rc = mutation.omni_niri_mutation_plan_impl(
         runtimeColumnsStatePtr(runtime_state),
@@ -3057,13 +2699,11 @@ fn applyMutationTxn(
         &plan_result,
     );
     if (planner_rc != abi.OMNI_OK) return workspaceFail(planner_rc, "planner_rc");
-
     var pre_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     const pre_column_count = runtime_state.column_count;
     const pre_window_count = runtime_state.window_count;
     capturePreIds(runtime_state, &pre_column_ids, &pre_window_ids);
-
     if (plan_result.has_target_window != 0) {
         const target_window_id = preWindowId(
             &pre_window_ids,
@@ -3075,11 +2715,9 @@ fn applyMutationTxn(
         source_delta_meta.has_target_window_id = true;
         source_delta_meta.target_window_id = target_window_id;
     }
-
     if (plan_result.has_target_node != 0) {
         out_result[0].has_target_node_id = 1;
         out_result[0].target_node_kind = plan_result.target_node_kind;
-
         switch (plan_result.target_node_kind) {
             abi.OMNI_NIRI_MUTATION_NODE_WINDOW => {
                 const target_window_id = preWindowId(
@@ -3106,12 +2744,10 @@ fn applyMutationTxn(
             else => return abi.OMNI_ERR_INVALID_ARGS,
         }
     }
-
     if (plan_result.applied == 0) {
         out_result[0].applied = 0;
         return abi.OMNI_OK;
     }
-
     var hints = initMutationApplyHints();
     const max_edits = @min(plan_result.edit_count, abi.OMNI_NIRI_MUTATION_MAX_EDITS);
     for (0..max_edits) |idx| {
@@ -3127,27 +2763,22 @@ fn applyMutationTxn(
         );
         if (apply_rc != abi.OMNI_OK) return apply_rc;
     }
-
     const final_validation_rc = validateRuntimeState(runtime_state);
     if (final_validation_rc != abi.OMNI_OK) return final_validation_rc;
-
     commitRuntimeState(source_ctx, runtime_state);
     out_result[0].applied = 1;
     out_result[0].changed_source_context = 1;
     out_result[0].structural_animation_active = @intFromBool(
         mutationOpTriggersStructuralAnimation(payload.op)
     );
-
     source_delta_meta.refresh_count = hints.refresh_count;
     source_delta_meta.refresh_column_ids = hints.refresh_column_ids;
     source_delta_meta.reset_all_column_cached_widths = hints.reset_all_column_cached_widths;
     source_delta_meta.has_delegate_move_column = hints.has_delegate_move_column;
     source_delta_meta.delegate_move_column_id = hints.delegate_move_column_id;
     source_delta_meta.delegate_move_direction = hints.delegate_move_direction;
-
     return abi.OMNI_OK;
 }
-
 fn applyWorkspaceTxn(
     source_ctx: *OmniNiriLayoutContext,
     target_ctx: *OmniNiriLayoutContext,
@@ -3159,7 +2790,6 @@ fn applyWorkspaceTxn(
     target_meta: *TxnDeltaMeta,
 ) i32 {
     const target_had_no_windows_before_move = target_state.window_count == 0;
-
     switch (payload.op) {
         abi.OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE => {
             if (payload.has_source_window_id == 0) return abi.OMNI_ERR_INVALID_ARGS;
@@ -3169,10 +2799,8 @@ fn applyWorkspaceTxn(
         },
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
-
     var source_window_index: i64 = -1;
     var source_column_index: i64 = -1;
-
     var rc = resolveOptionalWindowIndexById(
         source_state,
         payload.has_source_window_id,
@@ -3180,7 +2808,6 @@ fn applyWorkspaceTxn(
         &source_window_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = resolveOptionalColumnIndexById(
         source_state,
         payload.has_source_column_id,
@@ -3188,14 +2815,12 @@ fn applyWorkspaceTxn(
         &source_column_index,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     const request: abi.OmniNiriWorkspaceRequest = .{
         .op = payload.op,
         .source_window_index = source_window_index,
         .source_column_index = source_column_index,
         .max_visible_columns = payload.max_visible_columns,
     };
-
     const apply_request: abi.OmniNiriWorkspaceApplyRequest = .{
         .request = request,
         .has_target_created_column_id = payload.has_target_created_column_id,
@@ -3203,7 +2828,6 @@ fn applyWorkspaceTxn(
         .has_source_placeholder_column_id = payload.has_source_placeholder_column_id,
         .source_placeholder_column_id = payload.source_placeholder_column_id,
     };
-
     var plan_result: abi.OmniNiriWorkspaceResult = undefined;
     const planner_rc = workspace.omni_niri_workspace_plan_impl(
         runtimeColumnsStatePtr(source_state),
@@ -3218,33 +2842,26 @@ fn applyWorkspaceTxn(
         &plan_result,
     );
     if (planner_rc != abi.OMNI_OK) return planner_rc;
-
     if (plan_result.applied == 0) return abi.OMNI_OK;
-
     var pre_source_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_source_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_target_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     var pre_target_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
     capturePreIds(source_state, &pre_source_column_ids, &pre_source_window_ids);
     capturePreIds(target_state, &pre_target_column_ids, &pre_target_window_ids);
-
     var remove_source_column_ids: [abi.OMNI_NIRI_WORKSPACE_MAX_EDITS]abi.OmniUuid128 = undefined;
     var remove_source_column_count: usize = 0;
-
     var has_source_selection_window_id = false;
     var source_selection_window_id = zeroUuid();
     var source_selection_cleared = false;
-
     var has_target_selection_moved_window = false;
     var target_selection_moved_window_id = zeroUuid();
     var has_target_selection_moved_column = false;
     var target_selection_moved_column_id = zeroUuid();
-
     var has_reuse_target_column = false;
     var reuse_target_column_id = zeroUuid();
     var create_target_visible_count: i64 = apply_request.request.max_visible_columns;
     var prune_target_empty_columns_if_no_windows = false;
-
     const max_edits = @min(plan_result.edit_count, abi.OMNI_NIRI_WORKSPACE_MAX_EDITS);
     for (0..max_edits) |idx| {
         const edit = plan_result.edits[idx];
@@ -3308,7 +2925,6 @@ fn applyWorkspaceTxn(
             else => return abi.OMNI_ERR_INVALID_ARGS,
         }
     }
-
     if (prune_target_empty_columns_if_no_windows and target_state.window_count == 0) {
         var idx: usize = 0;
         while (idx < target_state.column_count) {
@@ -3319,9 +2935,7 @@ fn applyWorkspaceTxn(
             }
         }
     }
-
     var moved_window_id_opt: ?abi.OmniUuid128 = null;
-
     switch (apply_request.request.op) {
         abi.OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE => {
             const moving_window_id = preWindowId(
@@ -3329,16 +2943,13 @@ fn applyWorkspaceTxn(
                 source_state.window_count,
                 apply_request.request.source_window_index,
             ) orelse return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "moving_window_id");
-
             const source_window_idx = findWindowIndexByIdCoherent(source_state, moving_window_id) orelse return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "source_window_idx");
             const source_column_idx = source_state.windows[source_window_idx].column_index;
             if (source_column_idx >= source_state.column_count) return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "source_column_idx");
-
             var target_column_id: abi.OmniUuid128 = undefined;
             if (has_reuse_target_column) {
                 const target_column_idx = findColumnIndexByIdCoherent(target_state, reuse_target_column_id) orelse return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "reuse_target_column_idx");
                 if (target_state.columns[target_column_idx].window_count != 0) return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "reuse_target_not_empty");
-
                 const visible_count_i32 = visibleCountFromRaw(create_target_visible_count);
                 if (visible_count_i32 < 0) return workspaceFail(visible_count_i32, "visible_count_i32_reuse");
                 const visible_count: usize = @intCast(visible_count_i32);
@@ -3349,11 +2960,9 @@ fn applyWorkspaceTxn(
                 if (apply_request.has_target_created_column_id == 0) return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "missing_target_created_column_id");
                 const unique_target_rc = ensureUniqueColumnId(target_state, apply_request.target_created_column_id);
                 if (unique_target_rc != abi.OMNI_OK) return workspaceFail(unique_target_rc, "target_created_column_id_not_unique");
-
                 const visible_count_i32 = visibleCountFromRaw(create_target_visible_count);
                 if (visible_count_i32 < 0) return workspaceFail(visible_count_i32, "visible_count_i32");
                 const visible_count: usize = @intCast(visible_count_i32);
-
                 const add_column_rc = insertColumnAt(target_state, target_state.column_count, .{
                     .column_id = apply_request.target_created_column_id,
                     .window_start = 0,
@@ -3370,19 +2979,15 @@ fn applyWorkspaceTxn(
                 if (add_column_rc != abi.OMNI_OK) return workspaceFail(add_column_rc, "add_target_column");
                 target_column_id = apply_request.target_created_column_id;
             }
-
             const moved_window = removeWindowAt(source_state, source_window_idx);
             if (source_state.columns[source_column_idx].window_count == 0) return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "source_window_count_zero");
             source_state.columns[source_column_idx].window_count -= 1;
-
             const target_column_idx = findColumnIndexByIdCoherent(target_state, target_column_id) orelse return workspaceFail(abi.OMNI_ERR_OUT_OF_RANGE, "target_column_idx_after_add");
             const target_column = target_state.columns[target_column_idx];
             const target_insert_idx = columnWindowStart(target_state, target_column_idx) + target_column.window_count;
-
             const insert_window_rc = insertWindowAt(target_state, target_insert_idx, moved_window);
             if (insert_window_rc != abi.OMNI_OK) return workspaceFail(insert_window_rc, "insert_window_into_target");
             target_state.columns[target_column_idx].window_count += 1;
-
             moved_window_id_opt = moving_window_id;
         },
         abi.OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE => {
@@ -3391,10 +2996,8 @@ fn applyWorkspaceTxn(
                 source_state.column_count,
                 apply_request.request.source_column_index,
             ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
             const source_column_idx = findColumnIndexByIdCoherent(source_state, moving_column_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const moving_column = source_state.columns[source_column_idx];
-
             var moved_windows: [abi.MAX_WINDOWS]abi.OmniNiriRuntimeWindowState = undefined;
             const remove_window_rc = removeWindowRange(
                 source_state,
@@ -3403,22 +3006,17 @@ fn applyWorkspaceTxn(
                 &moved_windows,
             );
             if (remove_window_rc != abi.OMNI_OK) return remove_window_rc;
-
             _ = removeColumnAt(source_state, source_column_idx);
-
             const add_column_rc = insertColumnAt(target_state, target_state.column_count, moving_column);
             if (add_column_rc != abi.OMNI_OK) return add_column_rc;
-
             const append_windows_rc = appendWindowBatch(target_state, &moved_windows, moving_column.window_count);
             if (append_windows_rc != abi.OMNI_OK) return append_windows_rc;
-
             if (moving_column.window_count > 0) {
                 moved_window_id_opt = moved_windows[0].window_id;
             }
         },
         else => return workspaceFail(abi.OMNI_ERR_INVALID_ARGS, "unknown_workspace_op"),
     }
-
     for (0..remove_source_column_count) |idx| {
         const remove_id = remove_source_column_ids[idx];
         const remove_idx_opt = findColumnIndexByIdCoherent(source_state, remove_id);
@@ -3428,7 +3026,6 @@ fn applyWorkspaceTxn(
             }
         }
     }
-
     if (apply_request.request.op == abi.OMNI_NIRI_WORKSPACE_OP_MOVE_WINDOW_TO_WORKSPACE and target_had_no_windows_before_move) {
         var idx: usize = 0;
         while (idx < target_state.column_count) {
@@ -3439,12 +3036,10 @@ fn applyWorkspaceTxn(
             }
         }
     }
-
     const should_insert_source_placeholder = source_state.column_count == 0 and apply_request.has_source_placeholder_column_id != 0;
     if (should_insert_source_placeholder) {
         const unique_placeholder_rc = ensureUniqueColumnId(source_state, apply_request.source_placeholder_column_id);
         if (unique_placeholder_rc != abi.OMNI_OK) return unique_placeholder_rc;
-
         const add_placeholder_rc = insertColumnAt(source_state, 0, .{
             .column_id = apply_request.source_placeholder_column_id,
             .window_start = 0,
@@ -3460,18 +3055,14 @@ fn applyWorkspaceTxn(
         });
         if (add_placeholder_rc != abi.OMNI_OK) return add_placeholder_rc;
     }
-
     const source_refresh_rc = refreshRuntimeStateFast(source_state);
     if (source_refresh_rc != abi.OMNI_OK) return workspaceFail(source_refresh_rc, "source_final_refresh");
-
     const target_refresh_rc = refreshRuntimeStateFast(target_state);
     if (target_refresh_rc != abi.OMNI_OK) return workspaceFail(target_refresh_rc, "target_final_refresh");
-
     const source_validation_rc = validateRuntimeState(source_state);
     if (source_validation_rc != abi.OMNI_OK) return workspaceFail(source_validation_rc, "source_final_validation");
     const target_validation_rc = validateRuntimeState(target_state);
     if (target_validation_rc != abi.OMNI_OK) return workspaceFail(target_validation_rc, "target_final_validation");
-
     if (source_selection_cleared) {
         source_meta.has_source_selection_window_id = false;
     } else if (has_source_selection_window_id) {
@@ -3480,7 +3071,6 @@ fn applyWorkspaceTxn(
             source_meta.source_selection_window_id = source_selection_window_id;
         }
     }
-
     if (has_target_selection_moved_window) {
         if (findWindowIndexByIdCoherent(target_state, target_selection_moved_window_id) != null) {
             target_meta.has_target_selection_window_id = true;
@@ -3495,31 +3085,26 @@ fn applyWorkspaceTxn(
             }
         }
     }
-
     if (moved_window_id_opt) |moved_window_id| {
         if (findWindowIndexByIdCoherent(target_state, moved_window_id) != null) {
             target_meta.has_moved_window_id = true;
             target_meta.moved_window_id = moved_window_id;
         }
     }
-
     commitRuntimeState(source_ctx, source_state);
     commitRuntimeState(target_ctx, target_state);
     out_result[0].applied = 1;
     out_result[0].changed_source_context = 1;
     out_result[0].changed_target_context = 1;
     out_result[0].structural_animation_active = 1;
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_export_delta_impl(
     context: [*c]const OmniNiriLayoutContext,
     out_export: [*c]abi.OmniNiriTxnDeltaExport,
 ) i32 {
     const ctx = asConstContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (out_export == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     out_export[0] = .{
         .columns = if (ctx.last_delta_column_count > 0) @ptrCast(&ctx.last_delta_columns[0]) else null,
         .column_count = ctx.last_delta_column_count,
@@ -3548,10 +3133,8 @@ pub fn omni_niri_ctx_export_delta_impl(
         .moved_window_id = ctx.last_delta_moved_window_id,
         .generation = ctx.last_delta_generation,
     };
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_start_workspace_switch_animation_impl(
     context: [*c]OmniNiriLayoutContext,
     sample_time: f64,
@@ -3565,7 +3148,6 @@ pub fn omni_niri_ctx_start_workspace_switch_animation_impl(
     );
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_cancel_animation_impl(
     context: [*c]OmniNiriLayoutContext,
 ) i32 {
@@ -3573,7 +3155,6 @@ pub fn omni_niri_ctx_cancel_animation_impl(
     clearRuntimeAnimationState(ctx);
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_animation_active_impl(
     context: [*c]OmniNiriLayoutContext,
     sample_time: f64,
@@ -3584,7 +3165,6 @@ pub fn omni_niri_ctx_animation_active_impl(
     out_active[0] = @intFromBool(syncRuntimeAnimationState(ctx, sample_time));
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_ctx_apply_txn_impl(
     source_context: [*c]OmniNiriLayoutContext,
     target_context: [*c]OmniNiriLayoutContext,
@@ -3593,14 +3173,11 @@ pub fn omni_niri_ctx_apply_txn_impl(
 ) i32 {
     const source_ctx = asMutableContext(source_context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (request == null or out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     initTxnResult(out_result);
     out_result[0].kind = request[0].kind;
-
     const pre_source_state = runtimeStateFromContext(source_ctx);
     var source_state = pre_source_state;
     var source_delta_meta = initTxnDeltaMeta();
-
     switch (request[0].kind) {
         abi.OMNI_NIRI_TXN_NAVIGATION => {
             const rc = applyNavigationTxn(
@@ -3612,10 +3189,8 @@ pub fn omni_niri_ctx_apply_txn_impl(
             );
             out_result[0].error_code = rc;
             if (rc != abi.OMNI_OK) return rc;
-
             const delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_delta_meta);
             if (delta_rc != abi.OMNI_OK) return delta_rc;
-
             out_result[0].delta_column_count = source_ctx.last_delta_column_count;
             out_result[0].delta_window_count = source_ctx.last_delta_window_count;
             out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count;
@@ -3632,10 +3207,8 @@ pub fn omni_niri_ctx_apply_txn_impl(
             );
             out_result[0].error_code = rc;
             if (rc != abi.OMNI_OK) return rc;
-
             const delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_delta_meta);
             if (delta_rc != abi.OMNI_OK) return delta_rc;
-
             out_result[0].delta_column_count = source_ctx.last_delta_column_count;
             out_result[0].delta_window_count = source_ctx.last_delta_window_count;
             out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count;
@@ -3648,7 +3221,6 @@ pub fn omni_niri_ctx_apply_txn_impl(
             var target_state = pre_target_state;
             var source_meta = initTxnDeltaMeta();
             var target_meta = initTxnDeltaMeta();
-
             const rc = applyWorkspaceTxn(
                 source_ctx,
                 target_ctx,
@@ -3661,12 +3233,10 @@ pub fn omni_niri_ctx_apply_txn_impl(
             );
             out_result[0].error_code = rc;
             if (rc != abi.OMNI_OK) return rc;
-
             const source_delta_rc = storeTxnDeltaForContext(source_ctx, &pre_source_state, &source_meta);
             if (source_delta_rc != abi.OMNI_OK) return source_delta_rc;
             const target_delta_rc = storeTxnDeltaForContext(target_ctx, &pre_target_state, &target_meta);
             if (target_delta_rc != abi.OMNI_OK) return target_delta_rc;
-
             out_result[0].delta_column_count = source_ctx.last_delta_column_count + target_ctx.last_delta_column_count;
             out_result[0].delta_window_count = source_ctx.last_delta_window_count + target_ctx.last_delta_window_count;
             out_result[0].removed_column_count = source_ctx.last_delta_removed_column_count + target_ctx.last_delta_removed_column_count;
@@ -3678,180 +3248,4 @@ pub fn omni_niri_ctx_apply_txn_impl(
             return abi.OMNI_ERR_INVALID_ARGS;
         },
     }
-}
-
-test "layout pass v3 handles columns with zero windows and keeps empty interaction cache" {
-    const testing = std.testing;
-
-    const context = omni_niri_layout_context_create_impl();
-    defer omni_niri_layout_context_destroy_impl(context);
-    try testing.expect(context != null);
-
-    var columns = [_]abi.OmniNiriColumnInput{
-        .{
-            .span = 120.0,
-            .render_offset_x = 0.0,
-            .render_offset_y = 0.0,
-            .is_tabbed = 0,
-            .tab_indicator_width = 0.0,
-            .window_start = 0,
-            .window_count = 0,
-        },
-    };
-    var out_columns = [_]abi.OmniNiriColumnOutput{
-        .{
-            .frame_x = 0.0,
-            .frame_y = 0.0,
-            .frame_width = 0.0,
-            .frame_height = 0.0,
-            .hide_side = abi.OMNI_NIRI_HIDE_NONE,
-            .is_visible = 0,
-        },
-    };
-
-    const rc = omni_niri_layout_pass_v3_impl(
-        context,
-        &columns,
-        columns.len,
-        null,
-        0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        8.0,
-        8.0,
-        0.0,
-        1920.0,
-        0.0,
-        1.0,
-        abi.OMNI_NIRI_ORIENTATION_HORIZONTAL,
-        null,
-        0,
-        &out_columns,
-        out_columns.len,
-    );
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
-
-    const resolved_ctx = asConstContext(context).?;
-    try testing.expectEqual(@as(usize, 0), resolved_ctx.interaction_window_count);
-}
-
-test "mutation replay keeps frozen pre-window ids after window removal" {
-    const testing = std.testing;
-
-    const column_id = abi.OmniUuid128{ .bytes = [_]u8{1} ++ ([_]u8{0} ** 15) };
-    const first_window_id = abi.OmniUuid128{ .bytes = [_]u8{2} ++ ([_]u8{0} ** 15) };
-    const second_window_id = abi.OmniUuid128{ .bytes = [_]u8{3} ++ ([_]u8{0} ** 15) };
-
-    var state = RuntimeState{
-        .column_count = 1,
-        .columns = undefined,
-        .window_count = 2,
-        .windows = undefined,
-        .column_id_slots = undefined,
-        .window_id_slots = undefined,
-    };
-    state.columns[0] = .{
-        .column_id = column_id,
-        .window_start = 0,
-        .window_count = 2,
-        .active_tile_idx = 0,
-        .is_tabbed = 0,
-        .size_value = 1.0,
-        .width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
-        .is_full_width = 0,
-        .has_saved_width = 0,
-        .saved_width_kind = abi.OMNI_NIRI_SIZE_KIND_PROPORTION,
-        .saved_width_value = 1.0,
-    };
-    state.windows[0] = .{
-        .window_id = first_window_id,
-        .column_id = column_id,
-        .column_index = 0,
-        .size_value = 1.0,
-        .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_AUTO,
-        .height_value = 1.0,
-    };
-    state.windows[1] = .{
-        .window_id = second_window_id,
-        .column_id = column_id,
-        .column_index = 0,
-        .size_value = 3.0,
-        .height_kind = abi.OMNI_NIRI_HEIGHT_KIND_FIXED,
-        .height_value = 240.0,
-    };
-
-    const refresh_rc = refreshRuntimeState(&state);
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), refresh_rc);
-
-    var pre_column_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
-    var pre_window_ids: [abi.MAX_WINDOWS]abi.OmniUuid128 = undefined;
-    capturePreIds(&state, &pre_column_ids, &pre_window_ids);
-    const pre_column_count = state.column_count;
-    const pre_window_count = state.window_count;
-
-    const apply_request = abi.OmniNiriMutationApplyRequest{
-        .request = std.mem.zeroes(abi.OmniNiriMutationRequest),
-        .has_incoming_window_id = 0,
-        .incoming_window_id = zeroUuid(),
-        .has_created_column_id = 0,
-        .created_column_id = zeroUuid(),
-        .has_placeholder_column_id = 1,
-        .placeholder_column_id = abi.OmniUuid128{ .bytes = [_]u8{4} ++ ([_]u8{0} ** 15) },
-    };
-    var hints = initMutationApplyHints();
-
-    const remove_rc = applyMutationEdit(
-        &state,
-        apply_request,
-        .{
-            .kind = abi.OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX,
-            .subject_index = 0,
-            .related_index = -1,
-            .value_a = -1,
-            .value_b = -1,
-            .scalar_a = 0,
-            .scalar_b = 0,
-        },
-        &pre_column_ids,
-        &pre_window_ids,
-        pre_column_count,
-        pre_window_count,
-        &hints,
-    );
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), remove_rc);
-    try testing.expectEqual(@as(usize, 1), state.window_count);
-
-    const reset_height_rc = applyMutationEdit(
-        &state,
-        apply_request,
-        .{
-            .kind = abi.OMNI_NIRI_MUTATION_EDIT_RESET_WINDOW_SIZE_HEIGHT,
-            .subject_index = 1,
-            .related_index = -1,
-            .value_a = -1,
-            .value_b = -1,
-            .scalar_a = 0,
-            .scalar_b = 0,
-        },
-        &pre_column_ids,
-        &pre_window_ids,
-        pre_column_count,
-        pre_window_count,
-        &hints,
-    );
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), reset_height_rc);
-    try testing.expectEqual(second_window_id, state.windows[0].window_id);
-    try testing.expectEqual(@as(u8, abi.OMNI_NIRI_HEIGHT_KIND_AUTO), state.windows[0].height_kind);
-    try testing.expectEqual(@as(f64, 1.0), state.windows[0].size_value);
-    try testing.expectEqual(@as(f64, 1.0), state.windows[0].height_value);
 }

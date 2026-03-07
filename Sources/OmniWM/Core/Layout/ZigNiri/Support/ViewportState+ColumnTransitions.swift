@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 extension ViewportState {
     mutating func setActiveColumn(
         _ index: Int,
@@ -24,7 +23,6 @@ extension ViewportState {
             scale: 2.0
         )
     }
-
     mutating func transitionToColumn(
         _ newIndex: Int,
         columnSpans: [CGFloat],
@@ -45,7 +43,6 @@ extension ViewportState {
         } else {
             safeCurrentIndex
         }
-
         let plan = ZigNiriViewportMath.transitionPlan(
             spans: columnSpans.map(Double.init),
             currentActiveIndex: safeCurrentIndex,
@@ -58,27 +55,22 @@ extension ViewportState {
             fromContainerIndex: resolvedFromColumnIndex,
             scale: scale
         )
-
         activeColumnIndex = plan.resolvedColumnIndex
         viewOffsetPixels.offset(delta: Double(plan.offsetDelta))
-
         if plan.snapToTargetImmediately {
             viewOffsetPixels.offset(delta: Double(plan.snapDelta))
             activatePrevColumnOnRemoval = nil
             viewOffsetToRestore = nil
             return
         }
-
         if animate {
             animateToOffset(plan.targetOffset)
         } else {
             viewOffsetPixels = .static(plan.targetOffset)
         }
-
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
     }
-
     mutating func ensureContainerVisible(
         containerIndex: Int,
         spans: [CGFloat],
@@ -101,7 +93,6 @@ extension ViewportState {
         } else {
             nil
         }
-
         let currentOffset = viewOffsetPixels.current()
         let plan = ZigNiriViewportMath.ensureVisiblePlan(
             spans: spans.map(Double.init),
@@ -114,11 +105,9 @@ extension ViewportState {
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             fromContainerIndex: normalizedFromContainerIndex
         )
-
         if plan.isNoop {
             return
         }
-
         if animate {
             let now = animationClock?.now() ?? CACurrentMediaTime()
             let currentVelocity = viewOffsetPixels.currentVelocity()
@@ -136,7 +125,6 @@ extension ViewportState {
             viewOffsetPixels = .static(plan.targetOffset)
         }
     }
-
     mutating func snapToColumn(
         _ columnIndex: Int,
         columnSpans: [CGFloat],
@@ -158,12 +146,10 @@ extension ViewportState {
             fromContainerIndex: safeCurrentIndex,
             scale: 2.0
         )
-
         activeColumnIndex = plan.resolvedColumnIndex
         viewOffsetPixels = .static(plan.targetOffset)
         selectionProgress = 0
     }
-
     mutating func scrollByPixels(
         _ deltaPixels: CGFloat,
         columnSpans: [CGFloat],
@@ -180,11 +166,9 @@ extension ViewportState {
             selectionProgress: selectionProgress,
             changeSelection: changeSelection
         )
-
         guard result.applied else {
             return nil
         }
-
         viewOffsetPixels = .static(result.newOffset)
         selectionProgress = result.selectionProgress
         return result.selectionSteps

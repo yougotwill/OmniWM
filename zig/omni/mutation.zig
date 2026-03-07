@@ -1,27 +1,22 @@
 const std = @import("std");
 const abi = @import("abi_types.zig");
 const geometry = @import("geometry.zig");
-
 const OmniNiriStateColumnInput = abi.OmniNiriStateColumnInput;
 const OmniNiriStateWindowInput = abi.OmniNiriStateWindowInput;
 const OmniNiriMutationRequest = abi.OmniNiriMutationRequest;
 const OmniNiriMutationResult = abi.OmniNiriMutationResult;
 const OmniNiriMutationEdit = abi.OmniNiriMutationEdit;
-
 const OMNI_OK = abi.OMNI_OK;
 const OMNI_ERR_INVALID_ARGS = abi.OMNI_ERR_INVALID_ARGS;
 const OMNI_ERR_OUT_OF_RANGE = abi.OMNI_ERR_OUT_OF_RANGE;
-
 const OMNI_NIRI_DIRECTION_LEFT = abi.OMNI_NIRI_DIRECTION_LEFT;
 const OMNI_NIRI_DIRECTION_RIGHT = abi.OMNI_NIRI_DIRECTION_RIGHT;
 const OMNI_NIRI_DIRECTION_UP = abi.OMNI_NIRI_DIRECTION_UP;
 const OMNI_NIRI_DIRECTION_DOWN = abi.OMNI_NIRI_DIRECTION_DOWN;
-
 const OMNI_NIRI_INSERT_BEFORE = abi.OMNI_NIRI_INSERT_BEFORE;
 const OMNI_NIRI_INSERT_AFTER = abi.OMNI_NIRI_INSERT_AFTER;
 const OMNI_NIRI_SPAWN_NEW_COLUMN = abi.OMNI_NIRI_SPAWN_NEW_COLUMN;
 const OMNI_NIRI_SPAWN_FOCUSED_COLUMN = abi.OMNI_NIRI_SPAWN_FOCUSED_COLUMN;
-
 const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL = abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL;
 const OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL = abi.OMNI_NIRI_MUTATION_OP_SWAP_WINDOW_VERTICAL;
 const OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL = abi.OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_HORIZONTAL;
@@ -42,11 +37,9 @@ const OMNI_NIRI_MUTATION_OP_ADD_WINDOW = abi.OMNI_NIRI_MUTATION_OP_ADD_WINDOW;
 const OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW = abi.OMNI_NIRI_MUTATION_OP_REMOVE_WINDOW;
 const OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION = abi.OMNI_NIRI_MUTATION_OP_VALIDATE_SELECTION;
 const OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL = abi.OMNI_NIRI_MUTATION_OP_FALLBACK_SELECTION_ON_REMOVAL;
-
 const OMNI_NIRI_MUTATION_NODE_NONE = abi.OMNI_NIRI_MUTATION_NODE_NONE;
 const OMNI_NIRI_MUTATION_NODE_WINDOW = abi.OMNI_NIRI_MUTATION_NODE_WINDOW;
 const OMNI_NIRI_MUTATION_NODE_COLUMN = abi.OMNI_NIRI_MUTATION_NODE_COLUMN;
-
 const OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE = abi.OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE;
 const OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS = abi.OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS;
 const OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX = abi.OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX;
@@ -66,41 +59,33 @@ const OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_INTO_COLUMN = abi.OMNI_NIRI
 const OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_IN_NEW_COLUMN = abi.OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_IN_NEW_COLUMN;
 const OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX = abi.OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX;
 const OMNI_NIRI_MUTATION_EDIT_RESET_ALL_COLUMN_CACHED_WIDTHS = abi.OMNI_NIRI_MUTATION_EDIT_RESET_ALL_COLUMN_CACHED_WIDTHS;
-
 const OMNI_NIRI_MUTATION_MAX_EDITS = abi.OMNI_NIRI_MUTATION_MAX_EDITS;
-
 const SelectedContext = struct {
     column_index: usize,
     row_index: usize,
     window_index: usize,
 };
-
 const NodeTarget = struct {
     kind: u8,
     index: usize,
 };
-
 fn parseColumnIndex(raw: i64, column_count: usize) ?usize {
     const idx = std.math.cast(usize, raw) orelse return null;
     if (idx >= column_count) return null;
     return idx;
 }
-
 fn wrappedColumnIndex(idx: i64, total: usize, infinite_loop: bool) ?usize {
     if (total == 0) return null;
-
     if (infinite_loop) {
         const modulo = std.math.cast(i64, total) orelse return null;
         const wrapped = @mod(idx, modulo);
         return std.math.cast(usize, wrapped);
     }
-
     if (idx < 0) return null;
     const casted = std.math.cast(usize, idx) orelse return null;
     if (casted >= total) return null;
     return casted;
 }
-
 fn initMutationResult(out_result: *OmniNiriMutationResult) void {
     const empty_edit = OmniNiriMutationEdit{
         .kind = OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE,
@@ -122,7 +107,6 @@ fn initMutationResult(out_result: *OmniNiriMutationResult) void {
         .edits = [_]OmniNiriMutationEdit{empty_edit} ** OMNI_NIRI_MUTATION_MAX_EDITS,
     };
 }
-
 fn addMutationEdit(
     out_result: *OmniNiriMutationResult,
     kind: u8,
@@ -142,7 +126,6 @@ fn addMutationEdit(
         0,
     );
 }
-
 fn addMutationEditWithScalars(
     out_result: *OmniNiriMutationResult,
     kind: u8,
@@ -166,7 +149,6 @@ fn addMutationEditWithScalars(
     out_result.edit_count += 1;
     return OMNI_OK;
 }
-
 fn setMutationTargetNode(out_result: *OmniNiriMutationResult, node_kind: u8, node_index: usize) i32 {
     const target_i64 = std.math.cast(i64, node_index) orelse return OMNI_ERR_OUT_OF_RANGE;
     out_result.has_target_node = 1;
@@ -178,11 +160,9 @@ fn setMutationTargetNode(out_result: *OmniNiriMutationResult, node_kind: u8, nod
     }
     return OMNI_OK;
 }
-
 fn setMutationTargetWindow(out_result: *OmniNiriMutationResult, window_index: usize) i32 {
     return setMutationTargetNode(out_result, OMNI_NIRI_MUTATION_NODE_WINDOW, window_index);
 }
-
 fn parseWindowContextByIndex(
     columns: [*c]const OmniNiriStateColumnInput,
     windows: [*c]const OmniNiriStateWindowInput,
@@ -193,13 +173,10 @@ fn parseWindowContextByIndex(
 ) i32 {
     const window_index = std.math.cast(usize, window_index_raw) orelse return OMNI_ERR_OUT_OF_RANGE;
     if (window_index >= window_count) return OMNI_ERR_OUT_OF_RANGE;
-
     const column_index = windows[window_index].column_index;
     if (column_index >= column_count) return OMNI_ERR_OUT_OF_RANGE;
-
     const column = columns[column_index];
     if (!geometry.rangeContains(column.window_start, column.window_count, window_index)) return OMNI_ERR_OUT_OF_RANGE;
-
     out_context.* = .{
         .column_index = column_index,
         .row_index = window_index - column.window_start,
@@ -207,7 +184,6 @@ fn parseWindowContextByIndex(
     };
     return OMNI_OK;
 }
-
 fn parseNodeTargetRequest(
     column_count: usize,
     window_count: usize,
@@ -242,7 +218,6 @@ fn parseNodeTargetRequest(
         else => return OMNI_ERR_INVALID_ARGS,
     }
 }
-
 fn columnIndexForNodeTarget(
     windows: [*c]const OmniNiriStateWindowInput,
     column_count: usize,
@@ -261,11 +236,9 @@ fn columnIndexForNodeTarget(
         else => return null,
     }
 }
-
 fn adjustedTabbedActiveAfterRemoval(column: OmniNiriStateColumnInput, removed_row: usize) usize {
     if (column.window_count == 0) return 0;
     var active = column.active_tile_idx;
-
     if (removed_row == active) {
         if (column.window_count > 1 and removed_row >= column.window_count - 1) {
             active = if (removed_row > 0) removed_row - 1 else 0;
@@ -273,16 +246,13 @@ fn adjustedTabbedActiveAfterRemoval(column: OmniNiriStateColumnInput, removed_ro
     } else if (removed_row < active) {
         active = if (active > 0) active - 1 else 0;
     }
-
     return active;
 }
-
 fn clampedActiveAfterRemoval(column: OmniNiriStateColumnInput) usize {
     if (column.window_count <= 1) return 0;
     const max_idx_after = column.window_count - 2;
     return @min(column.active_tile_idx, max_idx_after);
 }
-
 fn appendTabbedRemovalEdits(
     column: OmniNiriStateColumnInput,
     column_index: usize,
@@ -292,7 +262,6 @@ fn appendTabbedRemovalEdits(
     if (column.is_tabbed == 0) return OMNI_OK;
     const remaining_count = column.window_count - 1;
     if (remaining_count == 0) return OMNI_OK;
-
     const updated_active = adjustedTabbedActiveAfterRemoval(column, removed_row);
     var rc = addMutationEdit(
         out_result,
@@ -303,7 +272,6 @@ fn appendTabbedRemovalEdits(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REFRESH_TABBED_VISIBILITY,
@@ -314,7 +282,6 @@ fn appendTabbedRemovalEdits(
     );
     return rc;
 }
-
 fn appendNonTabbedClampRemovalEdit(
     column: OmniNiriStateColumnInput,
     column_index: usize,
@@ -323,7 +290,6 @@ fn appendNonTabbedClampRemovalEdit(
     if (column.is_tabbed != 0) return OMNI_OK;
     const remaining_count = column.window_count - 1;
     if (remaining_count == 0) return OMNI_OK;
-
     const clamped_active = @min(column.active_tile_idx, remaining_count - 1);
     return addMutationEdit(
         out_result,
@@ -334,7 +300,6 @@ fn appendNonTabbedClampRemovalEdit(
         -1,
     );
 }
-
 fn planMoveWindowVertical(
     columns: [*c]const OmniNiriStateColumnInput,
     selected: SelectedContext,
@@ -343,16 +308,13 @@ fn planMoveWindowVertical(
 ) i32 {
     const source_column = columns[selected.column_index];
     if (source_column.window_count == 0) return OMNI_OK;
-
     const target_row_opt: ?usize = switch (direction) {
         OMNI_NIRI_DIRECTION_UP => if (selected.row_index + 1 < source_column.window_count) selected.row_index + 1 else null,
         OMNI_NIRI_DIRECTION_DOWN => if (selected.row_index > 0) selected.row_index - 1 else null,
         else => return OMNI_ERR_INVALID_ARGS,
     };
-
     const target_row = target_row_opt orelse return OMNI_OK;
     const target_window_index = source_column.window_start + target_row;
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS,
@@ -362,7 +324,6 @@ fn planMoveWindowVertical(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (source_column.is_tabbed != 0) {
         if (selected.row_index == source_column.active_tile_idx) {
             rc = addMutationEdit(
@@ -386,13 +347,11 @@ fn planMoveWindowVertical(
             if (rc != OMNI_OK) return rc;
         }
     }
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planMoveWindowHorizontal(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -409,12 +368,10 @@ fn planMoveWindowHorizontal(
         OMNI_NIRI_DIRECTION_LEFT => -1,
         else => return OMNI_ERR_INVALID_ARGS,
     };
-
     const target_col_index = wrappedColumnIndex(source_col_i64 + step, column_count, infinite_loop) orelse return OMNI_OK;
     if (target_col_index == selected.column_index) return OMNI_OK;
     const target_column = columns[target_col_index];
     if (target_column.window_count >= max_windows_per_column) return OMNI_OK;
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX,
@@ -424,7 +381,6 @@ fn planMoveWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (source_column.is_tabbed != 0) {
         const remaining_count = source_column.window_count - 1;
         if (remaining_count > 0) {
@@ -463,7 +419,6 @@ fn planMoveWindowHorizontal(
             if (rc != OMNI_OK) return rc;
         }
     }
-
     if (target_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -475,7 +430,6 @@ fn planMoveWindowHorizontal(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -485,13 +439,11 @@ fn planMoveWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planSwapWindowHorizontal(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -506,14 +458,11 @@ fn planSwapWindowHorizontal(
         OMNI_NIRI_DIRECTION_LEFT => -1,
         else => return OMNI_ERR_INVALID_ARGS,
     };
-
     const target_col_index = wrappedColumnIndex(source_col_i64 + step, column_count, infinite_loop) orelse return OMNI_OK;
     if (target_col_index == selected.column_index) return OMNI_OK;
-
     const source_column = columns[selected.column_index];
     const target_column = columns[target_col_index];
     if (target_column.window_count == 0) return OMNI_OK;
-
     if (source_column.window_count == 1 and target_column.window_count == 1) {
         const rc_delegate = addMutationEdit(
             out_result,
@@ -527,12 +476,10 @@ fn planSwapWindowHorizontal(
         out_result.applied = 1;
         return OMNI_OK;
     }
-
     const source_active_row = @min(source_column.active_tile_idx, source_column.window_count - 1);
     const target_active_row = @min(target_column.active_tile_idx, target_column.window_count - 1);
     const source_active_window = source_column.window_start + source_active_row;
     const target_active_window = target_column.window_start + target_active_row;
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS,
@@ -542,7 +489,6 @@ fn planSwapWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SWAP_COLUMN_WIDTH_STATE,
@@ -552,7 +498,6 @@ fn planSwapWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE,
@@ -562,7 +507,6 @@ fn planSwapWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SET_ACTIVE_TILE,
@@ -572,7 +516,6 @@ fn planSwapWindowHorizontal(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (source_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -595,13 +538,11 @@ fn planSwapWindowHorizontal(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = setMutationTargetWindow(out_result, source_active_window);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planSwapWindowsByMove(
     columns: [*c]const OmniNiriStateColumnInput,
     source: SelectedContext,
@@ -610,7 +551,6 @@ fn planSwapWindowsByMove(
 ) i32 {
     const source_column = columns[source.column_index];
     const target_column = columns[target.column_index];
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SWAP_WINDOWS,
@@ -620,7 +560,6 @@ fn planSwapWindowsByMove(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (source.column_index != target.column_index) {
         rc = addMutationEdit(
             out_result,
@@ -632,7 +571,6 @@ fn planSwapWindowsByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     if (source_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -644,7 +582,6 @@ fn planSwapWindowsByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     if (target.column_index != source.column_index and target_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -656,13 +593,11 @@ fn planSwapWindowsByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = setMutationTargetWindow(out_result, source.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planInsertWindowByMove(
     columns: [*c]const OmniNiriStateColumnInput,
     source: SelectedContext,
@@ -673,11 +608,9 @@ fn planInsertWindowByMove(
     if (insert_position != OMNI_NIRI_INSERT_BEFORE and insert_position != OMNI_NIRI_INSERT_AFTER) {
         return OMNI_ERR_INVALID_ARGS;
     }
-
     const source_column = columns[source.column_index];
     const target_column = columns[target.column_index];
     const same_column = source.column_index == target.column_index;
-
     var insert_row: usize = 0;
     if (same_column) {
         var current_target_row = target.row_index;
@@ -688,7 +621,6 @@ fn planInsertWindowByMove(
     } else {
         insert_row = if (insert_position == OMNI_NIRI_INSERT_BEFORE) target.row_index else target.row_index + 1;
     }
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX,
@@ -698,7 +630,6 @@ fn planInsertWindowByMove(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_RESET_WINDOW_SIZE_HEIGHT,
@@ -708,7 +639,6 @@ fn planInsertWindowByMove(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (!same_column and source_column.window_count == 1) {
         rc = addMutationEdit(
             out_result,
@@ -720,7 +650,6 @@ fn planInsertWindowByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     if (same_column) {
         if (source_column.is_tabbed != 0) {
             const source_active_same = @min(source_column.active_tile_idx, source_column.window_count - 1);
@@ -746,7 +675,6 @@ fn planInsertWindowByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     if (target_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -758,13 +686,11 @@ fn planInsertWindowByMove(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = setMutationTargetWindow(out_result, source.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planMoveWindowToColumn(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -774,10 +700,8 @@ fn planMoveWindowToColumn(
 ) i32 {
     const target_column_index = parseColumnIndex(target_column_index_raw, column_count) orelse return OMNI_ERR_OUT_OF_RANGE;
     if (target_column_index == selected.column_index) return OMNI_OK;
-
     const source_column = columns[selected.column_index];
     const target_column = columns[target_column_index];
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX,
@@ -787,12 +711,10 @@ fn planMoveWindowToColumn(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(source_column, selected.column_index, selected.row_index, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(source_column, selected.column_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     if (target_column.is_tabbed != 0) {
         rc = addMutationEdit(
             out_result,
@@ -804,7 +726,6 @@ fn planMoveWindowToColumn(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -814,13 +735,11 @@ fn planMoveWindowToColumn(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planCreateColumnAndMove(
     columns: [*c]const OmniNiriStateColumnInput,
     selected: SelectedContext,
@@ -832,7 +751,6 @@ fn planCreateColumnAndMove(
         return OMNI_ERR_INVALID_ARGS;
     }
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
-
     const source_column = columns[selected.column_index];
     var rc = addMutationEdit(
         out_result,
@@ -843,12 +761,10 @@ fn planCreateColumnAndMove(
         std.math.cast(i64, max_visible_columns) orelse return OMNI_ERR_OUT_OF_RANGE,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(source_column, selected.column_index, selected.row_index, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(source_column, selected.column_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -858,13 +774,11 @@ fn planCreateColumnAndMove(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planInsertWindowInNewColumn(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -875,13 +789,11 @@ fn planInsertWindowInNewColumn(
 ) i32 {
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
     const source_column = columns[selected.column_index];
-
     var insert_column_index: usize = 0;
     if (insert_column_index_raw > 0) {
         const raw_cast = std.math.cast(usize, insert_column_index_raw) orelse return OMNI_ERR_OUT_OF_RANGE;
         insert_column_index = @min(raw_cast, column_count);
     }
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_INSERT_NEW_COLUMN_AT_INDEX_AND_MOVE_WINDOW,
@@ -891,12 +803,10 @@ fn planInsertWindowInNewColumn(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(source_column, selected.column_index, selected.row_index, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(source_column, selected.column_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -906,13 +816,11 @@ fn planInsertWindowInNewColumn(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planMoveColumn(
     column_count: usize,
     source_column_index: usize,
@@ -925,11 +833,9 @@ fn planMoveColumn(
         OMNI_NIRI_DIRECTION_LEFT => -1,
         else => return OMNI_ERR_INVALID_ARGS,
     };
-
     const source_col_i64 = std.math.cast(i64, source_column_index) orelse return OMNI_ERR_OUT_OF_RANGE;
     const target_column_index = wrappedColumnIndex(source_col_i64 + step, column_count, infinite_loop) orelse return OMNI_OK;
     if (target_column_index == source_column_index) return OMNI_OK;
-
     const rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_SWAP_COLUMNS,
@@ -942,7 +848,6 @@ fn planMoveColumn(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planConsumeWindow(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -956,22 +861,17 @@ fn planConsumeWindow(
         return OMNI_ERR_INVALID_ARGS;
     }
     if (max_windows_per_column == 0) return OMNI_ERR_INVALID_ARGS;
-
     const current_column = columns[selected.column_index];
     if (current_column.window_count >= max_windows_per_column) return OMNI_OK;
-
     const step: i64 = if (direction == OMNI_NIRI_DIRECTION_RIGHT) 1 else -1;
     const current_col_i64 = std.math.cast(i64, selected.column_index) orelse return OMNI_ERR_OUT_OF_RANGE;
     const neighbor_index = wrappedColumnIndex(current_col_i64 + step, column_count, infinite_loop) orelse return OMNI_OK;
     if (neighbor_index == selected.column_index) return OMNI_OK;
-
     const neighbor_column = columns[neighbor_index];
     if (neighbor_column.window_count == 0) return OMNI_OK;
-
     const consumed_row: usize = if (direction == OMNI_NIRI_DIRECTION_RIGHT) 0 else neighbor_column.window_count - 1;
     const consumed_window_index = neighbor_column.window_start + consumed_row;
     const insert_row: usize = if (direction == OMNI_NIRI_DIRECTION_RIGHT) current_column.window_count else 0;
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_MOVE_WINDOW_TO_COLUMN_INDEX,
@@ -981,12 +881,10 @@ fn planConsumeWindow(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(neighbor_column, neighbor_index, consumed_row, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(neighbor_column, neighbor_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     if (current_column.is_tabbed != 0) {
         if (direction == OMNI_NIRI_DIRECTION_LEFT) {
             rc = addMutationEdit(
@@ -1009,7 +907,6 @@ fn planConsumeWindow(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -1019,13 +916,11 @@ fn planConsumeWindow(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planExpelWindow(
     columns: [*c]const OmniNiriStateColumnInput,
     selected: SelectedContext,
@@ -1037,7 +932,6 @@ fn planExpelWindow(
         return OMNI_ERR_INVALID_ARGS;
     }
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
-
     const source_column = columns[selected.column_index];
     var rc = addMutationEdit(
         out_result,
@@ -1048,12 +942,10 @@ fn planExpelWindow(
         std.math.cast(i64, max_visible_columns) orelse return OMNI_ERR_OUT_OF_RANGE,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(source_column, selected.column_index, selected.row_index, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(source_column, selected.column_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -1063,13 +955,11 @@ fn planExpelWindow(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = setMutationTargetWindow(out_result, selected.window_index);
     if (rc != OMNI_OK) return rc;
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planCleanupEmptyColumn(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -1078,9 +968,7 @@ fn planCleanupEmptyColumn(
 ) i32 {
     const source_column_index = parseColumnIndex(source_column_index_raw, column_count) orelse return OMNI_ERR_OUT_OF_RANGE;
     if (columns[source_column_index].window_count != 0) return OMNI_OK;
-    // Preserve the root placeholder invariant in planner decisions.
     if (column_count <= 1) return OMNI_OK;
-
     const rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -1093,24 +981,20 @@ fn planCleanupEmptyColumn(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planNormalizeColumnSizes(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
     out_result: *OmniNiriMutationResult,
 ) i32 {
     if (column_count <= 1) return OMNI_OK;
-
     var total_size: f64 = 0;
     for (0..column_count) |idx| {
         total_size += columns[idx].size_value;
     }
     if (total_size <= 0) return OMNI_OK;
-
     const avg_size = total_size / @as(f64, @floatFromInt(column_count));
     if (avg_size <= 0) return OMNI_OK;
     const factor = 1.0 / avg_size;
-
     const rc = addMutationEditWithScalars(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_NORMALIZE_COLUMNS_BY_FACTOR,
@@ -1125,7 +1009,6 @@ fn planNormalizeColumnSizes(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planNormalizeWindowSizes(
     columns: [*c]const OmniNiriStateColumnInput,
     windows: [*c]const OmniNiriStateWindowInput,
@@ -1137,7 +1020,6 @@ fn planNormalizeWindowSizes(
     const source_column_index = parseColumnIndex(source_column_index_raw, column_count) orelse return OMNI_ERR_OUT_OF_RANGE;
     const column = columns[source_column_index];
     if (column.window_count == 0) return OMNI_OK;
-
     var total_size: f64 = 0;
     var idx: usize = 0;
     while (idx < column.window_count) : (idx += 1) {
@@ -1146,11 +1028,9 @@ fn planNormalizeWindowSizes(
         total_size += windows[window_index].size_value;
     }
     if (total_size <= 0) return OMNI_OK;
-
     const avg_size = total_size / @as(f64, @floatFromInt(column.window_count));
     if (avg_size <= 0) return OMNI_OK;
     const factor = 1.0 / avg_size;
-
     const rc = addMutationEditWithScalars(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_NORMALIZE_COLUMN_WINDOWS_BY_FACTOR,
@@ -1165,7 +1045,6 @@ fn planNormalizeWindowSizes(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planBalanceSizes(
     column_count: usize,
     max_visible_columns: usize,
@@ -1173,7 +1052,6 @@ fn planBalanceSizes(
 ) i32 {
     if (column_count == 0) return OMNI_OK;
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
-
     const balanced_width = 1.0 / @as(f64, @floatFromInt(max_visible_columns));
     const rc = addMutationEditWithScalars(
         out_result,
@@ -1189,7 +1067,6 @@ fn planBalanceSizes(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planAddWindow(
     columns: [*c]const OmniNiriStateColumnInput,
     windows: [*c]const OmniNiriStateWindowInput,
@@ -1203,7 +1080,6 @@ fn planAddWindow(
 ) i32 {
     if (max_visible_columns == 0) return OMNI_ERR_INVALID_ARGS;
     if (column_count == 0) return OMNI_OK;
-
     if (window_count == 0) {
         for (0..column_count) |idx| {
             if (columns[idx].window_count == 0) {
@@ -1221,7 +1097,6 @@ fn planAddWindow(
             }
         }
     }
-
     var reference_column_index: ?usize = null;
     if (focused_window_index_raw >= 0) {
         var focused: SelectedContext = undefined;
@@ -1237,17 +1112,14 @@ fn planAddWindow(
             reference_column_index = focused.column_index;
         }
     }
-
     if (reference_column_index == null) {
         if (selected_target) |target| {
             reference_column_index = columnIndexForNodeTarget(windows, column_count, target);
         }
     }
-
     if (reference_column_index == null) {
         reference_column_index = column_count - 1;
     }
-
     if (incoming_spawn_mode == OMNI_NIRI_SPAWN_FOCUSED_COLUMN) {
         const rc_focused = addMutationEdit(
             out_result,
@@ -1261,11 +1133,9 @@ fn planAddWindow(
         out_result.applied = 1;
         return OMNI_OK;
     }
-
     if (incoming_spawn_mode != OMNI_NIRI_SPAWN_NEW_COLUMN) {
         return OMNI_ERR_INVALID_ARGS;
     }
-
     const rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_INSERT_INCOMING_WINDOW_IN_NEW_COLUMN,
@@ -1278,7 +1148,6 @@ fn planAddWindow(
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planRemoveWindow(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -1286,7 +1155,6 @@ fn planRemoveWindow(
     out_result: *OmniNiriMutationResult,
 ) i32 {
     const source_column = columns[selected.column_index];
-
     var rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_WINDOW_BY_INDEX,
@@ -1296,12 +1164,10 @@ fn planRemoveWindow(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     rc = appendTabbedRemovalEdits(source_column, selected.column_index, selected.row_index, out_result);
     if (rc != OMNI_OK) return rc;
     rc = appendNonTabbedClampRemovalEdit(source_column, selected.column_index, out_result);
     if (rc != OMNI_OK) return rc;
-
     rc = addMutationEdit(
         out_result,
         OMNI_NIRI_MUTATION_EDIT_REMOVE_COLUMN_IF_EMPTY,
@@ -1311,7 +1177,6 @@ fn planRemoveWindow(
         -1,
     );
     if (rc != OMNI_OK) return rc;
-
     if (source_column.window_count == 1 and column_count > 1) {
         rc = addMutationEdit(
             out_result,
@@ -1323,11 +1188,9 @@ fn planRemoveWindow(
         );
         if (rc != OMNI_OK) return rc;
     }
-
     out_result.applied = 1;
     return OMNI_OK;
 }
-
 fn planValidateSelection(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -1337,7 +1200,6 @@ fn planValidateSelection(
     if (selected_target) |target| {
         return setMutationTargetNode(out_result, target.kind, target.index);
     }
-
     if (column_count == 0) return OMNI_OK;
     for (0..column_count) |idx| {
         const column = columns[idx];
@@ -1345,10 +1207,8 @@ fn planValidateSelection(
             return setMutationTargetWindow(out_result, column.window_start);
         }
     }
-
     return OMNI_OK;
 }
-
 fn planFallbackSelectionOnRemoval(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -1357,22 +1217,18 @@ fn planFallbackSelectionOnRemoval(
 ) i32 {
     const source_column = columns[selected.column_index];
     if (source_column.window_count == 0) return OMNI_OK;
-
     if (selected.row_index + 1 < source_column.window_count) {
         return setMutationTargetWindow(out_result, source_column.window_start + selected.row_index + 1);
     }
-
     if (selected.row_index > 0) {
         return setMutationTargetWindow(out_result, source_column.window_start + selected.row_index - 1);
     }
-
     if (selected.column_index > 0) {
         const prev_column = columns[selected.column_index - 1];
         if (prev_column.window_count > 0) {
             return setMutationTargetWindow(out_result, prev_column.window_start);
         }
     }
-
     if (selected.column_index + 1 < column_count) {
         const next_idx = selected.column_index + 1;
         const next_column = columns[next_idx];
@@ -1380,7 +1236,6 @@ fn planFallbackSelectionOnRemoval(
             return setMutationTargetWindow(out_result, next_column.window_start);
         }
     }
-
     var idx: usize = 0;
     while (idx < column_count) : (idx += 1) {
         if (idx == selected.column_index) continue;
@@ -1389,10 +1244,8 @@ fn planFallbackSelectionOnRemoval(
             return setMutationTargetWindow(out_result, column.window_start);
         }
     }
-
     return OMNI_OK;
 }
-
 pub fn omni_niri_mutation_plan_impl(
     columns: [*c]const OmniNiriStateColumnInput,
     column_count: usize,
@@ -1404,12 +1257,9 @@ pub fn omni_niri_mutation_plan_impl(
     if (request == null or out_result == null) return OMNI_ERR_INVALID_ARGS;
     if (column_count > 0 and columns == null) return OMNI_ERR_INVALID_ARGS;
     if (window_count > 0 and windows == null) return OMNI_ERR_INVALID_ARGS;
-
     var resolved_result: OmniNiriMutationResult = undefined;
     initMutationResult(&resolved_result);
-
     const req = request[0];
-
     const rc: i32 = blk: {
         switch (req.op) {
             OMNI_NIRI_MUTATION_OP_MOVE_WINDOW_VERTICAL,
@@ -1664,7 +1514,6 @@ pub fn omni_niri_mutation_plan_impl(
             OMNI_NIRI_MUTATION_OP_ADD_WINDOW => {
                 const max_visible_columns = std.math.cast(usize, req.max_visible_columns) orelse break :blk OMNI_ERR_INVALID_ARGS;
                 if (max_visible_columns == 0) break :blk OMNI_ERR_INVALID_ARGS;
-
                 var selected_target: ?NodeTarget = null;
                 const selected_rc = parseNodeTargetRequest(
                     column_count,
@@ -1679,7 +1528,6 @@ pub fn omni_niri_mutation_plan_impl(
                 } else if (selected_rc != OMNI_OK) {
                     break :blk selected_rc;
                 }
-
                 break :blk planAddWindow(
                     columns,
                     windows,
@@ -1725,7 +1573,6 @@ pub fn omni_niri_mutation_plan_impl(
                 } else if (selected_rc != OMNI_OK) {
                     break :blk selected_rc;
                 }
-
                 break :blk planValidateSelection(
                     columns,
                     column_count,
@@ -1744,7 +1591,6 @@ pub fn omni_niri_mutation_plan_impl(
                     &source,
                 );
                 if (source_rc != OMNI_OK) break :blk OMNI_OK;
-
                 break :blk planFallbackSelectionOnRemoval(
                     columns,
                     column_count,
@@ -1755,9 +1601,7 @@ pub fn omni_niri_mutation_plan_impl(
             else => break :blk OMNI_ERR_INVALID_ARGS,
         }
     };
-
     if (rc != OMNI_OK) return rc;
-
     out_result[0] = resolved_result;
     return OMNI_OK;
 }

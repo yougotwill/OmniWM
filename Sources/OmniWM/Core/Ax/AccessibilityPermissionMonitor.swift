@@ -1,14 +1,11 @@
 import ApplicationServices
 import Foundation
-
 @MainActor
 final class AccessibilityPermissionMonitor {
     static let shared = AccessibilityPermissionMonitor()
-
     private var task: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
     private(set) var isGranted: Bool
-
     private init() {
         isGranted = AXIsProcessTrusted()
         task = Task {
@@ -21,7 +18,6 @@ final class AccessibilityPermissionMonitor {
             }
         }
     }
-
     deinit {
         task?.cancel()
         let currentContinuations = Array(continuations.values)
@@ -29,7 +25,6 @@ final class AccessibilityPermissionMonitor {
             continuation.finish()
         }
     }
-
     func stream(initial: Bool = true) -> AsyncStream<Bool> {
         AsyncStream { continuation in
             let id = UUID()
@@ -40,7 +35,6 @@ final class AccessibilityPermissionMonitor {
             }
         }
     }
-
     private func yield(_ value: Bool) {
         guard value != isGranted else { return }
         isGranted = value

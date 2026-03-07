@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-
 enum DwindleSingleWindowAspectRatio: String, CaseIterable, Codable, Identifiable {
     case fill = "fill"
     case ratio16x9 = "16:9"
@@ -8,9 +7,7 @@ enum DwindleSingleWindowAspectRatio: String, CaseIterable, Codable, Identifiable
     case ratio21x9 = "21:9"
     case square = "1:1"
     case ratio3x2 = "3:2"
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .fill: "Fill Screen"
@@ -21,7 +18,6 @@ enum DwindleSingleWindowAspectRatio: String, CaseIterable, Codable, Identifiable
         case .ratio3x2: "3:2"
         }
     }
-
     var size: CGSize {
         switch self {
         case .fill: CGSize(width: 0, height: 0)
@@ -32,7 +28,6 @@ enum DwindleSingleWindowAspectRatio: String, CaseIterable, Codable, Identifiable
         case .ratio3x2: CGSize(width: 3, height: 2)
         }
     }
-
     var isFillScreen: Bool {
         self == .fill
     }

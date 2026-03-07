@@ -1,9 +1,7 @@
 import Carbon
-
 enum DefaultHotkeyBindings {
     static func all() -> [HotkeyBinding] {
         var bindings: [HotkeyBinding] = []
-
         let digitCodes: [UInt32] = [
             UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3),
             UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5), UInt32(kVK_ANSI_6),
@@ -21,18 +19,15 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: code, modifiers: UInt32(optionKey | shiftKey))
             ))
         }
-
         bindings.append(HotkeyBinding(
             id: "workspaceBackAndForth",
             command: .workspaceBackAndForth,
             binding: KeyBinding(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey | controlKey))
         ))
-
         bindings.append(contentsOf: [
             HotkeyBinding(id: "switchWorkspace.next", command: .switchWorkspaceNext, binding: .unassigned),
             HotkeyBinding(id: "switchWorkspace.previous", command: .switchWorkspacePrevious, binding: .unassigned)
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "focus.left",
@@ -55,18 +50,15 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey))
             )
         ])
-
         bindings.append(HotkeyBinding(
             id: "focusPrevious",
             command: .focusPrevious,
             binding: KeyBinding(keyCode: UInt32(kVK_Tab), modifiers: UInt32(optionKey))
         ))
-
         bindings.append(contentsOf: [
             HotkeyBinding(id: "focusDownOrLeft", command: .focusDownOrLeft, binding: .unassigned),
             HotkeyBinding(id: "focusUpOrRight", command: .focusUpOrRight, binding: .unassigned)
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveWindowToWorkspaceUp",
@@ -82,7 +74,6 @@ enum DefaultHotkeyBindings {
                 )
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveColumnToWorkspaceUp",
@@ -95,7 +86,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_PageDown), modifiers: UInt32(optionKey | controlKey | shiftKey))
             )
         ])
-
         for idx in 0 ..< 9 {
             bindings.append(HotkeyBinding(
                 id: "moveColumnToWorkspace.\(idx)",
@@ -103,7 +93,6 @@ enum DefaultHotkeyBindings {
                 binding: .unassigned
             ))
         }
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "move.left",
@@ -126,7 +115,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "swap.left",
@@ -149,7 +137,6 @@ enum DefaultHotkeyBindings {
                 binding: .unassigned
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveToMonitor.left",
@@ -172,7 +159,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(optionKey | controlKey))
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "focusMonitor.left",
@@ -210,7 +196,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(controlKey | cmdKey))
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveColumnToMonitor.left",
@@ -233,7 +218,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(controlKey | cmdKey | shiftKey))
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveWorkspaceToMonitor.left",
@@ -252,7 +236,6 @@ enum DefaultHotkeyBindings {
                 binding: .unassigned
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(id: "moveWorkspaceToMonitor.next", command: .moveWorkspaceToMonitorNext, binding: .unassigned),
             HotkeyBinding(
@@ -261,7 +244,6 @@ enum DefaultHotkeyBindings {
                 binding: .unassigned
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "toggleFullscreen",
@@ -274,7 +256,6 @@ enum DefaultHotkeyBindings {
                 binding: .unassigned
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "moveColumn.left",
@@ -293,7 +274,6 @@ enum DefaultHotkeyBindings {
                 )
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "consumeWindow.left",
@@ -322,13 +302,11 @@ enum DefaultHotkeyBindings {
                 )
             )
         ])
-
         bindings.append(HotkeyBinding(
             id: "toggleColumnTabbed",
             command: .toggleColumnTabbed,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(optionKey))
         ))
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "focusColumnFirst",
@@ -341,7 +319,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_End), modifiers: UInt32(optionKey))
             )
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "focusWindowTop",
@@ -354,7 +331,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_End), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
-
         for (idx, code) in digitCodes.enumerated() {
             bindings.append(HotkeyBinding(
                 id: "focusColumn.\(idx)",
@@ -362,7 +338,6 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: code, modifiers: UInt32(optionKey | controlKey))
             ))
         }
-
         bindings.append(contentsOf: [
             HotkeyBinding(
                 id: "cycleColumnWidthForward",
@@ -380,31 +355,26 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(optionKey | shiftKey))
             )
         ])
-
         bindings.append(HotkeyBinding(
             id: "balanceSizes",
             command: .balanceSizes,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_B), modifiers: UInt32(optionKey | shiftKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "moveToRoot",
             command: .moveToRoot,
             binding: .unassigned
         ))
-
         bindings.append(HotkeyBinding(
             id: "toggleSplit",
             command: .toggleSplit,
             binding: .unassigned
         ))
-
         bindings.append(HotkeyBinding(
             id: "swapSplit",
             command: .swapSplit,
             binding: .unassigned
         ))
-
         bindings.append(contentsOf: [
             HotkeyBinding(id: "resizeGrow.left", command: .resizeInDirection(.left, true), binding: .unassigned),
             HotkeyBinding(id: "resizeGrow.right", command: .resizeInDirection(.right, true), binding: .unassigned),
@@ -415,7 +385,6 @@ enum DefaultHotkeyBindings {
             HotkeyBinding(id: "resizeShrink.up", command: .resizeInDirection(.up, false), binding: .unassigned),
             HotkeyBinding(id: "resizeShrink.down", command: .resizeInDirection(.down, false), binding: .unassigned)
         ])
-
         bindings.append(contentsOf: [
             HotkeyBinding(id: "preselect.left", command: .preselect(.left), binding: .unassigned),
             HotkeyBinding(id: "preselect.right", command: .preselect(.right), binding: .unassigned),
@@ -423,7 +392,6 @@ enum DefaultHotkeyBindings {
             HotkeyBinding(id: "preselect.down", command: .preselect(.down), binding: .unassigned),
             HotkeyBinding(id: "preselectClear", command: .preselectClear, binding: .unassigned)
         ])
-
         for (idx, code) in digitCodes.enumerated() {
             bindings.append(HotkeyBinding(
                 id: "summonWorkspace.\(idx)",
@@ -431,55 +399,46 @@ enum DefaultHotkeyBindings {
                 binding: KeyBinding(keyCode: code, modifiers: UInt32(controlKey | shiftKey))
             ))
         }
-
         bindings.append(HotkeyBinding(
             id: "openWindowFinder",
             command: .openWindowFinder,
             binding: KeyBinding(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "raiseAllFloatingWindows",
             command: .raiseAllFloatingWindows,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(optionKey | shiftKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "openMenuAnywhere",
             command: .openMenuAnywhere,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "openMenuPalette",
             command: .openMenuPalette,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey | shiftKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "toggleHiddenBar",
             command: .toggleHiddenBar,
             binding: .unassigned
         ))
-
         bindings.append(HotkeyBinding(
             id: "toggleQuakeTerminal",
             command: .toggleQuakeTerminal,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Grave), modifiers: UInt32(optionKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "toggleWorkspaceLayout",
             command: .toggleWorkspaceLayout,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey | shiftKey))
         ))
-
         bindings.append(HotkeyBinding(
             id: "toggleOverview",
             command: .toggleOverview,
             binding: KeyBinding(keyCode: UInt32(kVK_ANSI_O), modifiers: UInt32(optionKey | shiftKey))
         ))
-
         return bindings
     }
 }

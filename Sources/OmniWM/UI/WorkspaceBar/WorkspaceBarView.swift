@@ -1,13 +1,11 @@
 import AppKit
 import SwiftUI
-
 struct WorkspaceBarItem: Identifiable {
     let id: WorkspaceDescriptor.ID
     let name: String
     let isFocused: Bool
     let windows: [WorkspaceBarWindowItem]
 }
-
 struct WorkspaceBarWindowItem: Identifiable {
     let id: UUID
     let windowId: Int
@@ -17,14 +15,12 @@ struct WorkspaceBarWindowItem: Identifiable {
     let windowCount: Int
     let allWindows: [WorkspaceBarWindowInfo]
 }
-
 struct WorkspaceBarWindowInfo: Identifiable {
     let id: UUID
     let windowId: Int
     let title: String
     let isFocused: Bool
 }
-
 @MainActor
 struct WorkspaceBarView: View {
     let controller: WMController
@@ -32,21 +28,17 @@ struct WorkspaceBarView: View {
     let resolvedSettings: ResolvedBarSettings
     let monitor: Monitor
     let barHeight: CGFloat
-
     @Environment(\.colorScheme) var colorScheme: ColorScheme
-
     private var itemHeight: CGFloat { max(16, barHeight - 4) }
     private var iconSize: CGFloat { max(12, itemHeight - 6) }
     private let workspaceSpacing: CGFloat = 8
     private let windowSpacing: CGFloat = 2
     private let cornerRadius: CGFloat = 6
-
     private var backgroundColor: Color {
         colorScheme == .dark
             ? Color.white.opacity(resolvedSettings.backgroundOpacity)
             : Color.black.opacity(resolvedSettings.backgroundOpacity * 0.5)
     }
-
     var body: some View {
         HStack(spacing: workspaceSpacing) {
             ForEach(workspaceItems, id: \.id) { item in
@@ -70,7 +62,6 @@ struct WorkspaceBarView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
         )
     }
-
     private var workspaceItems: [WorkspaceBarItem] {
         _ = controller.workspaceBarVersion
         return controller.workspaceBarItems(
@@ -79,16 +70,13 @@ struct WorkspaceBarView: View {
             hideEmpty: resolvedSettings.hideEmptyWorkspaces
         )
     }
-
     private func focusWorkspace(_ item: WorkspaceBarItem) {
         controller.focusWorkspaceFromBar(named: item.name)
     }
-
     private func focusWindow(_ windowId: Int) {
         controller.focusWindowFromBar(windowId: windowId)
     }
 }
-
 @MainActor
 private struct WorkspaceItemView: View {
     let item: WorkspaceBarItem
@@ -99,9 +87,7 @@ private struct WorkspaceItemView: View {
     let showLabels: Bool
     let onFocusWorkspace: () -> Void
     let onFocusWindow: (Int) -> Void
-
     @State private var isHovered = false
-
     var body: some View {
         HStack(spacing: windowSpacing) {
             if showLabels {
@@ -109,14 +95,12 @@ private struct WorkspaceItemView: View {
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(item.isFocused ? .accentColor : .secondary)
                     .frame(minWidth: 16)
-
                 if !item.windows.isEmpty {
                     Divider()
                         .frame(height: iconSize)
                         .padding(.horizontal, 2)
                 }
             }
-
             ForEach(item.windows, id: \.id) { window in
                 WindowIconView(
                     window: window,
@@ -150,7 +134,6 @@ private struct WorkspaceItemView: View {
         }
     }
 }
-
 @MainActor
 private struct WindowIconView: View {
     let window: WorkspaceBarWindowItem
@@ -158,10 +141,8 @@ private struct WindowIconView: View {
     let isFocused: Bool
     let isInFocusedWorkspace: Bool
     let onFocusWindow: (Int) -> Void
-
     @State private var isHovered = false
     @State private var showingWindowList = false
-
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
@@ -178,7 +159,6 @@ private struct WindowIconView: View {
             .frame(width: iconSize, height: iconSize)
             .opacity(opacity)
             .shadow(color: Color.accentColor.opacity(glowOpacity), radius: glowRadius)
-
             if window.windowCount > 1 {
                 Text("\(window.windowCount)")
                     .font(.system(size: max(8, iconSize * 0.4), weight: .bold))
@@ -216,7 +196,6 @@ private struct WindowIconView: View {
         }
         .help(window.appName)
     }
-
     private var opacity: Double {
         if isFocused {
             1.0
@@ -226,7 +205,6 @@ private struct WindowIconView: View {
             0.5
         }
     }
-
     private var scale: CGFloat {
         if isFocused {
             1.1
@@ -236,23 +214,19 @@ private struct WindowIconView: View {
             1.0
         }
     }
-
     private var glowRadius: CGFloat {
         isFocused ? 4 : 0
     }
-
     private var glowOpacity: Double {
         isFocused ? 0.5 : 0
     }
 }
-
 @MainActor
 private struct WindowListSheet: View {
     let windows: [WorkspaceBarWindowInfo]
     let appName: String
     let onFocusWindow: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -267,9 +241,7 @@ private struct WindowListSheet: View {
                 .padding()
             }
             .background(Color(NSColor.windowBackgroundColor))
-
             Divider()
-
             List(windows) { windowInfo in
                 Button {
                     onFocusWindow(windowInfo.windowId)

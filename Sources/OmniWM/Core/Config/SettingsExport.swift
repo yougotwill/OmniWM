@@ -1,10 +1,6 @@
 import Foundation
-
-// MARK: - SettingsExport
-
 struct SettingsExport: Codable {
     var version: Int = 1
-
     var hotkeysEnabled: Bool
     var focusFollowsMouse: Bool
     var moveMouseToFocusedWindow: Bool
@@ -16,7 +12,6 @@ struct SettingsExport: Codable {
     var outerGapRight: Double
     var outerGapTop: Double
     var outerGapBottom: Double
-
     var niriMaxWindowsPerColumn: Int
     var niriMaxVisibleColumns: Int
     var niriInfiniteLoop: Bool
@@ -24,21 +19,17 @@ struct SettingsExport: Codable {
     var niriAlwaysCenterSingleColumn: Bool
     var niriSingleWindowAspectRatio: String
     var niriColumnWidthPresets: [Double]?
-
     var persistentWorkspacesRaw: String
     var workspaceAssignmentsRaw: String
     var workspaceConfigurations: [WorkspaceConfiguration]
     var defaultLayoutType: String
-
     var bordersEnabled: Bool
     var borderWidth: Double
     var borderColorRed: Double
     var borderColorGreen: Double
     var borderColorBlue: Double
     var borderColorAlpha: Double
-
     var hotkeyBindings: [HotkeyBinding]
-
     var workspaceBarEnabled: Bool
     var workspaceBarShowLabels: Bool
     var workspaceBarWindowLevel: String
@@ -51,11 +42,9 @@ struct SettingsExport: Codable {
     var workspaceBarXOffset: Double
     var workspaceBarYOffset: Double
     var monitorBarSettings: [MonitorBarSettings]
-
     var appRules: [AppRule]
     var monitorOrientationSettings: [MonitorOrientationSettings]
     var monitorNiriSettings: [MonitorNiriSettings]
-
     var dwindleSmartSplit: Bool
     var dwindleDefaultSplitRatio: Double
     var dwindleSplitWidthMultiplier: Double
@@ -63,30 +52,22 @@ struct SettingsExport: Codable {
     var dwindleUseGlobalGaps: Bool
     var dwindleMoveToRootStable: Bool
     var monitorDwindleSettings: [MonitorDwindleSettings]
-
     var preventSleepEnabled: Bool
     var scrollGestureEnabled: Bool
     var scrollSensitivity: Double
     var scrollModifierKey: String
     var gestureFingerCount: Int
     var gestureInvertDirection: Bool
-
     var menuAnywhereNativeEnabled: Bool
     var menuAnywherePaletteEnabled: Bool
     var menuAnywherePosition: String
     var menuAnywhereShowShortcuts: Bool
-
     var hiddenBarEnabled: Bool
     var hiddenBarIsCollapsed: Bool
-
     var quakeTerminalOpacity: Double?
     var quakeTerminalMonitorMode: String?
-
     var appearanceMode: String
 }
-
-// MARK: - Defaults & Diffing
-
 extension SettingsExport {
     static func defaults() -> SettingsExport {
         SettingsExport(
@@ -159,26 +140,20 @@ extension SettingsExport {
         )
     }
 }
-
 private func jsonValuesEqual(_ lhs: Any, _ rhs: Any) -> Bool {
     guard let lData = try? JSONSerialization.data(withJSONObject: ["_": lhs], options: .sortedKeys),
           let rData = try? JSONSerialization.data(withJSONObject: ["_": rhs], options: .sortedKeys)
     else { return false }
     return lData == rData
 }
-
-// MARK: - Export & Import
-
 extension SettingsStore {
     static var exportURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/omniwm/settings.json")
     }
-
     var settingsFileExists: Bool {
         FileManager.default.fileExists(atPath: Self.exportURL.path)
     }
-
     func exportSettings(incrementalOnly: Bool = true) throws {
         let export = SettingsExport(
             hotkeysEnabled: hotkeysEnabled,
@@ -248,11 +223,9 @@ extension SettingsStore {
             quakeTerminalMonitorMode: quakeTerminalMonitorMode.rawValue,
             appearanceMode: appearanceMode.rawValue
         )
-
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(export)
-
         let outputData: Data
         if incrementalOnly {
             let defaultsData = try encoder.encode(SettingsExport.defaults())
@@ -272,8 +245,6 @@ extension SettingsStore {
                 }
                 filtered[key] = value
             }
-
-            // Element-wise diff for hotkeyBindings by id
             if let currentBindings = currentDict["hotkeyBindings"] as? [[String: Any]],
                let defaultBindings = defaultsDict["hotkeyBindings"] as? [[String: Any]] {
                 let defaultsByID = Dictionary(
@@ -296,18 +267,14 @@ extension SettingsStore {
         } else {
             outputData = data
         }
-
         let directory = Self.exportURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try outputData.write(to: Self.exportURL)
     }
-
     func importSettings() throws {
         let rawData = try Data(contentsOf: Self.exportURL)
-
         let encoder = JSONEncoder()
         let defaultsData = try encoder.encode(SettingsExport.defaults())
-
         guard var defaultsDict = try JSONSerialization.jsonObject(with: defaultsData) as? [String: Any],
               let importedDict = try JSONSerialization.jsonObject(with: rawData) as? [String: Any]
         else {
@@ -315,12 +282,9 @@ extension SettingsStore {
             applyImport(export)
             return
         }
-
         for (key, value) in importedDict where key != "hotkeyBindings" {
             defaultsDict[key] = value
         }
-
-        // Element-wise merge for hotkeyBindings by id
         if let importedBindings = importedDict["hotkeyBindings"] as? [[String: Any]],
            let defaultBindings = defaultsDict["hotkeyBindings"] as? [[String: Any]] {
             let importedByID = Dictionary(
@@ -334,12 +298,10 @@ extension SettingsStore {
             }
             defaultsDict["hotkeyBindings"] = merged
         }
-
         let mergedData = try JSONSerialization.data(withJSONObject: defaultsDict)
         let export = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
         applyImport(export)
     }
-
     private func applyImport(_ export: SettingsExport) {        hotkeysEnabled = export.hotkeysEnabled
         focusFollowsMouse = export.focusFollowsMouse
         moveMouseToFocusedWindow = export.moveMouseToFocusedWindow
@@ -351,7 +313,6 @@ extension SettingsStore {
         outerGapRight = export.outerGapRight
         outerGapTop = export.outerGapTop
         outerGapBottom = export.outerGapBottom
-
         niriMaxWindowsPerColumn = export.niriMaxWindowsPerColumn
         niriMaxVisibleColumns = export.niriMaxVisibleColumns
         niriInfiniteLoop = export.niriInfiniteLoop
@@ -361,21 +322,17 @@ extension SettingsStore {
         if let presets = export.niriColumnWidthPresets {
             niriColumnWidthPresets = Self.validatedPresets(presets)
         }
-
         persistentWorkspacesRaw = export.persistentWorkspacesRaw
         workspaceAssignmentsRaw = export.workspaceAssignmentsRaw
         workspaceConfigurations = export.workspaceConfigurations
         defaultLayoutType = LayoutType(rawValue: export.defaultLayoutType) ?? .niri
-
         bordersEnabled = export.bordersEnabled
         borderWidth = export.borderWidth
         borderColorRed = export.borderColorRed
         borderColorGreen = export.borderColorGreen
         borderColorBlue = export.borderColorBlue
         borderColorAlpha = export.borderColorAlpha
-
         hotkeyBindings = export.hotkeyBindings
-
         workspaceBarEnabled = export.workspaceBarEnabled
         workspaceBarShowLabels = export.workspaceBarShowLabels
         workspaceBarWindowLevel = WorkspaceBarWindowLevel(rawValue: export.workspaceBarWindowLevel) ?? .popup
@@ -388,11 +345,9 @@ extension SettingsStore {
         workspaceBarXOffset = export.workspaceBarXOffset
         workspaceBarYOffset = export.workspaceBarYOffset
         monitorBarSettings = export.monitorBarSettings
-
         appRules = export.appRules
         monitorOrientationSettings = export.monitorOrientationSettings
         monitorNiriSettings = export.monitorNiriSettings
-
         dwindleSmartSplit = export.dwindleSmartSplit
         dwindleDefaultSplitRatio = export.dwindleDefaultSplitRatio
         dwindleSplitWidthMultiplier = export.dwindleSplitWidthMultiplier
@@ -400,22 +355,18 @@ extension SettingsStore {
         dwindleUseGlobalGaps = export.dwindleUseGlobalGaps
         dwindleMoveToRootStable = export.dwindleMoveToRootStable
         monitorDwindleSettings = export.monitorDwindleSettings
-
         preventSleepEnabled = export.preventSleepEnabled
         scrollGestureEnabled = export.scrollGestureEnabled
         scrollSensitivity = export.scrollSensitivity
         scrollModifierKey = ScrollModifierKey(rawValue: export.scrollModifierKey) ?? .optionShift
         gestureFingerCount = GestureFingerCount(rawValue: export.gestureFingerCount) ?? .three
         gestureInvertDirection = export.gestureInvertDirection
-
         menuAnywhereNativeEnabled = export.menuAnywhereNativeEnabled
         menuAnywherePaletteEnabled = export.menuAnywherePaletteEnabled
         menuAnywherePosition = MenuAnywherePosition(rawValue: export.menuAnywherePosition) ?? .cursor
         menuAnywhereShowShortcuts = export.menuAnywhereShowShortcuts
-
         hiddenBarEnabled = export.hiddenBarEnabled
         hiddenBarIsCollapsed = export.hiddenBarIsCollapsed
-
         if let opacity = export.quakeTerminalOpacity {
             quakeTerminalOpacity = opacity
         }
@@ -423,7 +374,6 @@ extension SettingsStore {
            let mode = QuakeTerminalMonitorMode(rawValue: modeRaw) {
             quakeTerminalMonitorMode = mode
         }
-
         appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
     }
 }

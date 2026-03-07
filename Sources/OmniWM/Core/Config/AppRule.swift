@@ -1,5 +1,4 @@
 import Foundation
-
 struct AppRule: Codable, Identifiable, Equatable {
     let id: UUID
     var bundleId: String
@@ -7,7 +6,6 @@ struct AppRule: Codable, Identifiable, Equatable {
     var assignToWorkspace: String?
     var minWidth: Double?
     var minHeight: Double?
-
     init(
         id: UUID = UUID(),
         bundleId: String,
@@ -23,7 +21,6 @@ struct AppRule: Codable, Identifiable, Equatable {
         self.minWidth = minWidth
         self.minHeight = minHeight
     }
-
     var hasAnyRule: Bool {
         alwaysFloat != nil || assignToWorkspace != nil ||
             minWidth != nil || minHeight != nil

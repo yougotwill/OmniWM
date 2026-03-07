@@ -1,12 +1,9 @@
 import Foundation
-
 struct WorkspaceName: Equatable, Hashable {
     let raw: String
-
     private init(_ raw: String) {
         self.raw = raw
     }
-
     static func parse(_ raw: String) -> Result<WorkspaceName, ParseError> {
         if raw == "focused" || raw == "non-focused" ||
             raw == "visible" || raw == "invisible" || raw == "non-visible" ||
@@ -38,13 +35,10 @@ struct WorkspaceName: Equatable, Hashable {
         return .success(WorkspaceName(raw))
     }
 }
-
 typealias StringLogicalSegments = [StringLogicalSegment]
-
 enum StringLogicalSegment: Comparable, Equatable {
     case string(String)
     case number(Int)
-
     static func < (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case let (.string(a), .string(b)):
@@ -58,7 +52,6 @@ enum StringLogicalSegment: Comparable, Equatable {
         }
     }
 }
-
 extension [StringLogicalSegment] {
     static func < (lhs: Self, rhs: Self) -> Bool {
         for (a, b) in zip(lhs, rhs) {
@@ -75,13 +68,11 @@ extension [StringLogicalSegment] {
         return false
     }
 }
-
 extension String {
     func toLogicalSegments() -> StringLogicalSegments {
         var currentSegment = ""
         var isPrevNumber = false
         var result: [String] = []
-
         for char in self {
             let isCurNumber = Int(char.description) != nil
             if isCurNumber != isPrevNumber, !currentSegment.isEmpty {
@@ -91,11 +82,9 @@ extension String {
             currentSegment.append(char)
             isPrevNumber = isCurNumber
         }
-
         if !currentSegment.isEmpty {
             result.append(currentSegment)
         }
-
         return result.map { Int($0).map(StringLogicalSegment.number) ?? .string($0) }
     }
 }

@@ -1,11 +1,9 @@
 import Foundation
 import CoreGraphics
-
 struct MonitorDwindleSettings: MonitorSettingsType {
     let id: UUID
     var monitorName: String
     var monitorDisplayId: CGDirectDisplayID?
-
     var smartSplit: Bool?
     var defaultSplitRatio: Double?
     var splitWidthMultiplier: Double?
@@ -16,7 +14,6 @@ struct MonitorDwindleSettings: MonitorSettingsType {
     var outerGapBottom: Double?
     var outerGapLeft: Double?
     var outerGapRight: Double?
-
     init(
         id: UUID = UUID(),
         monitorName: String,
@@ -46,13 +43,11 @@ struct MonitorDwindleSettings: MonitorSettingsType {
         self.outerGapLeft = outerGapLeft
         self.outerGapRight = outerGapRight
     }
-
     private enum CodingKeys: String, CodingKey {
         case id, monitorName, monitorDisplayId, smartSplit, defaultSplitRatio, splitWidthMultiplier
         case singleWindowAspectRatio, useGlobalGaps, innerGap
         case outerGapTop, outerGapBottom, outerGapLeft, outerGapRight
     }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -70,7 +65,6 @@ struct MonitorDwindleSettings: MonitorSettingsType {
         outerGapLeft = try container.decodeIfPresent(Double.self, forKey: .outerGapLeft)
         outerGapRight = try container.decodeIfPresent(Double.self, forKey: .outerGapRight)
     }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -88,7 +82,6 @@ struct MonitorDwindleSettings: MonitorSettingsType {
         try container.encodeIfPresent(outerGapRight, forKey: .outerGapRight)
     }
 }
-
 struct ResolvedDwindleSettings: Equatable {
     let smartSplit: Bool
     let defaultSplitRatio: CGFloat

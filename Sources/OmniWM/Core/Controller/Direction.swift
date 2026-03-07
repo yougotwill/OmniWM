@@ -1,8 +1,6 @@
 import AppKit
-
 enum Direction: String, Codable {
     case left, right, up, down
-
     var displayName: String {
         switch self {
         case .left: "Left"
@@ -11,7 +9,6 @@ enum Direction: String, Codable {
         case .down: "Down"
         }
     }
-
     func primaryStep(for orientation: Monitor.Orientation) -> Int? {
         switch orientation {
         case .horizontal:
@@ -28,7 +25,6 @@ enum Direction: String, Codable {
             }
         }
     }
-
     func secondaryStep(for orientation: Monitor.Orientation) -> Int? {
         switch orientation {
         case .horizontal:
@@ -46,7 +42,6 @@ enum Direction: String, Codable {
         }
     }
 }
-
 extension ScrollModifierKey {
     var cgEventFlag: CGEventFlags {
         switch self {

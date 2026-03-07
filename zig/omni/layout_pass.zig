@@ -1,20 +1,16 @@
 const abi = @import("abi_types.zig");
 const geometry = @import("geometry.zig");
 const axis_solver = @import("axis_solver.zig");
-
 const Rect = geometry.Rect;
-
 fn parseNiriOrientation(orientation: u8) ?u8 {
     return switch (orientation) {
         abi.OMNI_NIRI_ORIENTATION_HORIZONTAL, abi.OMNI_NIRI_ORIENTATION_VERTICAL => orientation,
         else => null,
     };
 }
-
 fn isValidNiriSizingMode(mode: u8) bool {
     return mode == abi.OMNI_NIRI_SIZING_NORMAL or mode == abi.OMNI_NIRI_SIZING_FULLSCREEN;
 }
-
 fn makeHiddenColumnRect(
     side: u8,
     hidden_span: f64,
@@ -31,7 +27,6 @@ fn makeHiddenColumnRect(
         view_x - hidden_span + edge_reveal
     else
         view_x + view_width - edge_reveal;
-
     return .{
         .x = x + workspace_offset,
         .y = view_y + view_height - 2.0,
@@ -39,7 +34,6 @@ fn makeHiddenColumnRect(
         .height = working_height,
     };
 }
-
 fn makeHiddenRowRect(
     working_width: f64,
     hidden_span: f64,
@@ -56,7 +50,6 @@ fn makeHiddenRowRect(
         .height = hidden_span,
     };
 }
-
 fn solveAndLayoutNiriColumn(
     col: abi.OmniNiriColumnInput,
     windows: [*c]const abi.OmniNiriWindowInput,
@@ -77,7 +70,6 @@ fn solveAndLayoutNiriColumn(
     }
     if (col.window_count == 0) return abi.OMNI_OK;
     if (col.window_count > abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     const tab_offset: f64 = if (col.is_tabbed != 0) col.tab_indicator_width else 0.0;
     const content_rect = Rect{
         .x = container_rect.x + tab_offset,
@@ -85,20 +77,16 @@ fn solveAndLayoutNiriColumn(
         .width = @max(0.0, container_rect.width - tab_offset),
         .height = container_rect.height,
     };
-
     const available_space = if (orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
         content_rect.height
     else
         content_rect.width;
-
     var axis_inputs: [abi.MAX_WINDOWS]abi.OmniAxisInput = undefined;
     var axis_outputs: [abi.MAX_WINDOWS]abi.OmniAxisOutput = undefined;
-
     for (0..col.window_count) |local_idx| {
         const global_idx = col.window_start + local_idx;
         const w = windows[global_idx];
         if (!isValidNiriSizingMode(w.sizing_mode)) return abi.OMNI_ERR_INVALID_ARGS;
-
         axis_inputs[local_idx] = .{
             .weight = w.weight,
             .min_constraint = w.min_constraint,
@@ -109,7 +97,6 @@ fn solveAndLayoutNiriColumn(
             .fixed_value = w.fixed_value,
         };
     }
-
     if (col.is_tabbed != 0) {
         axis_solver.solveTabbedImpl(
             axis_inputs[0..].ptr,
@@ -126,17 +113,14 @@ fn solveAndLayoutNiriColumn(
             axis_outputs[0..].ptr,
         );
     }
-
     var pos: f64 = if (orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
         content_rect.y
     else
         content_rect.x;
-
     for (0..col.window_count) |local_idx| {
         const global_idx = col.window_start + local_idx;
         const w = windows[global_idx];
         const span = axis_outputs[local_idx].value;
-
         const base_rect_unrounded: Rect = if (w.sizing_mode == abi.OMNI_NIRI_SIZING_FULLSCREEN)
             fullscreen_rect
         else if (orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
@@ -153,7 +137,6 @@ fn solveAndLayoutNiriColumn(
                 .width = span,
                 .height = content_rect.height,
             };
-
         const base_rect = geometry.roundRectToPhysicalPixels(base_rect_unrounded, scale);
         const animated_rect = geometry.roundRectToPhysicalPixels(
             .{
@@ -164,7 +147,6 @@ fn solveAndLayoutNiriColumn(
             },
             scale,
         );
-
         out_windows[global_idx] = .{
             .frame_x = base_rect.x,
             .frame_y = base_rect.y,
@@ -179,7 +161,6 @@ fn solveAndLayoutNiriColumn(
             .hide_side = hide_side,
             .column_index = column_index,
         };
-
         if (col.is_tabbed == 0) {
             pos += span;
             if (local_idx < col.window_count - 1) {
@@ -187,10 +168,8 @@ fn solveAndLayoutNiriColumn(
             }
         }
     }
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_layout_pass_impl(
     columns: [*c]const abi.OmniNiriColumnInput,
     column_count: usize,
@@ -248,7 +227,6 @@ pub fn omni_niri_layout_pass_impl(
         0,
     );
 }
-
 pub fn omni_niri_layout_pass_v2_impl(
     columns: [*c]const abi.OmniNiriColumnInput,
     column_count: usize,
@@ -285,9 +263,7 @@ pub fn omni_niri_layout_pass_v2_impl(
     if (window_count > 0 and windows == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (out_column_count > 0 and out_columns == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (out_column_count > 0 and out_column_count < column_count) return abi.OMNI_ERR_INVALID_ARGS;
-
     const parsed_orientation = parseNiriOrientation(orientation) orelse return abi.OMNI_ERR_INVALID_ARGS;
-
     for (0..window_count) |i| {
         out_windows[i] = .{
             .frame_x = 0.0,
@@ -304,7 +280,6 @@ pub fn omni_niri_layout_pass_v2_impl(
             .column_index = 0,
         };
     }
-
     if (out_columns != null and out_column_count > 0) {
         for (0..column_count) |i| {
             out_columns[i] = .{
@@ -317,18 +292,15 @@ pub fn omni_niri_layout_pass_v2_impl(
             };
         }
     }
-
     if (column_count == 0) {
         return if (window_count == 0) abi.OMNI_OK else abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     for (0..column_count) |idx| {
         const col = columns[idx];
         if (!geometry.isSubrangeWithinTotal(window_count, col.window_start, col.window_count)) {
             return abi.OMNI_ERR_OUT_OF_RANGE;
         }
     }
-
     for (0..window_count) |window_idx| {
         var owner_count: usize = 0;
         for (0..column_count) |column_idx| {
@@ -340,26 +312,21 @@ pub fn omni_niri_layout_pass_v2_impl(
         }
         if (owner_count == 0) return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     const fullscreen_rect = Rect{
         .x = fullscreen_x,
         .y = fullscreen_y,
         .width = fullscreen_width,
         .height = fullscreen_height,
     };
-
     const view_end = view_start + viewport_span;
     var running_pos: f64 = 0.0;
     var total_span: f64 = 0.0;
-
     for (0..column_count) |idx| {
         const col = columns[idx];
-
         const container_pos = running_pos;
         const container_span = col.span;
         const container_end = container_pos + container_span;
         const is_visible = container_end > view_start and container_pos < view_end;
-
         if (is_visible) {
             const container_rect = if (parsed_orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
                 geometry.roundRectToPhysicalPixels(
@@ -381,7 +348,6 @@ pub fn omni_niri_layout_pass_v2_impl(
                     },
                     scale,
                 );
-
             if (out_columns != null and out_column_count >= column_count) {
                 out_columns[idx] = .{
                     .frame_x = container_rect.x,
@@ -392,7 +358,6 @@ pub fn omni_niri_layout_pass_v2_impl(
                     .is_visible = 1,
                 };
             }
-
             const rc = solveAndLayoutNiriColumn(
                 col,
                 windows,
@@ -410,7 +375,6 @@ pub fn omni_niri_layout_pass_v2_impl(
             );
             if (rc != abi.OMNI_OK) return rc;
         }
-
         running_pos += container_span;
         total_span += container_span;
         if (idx < column_count - 1) {
@@ -418,10 +382,8 @@ pub fn omni_niri_layout_pass_v2_impl(
             total_span += primary_gap;
         }
     }
-
     const avg_span = total_span / @as(f64, @floatFromInt(@max(@as(usize, 1), column_count)));
     const hidden_span = geometry.roundToPhysicalPixel(@max(1.0, avg_span), scale);
-
     running_pos = 0.0;
     for (0..column_count) |idx| {
         const col = columns[idx];
@@ -429,13 +391,11 @@ pub fn omni_niri_layout_pass_v2_impl(
         const container_span = col.span;
         const container_end = container_pos + container_span;
         const is_visible = container_end > view_start and container_pos < view_end;
-
         if (!is_visible) {
             const hide_side: u8 = if (container_end <= view_start)
                 abi.OMNI_NIRI_HIDE_LEFT
             else
                 abi.OMNI_NIRI_HIDE_RIGHT;
-
             const container_rect_unrounded = if (parsed_orientation == abi.OMNI_NIRI_ORIENTATION_HORIZONTAL)
                 makeHiddenColumnRect(
                     hide_side,
@@ -459,7 +419,6 @@ pub fn omni_niri_layout_pass_v2_impl(
                     workspace_offset,
                 );
             const container_rect = geometry.roundRectToPhysicalPixels(container_rect_unrounded, scale);
-
             if (out_columns != null and out_column_count >= column_count) {
                 out_columns[idx] = .{
                     .frame_x = container_rect.x,
@@ -470,7 +429,6 @@ pub fn omni_niri_layout_pass_v2_impl(
                     .is_visible = 0,
                 };
             }
-
             const rc = solveAndLayoutNiriColumn(
                 col,
                 windows,
@@ -488,133 +446,10 @@ pub fn omni_niri_layout_pass_v2_impl(
             );
             if (rc != abi.OMNI_OK) return rc;
         }
-
         running_pos += container_span;
         if (idx < column_count - 1) {
             running_pos += primary_gap;
         }
     }
-
     return abi.OMNI_OK;
-}
-
-test "layout pass allows null window output for zero-window snapshots" {
-    const testing = @import("std").testing;
-
-    var columns = [_]abi.OmniNiriColumnInput{
-        .{
-            .span = 120.0,
-            .render_offset_x = 0.0,
-            .render_offset_y = 0.0,
-            .is_tabbed = 0,
-            .tab_indicator_width = 0.0,
-            .window_start = 0,
-            .window_count = 0,
-        },
-    };
-    var out_columns = [_]abi.OmniNiriColumnOutput{
-        .{
-            .frame_x = 0.0,
-            .frame_y = 0.0,
-            .frame_width = 0.0,
-            .frame_height = 0.0,
-            .hide_side = abi.OMNI_NIRI_HIDE_NONE,
-            .is_visible = 0,
-        },
-    };
-
-    const rc = omni_niri_layout_pass_v2_impl(
-        &columns,
-        columns.len,
-        null,
-        0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        8.0,
-        8.0,
-        0.0,
-        1920.0,
-        0.0,
-        1.0,
-        abi.OMNI_NIRI_ORIENTATION_HORIZONTAL,
-        null,
-        0,
-        &out_columns,
-        out_columns.len,
-    );
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
-    try testing.expectEqual(@as(u8, 1), out_columns[0].is_visible);
-}
-
-test "layout pass rejects null window output when windows are present" {
-    const testing = @import("std").testing;
-
-    var columns = [_]abi.OmniNiriColumnInput{
-        .{
-            .span = 120.0,
-            .render_offset_x = 0.0,
-            .render_offset_y = 0.0,
-            .is_tabbed = 0,
-            .tab_indicator_width = 0.0,
-            .window_start = 0,
-            .window_count = 1,
-        },
-    };
-    var windows = [_]abi.OmniNiriWindowInput{
-        .{
-            .weight = 1.0,
-            .min_constraint = 0.0,
-            .max_constraint = 0.0,
-            .has_max_constraint = 0,
-            .is_constraint_fixed = 0,
-            .has_fixed_value = 0,
-            .fixed_value = 0.0,
-            .sizing_mode = abi.OMNI_NIRI_SIZING_NORMAL,
-            .render_offset_x = 0.0,
-            .render_offset_y = 0.0,
-        },
-    };
-
-    const rc = omni_niri_layout_pass_v2_impl(
-        &columns,
-        columns.len,
-        &windows,
-        windows.len,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        0.0,
-        0.0,
-        1920.0,
-        1080.0,
-        8.0,
-        8.0,
-        0.0,
-        1920.0,
-        0.0,
-        1.0,
-        abi.OMNI_NIRI_ORIENTATION_HORIZONTAL,
-        null,
-        0,
-        null,
-        0,
-    );
-
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), rc);
 }

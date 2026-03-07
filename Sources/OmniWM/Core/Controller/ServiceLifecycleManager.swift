@@ -1,10 +1,8 @@
 import AppKit
 import Foundation
-
 @MainActor
 final class ServiceLifecycleManager {
     weak var controller: WMController?
-
     private var displayObserver: DisplayConfigurationObserver?
     private var appActivationObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
@@ -12,18 +10,15 @@ final class ServiceLifecycleManager {
     private var workspaceObserver: NSObjectProtocol?
     private var permissionCheckerTask: Task<Void, Never>?
     private var wasHotkeysEnabledBeforeSecureInput = true
-
     init(controller: WMController) {
         self.controller = controller
     }
-
     func start() {
         guard let controller else { return }
         permissionCheckerTask?.cancel()
         permissionCheckerTask = Task { @MainActor [weak controller] in
             for await granted in AccessibilityPermissionMonitor.shared.stream(initial: true) {
                 guard let controller, !Task.isCancelled else { return }
-
                 if granted {
                     if !controller.hasStartedServices {
                         controller.serviceLifecycleManager.startServices()
@@ -37,7 +32,6 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     private func startServices() {
         guard let controller, !controller.hasStartedServices else { return }
         controller.hasStartedServices = true
@@ -81,12 +75,10 @@ final class ServiceLifecycleManager {
         controller.workspaceManager.onGapsChanged = { [weak controller] in
             controller?.layoutRefreshController.refreshWindowsAndLayout()
         }
-
         controller.layoutRefreshController.refreshWindowsAndLayout()
         startSecureInputMonitor()
         startLockScreenObserver()
     }
-
     private func startLockScreenObserver() {
         guard let controller else { return }
         controller.lockScreenObserver.onLockDetected = { [weak controller] in
@@ -100,14 +92,12 @@ final class ServiceLifecycleManager {
         }
         controller.lockScreenObserver.start()
     }
-
     private func startSecureInputMonitor() {
         guard let controller else { return }
         controller.secureInputMonitor.start { [weak self] isSecure in
             self?.handleSecureInputChange(isSecure)
         }
     }
-
     private func handleSecureInputChange(_ isSecure: Bool) {
         guard let controller else { return }
         if isSecure {
@@ -123,7 +113,6 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     private func setupDisplayObserver() {
         displayObserver = DisplayConfigurationObserver()
         displayObserver?.setEventHandler { [weak self] event in
@@ -132,7 +121,6 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     private func handleDisplayEvent(_ event: DisplayConfigurationObserver.DisplayEvent) {
         switch event {
         case let .disconnected(monitorId, outputId):
@@ -142,42 +130,33 @@ final class ServiceLifecycleManager {
         }
         handleMonitorConfigurationChanged()
     }
-
     private func handleMonitorDisconnect(monitorId: Monitor.ID, outputId: OutputId) {
         guard let controller else { return }
         controller.layoutRefreshController.cleanupForMonitorDisconnect(displayId: outputId.displayId, migrateAnimations: false)
-
         if controller.activeMonitorId == monitorId {
             controller.activeMonitorId = controller.workspaceManager.monitors.first?.id
         }
         if controller.previousMonitorId == monitorId {
             controller.previousMonitorId = nil
         }
-
         controller.dwindleEngine?.cleanupRemovedMonitor(monitorId)
     }
-
     private func handleMonitorConfigurationChanged() {
         applyMonitorConfigurationChanged(currentMonitors: Monitor.current())
     }
-
     func applyMonitorConfigurationChanged(
         currentMonitors: [Monitor],
         performPostUpdateActions: Bool = true
     ) {
         guard let controller else { return }
-        // Invalidate border cache so it gets fully recomputed after monitor change
-        // (prevents stale geometry when display ID or coordinate space changes, e.g. KVM switch)
         controller.invalidateBorderDisplays()
         let workspaceSnapshots = captureWorkspaceSnapshotsBeforeMonitorUpdate()
         guard !currentMonitors.isEmpty else { return }
         guard currentMonitors.allSatisfy({ $0.frame.width > 1 && $0.frame.height > 1 }) else { return }
-
         controller.workspaceManager.updateMonitors(currentMonitors)
         controller.workspaceManager.reconcileAfterMonitorChange()
         restoreWorkspacesAfterMonitorUpdate(from: workspaceSnapshots)
         controller.syncMonitorsToNiriEngine()
-
         if let activeMonitorId = controller.activeMonitorId,
            !controller.workspaceManager.monitors.contains(where: { $0.id == activeMonitorId })
         {
@@ -188,18 +167,14 @@ final class ServiceLifecycleManager {
         {
             controller.previousMonitorId = nil
         }
-
         let focusedWsId = controller.focusedHandle.flatMap { controller.workspaceManager.workspace(for: $0) }
         controller.workspaceManager.garbageCollectUnusedWorkspaces(focusedWorkspaceId: focusedWsId)
-
         controller.layoutRefreshController.refreshWindowsAndLayout()
     }
-
     private func captureWorkspaceSnapshotsBeforeMonitorUpdate() -> [WorkspaceRestoreSnapshot] {
         guard let controller else { return [] }
         var snapshots: [WorkspaceRestoreSnapshot] = []
         snapshots.reserveCapacity(controller.workspaceManager.monitors.count)
-
         for monitor in controller.workspaceManager.monitors {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             snapshots.append(WorkspaceRestoreSnapshot(
@@ -207,15 +182,12 @@ final class ServiceLifecycleManager {
                 workspaceId: workspace.id
             ))
         }
-
         return snapshots
     }
-
     private func restoreWorkspacesAfterMonitorUpdate(from snapshots: [WorkspaceRestoreSnapshot]) {
         guard let controller else { return }
         guard !snapshots.isEmpty else { return }
         let forcedWorkspaceIds = forcedWorkspaceIdsForCurrentSettings()
-
         let assignments = resolveWorkspaceRestoreAssignments(
             snapshots: snapshots,
             monitors: controller.workspaceManager.monitors,
@@ -223,29 +195,22 @@ final class ServiceLifecycleManager {
                 controller.workspaceManager.descriptor(for: workspaceId) != nil
             }
         )
-
         if assignments.isEmpty { return }
-
         let sortedMonitors = Monitor.sortedByPosition(controller.workspaceManager.monitors)
         var restoredWorkspaces: Set<WorkspaceDescriptor.ID> = []
-
         for monitor in sortedMonitors {
             guard let workspaceId = assignments[monitor.id] else { continue }
             guard !forcedWorkspaceIds.contains(workspaceId) else { continue }
             guard restoredWorkspaces.insert(workspaceId).inserted else { continue }
             _ = controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
         }
-
-        // Forced workspace assignments remain authoritative after reconnect restore.
         controller.workspaceManager.reconcileAfterMonitorChange()
     }
-
     private func forcedWorkspaceIdsForCurrentSettings() -> Set<WorkspaceDescriptor.ID> {
         guard let controller else { return [] }
         let assignmentNames = controller.settings.workspaceToMonitorAssignments().keys
         return Set(assignmentNames.compactMap { controller.workspaceManager.workspaceId(named: $0) })
     }
-
     private func setupWorkspaceObservation() {
         guard let controller else { return }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -259,7 +224,6 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     private func setupAppActivationObserver() {
         guard let controller else { return }
         appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -276,7 +240,6 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     private func setupAppHideObservers() {
         guard let controller else { return }
         appHideObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -291,7 +254,6 @@ final class ServiceLifecycleManager {
                 controller?.axEventHandler.handleAppHidden(pid: app.processIdentifier)
             }
         }
-
         appUnhideObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didUnhideApplicationNotification,
             object: nil,
@@ -305,31 +267,24 @@ final class ServiceLifecycleManager {
             }
         }
     }
-
     func stop() {
         guard let controller else { return }
         controller.hasStartedServices = false
-
         AppAXContext.onWindowDestroyed = nil
         AppAXContext.onWindowDestroyedUnknown = nil
         AppAXContext.onFocusedWindowChanged = nil
         controller.axManager.onAppLaunched = nil
         controller.axManager.onAppTerminated = nil
         controller.workspaceManager.onGapsChanged = nil
-
         controller.layoutRefreshController.resetState()
         controller.mouseEventHandler.cleanup()
         controller.mouseWarpHandler.cleanup()
         controller.axEventHandler.cleanup()
-
         controller.tabbedOverlayManager.removeAll()
         controller.cleanupBorderRuntime()
         controller.cleanupUIOnStop()
-
         controller.axManager.cleanup()
-
         displayObserver = nil
-
         if let observer = appActivationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appActivationObserver = nil
@@ -346,7 +301,6 @@ final class ServiceLifecycleManager {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             workspaceObserver = nil
         }
-
         controller.secureInputMonitor.stop()
         SecureInputIndicatorController.shared.hide()
         controller.lockScreenObserver.stop()

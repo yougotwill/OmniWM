@@ -1,10 +1,8 @@
 import AppKit
-
 enum AppearanceMode: String, CaseIterable, Codable {
     case automatic
     case light
     case dark
-
     var displayName: String {
         switch self {
         case .automatic: "Automatic"
@@ -12,7 +10,6 @@ enum AppearanceMode: String, CaseIterable, Codable {
         case .dark: "Dark"
         }
     }
-
     @MainActor
     func apply() {
         switch self {

@@ -1,41 +1,33 @@
 import Carbon
 import Foundation
-
 struct KeyBinding: Equatable, Hashable {
     let keyCode: UInt32
     let modifiers: UInt32
-
     static let unassigned = KeyBinding(keyCode: UInt32.max, modifiers: 0)
-
     var isUnassigned: Bool {
         keyCode == UInt32.max && modifiers == 0
     }
-
     var displayString: String {
         if isUnassigned {
             return "Unassigned"
         }
         return KeySymbolMapper.displayString(keyCode: keyCode, modifiers: modifiers)
     }
-
     var humanReadableString: String {
         if isUnassigned {
             return "Unassigned"
         }
         return KeySymbolMapper.humanReadableString(keyCode: keyCode, modifiers: modifiers)
     }
-
     func conflicts(with other: KeyBinding) -> Bool {
         guard !isUnassigned, !other.isUnassigned else { return false }
         return keyCode == other.keyCode && modifiers == other.modifiers
     }
 }
-
 extension KeyBinding: Codable {
     private enum CodingKeys: String, CodingKey {
         case keyCode, modifiers
     }
-
     init(from decoder: Decoder) throws {
         if let container = try? decoder.singleValueContainer(),
            let string = try? container.decode(String.self),
@@ -47,7 +39,6 @@ extension KeyBinding: Codable {
         keyCode = try container.decode(UInt32.self, forKey: .keyCode)
         modifiers = try container.decode(UInt32.self, forKey: .modifiers)
     }
-
     func encode(to encoder: Encoder) throws {
         if isUnassigned || KeySymbolMapper.keyName(keyCode) != "?" {
             var container = encoder.singleValueContainer()
@@ -59,12 +50,10 @@ extension KeyBinding: Codable {
         }
     }
 }
-
 struct HotkeyBinding: Codable, Identifiable {
     let id: String
     let command: HotkeyCommand
     var binding: KeyBinding
-
     var category: HotkeyCategory {
         switch command {
         case .moveColumnToWorkspace, .moveColumnToWorkspaceDown, .moveColumnToWorkspaceUp, .moveToWorkspace,
@@ -92,7 +81,6 @@ struct HotkeyBinding: Codable, Identifiable {
         }
     }
 }
-
 enum HotkeyCategory: String, CaseIterable {
     case workspace = "Workspace"
     case focus = "Focus"

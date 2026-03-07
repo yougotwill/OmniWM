@@ -1,15 +1,12 @@
 import AppKit
 import SwiftUI
-
 enum WorkspaceBarWindowLevel: String, CaseIterable, Identifiable {
     case normal
     case floating
     case status
     case popup
     case screensaver
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .normal: "Normal"
@@ -19,7 +16,6 @@ enum WorkspaceBarWindowLevel: String, CaseIterable, Identifiable {
         case .screensaver: "Screen Saver"
         }
     }
-
     var nsWindowLevel: NSWindow.Level {
         switch self {
         case .normal: .normal
@@ -30,13 +26,10 @@ enum WorkspaceBarWindowLevel: String, CaseIterable, Identifiable {
         }
     }
 }
-
 enum WorkspaceBarPosition: String, CaseIterable, Identifiable {
     case overlappingMenuBar
     case belowMenuBar
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .overlappingMenuBar: "Overlapping Menu Bar"
@@ -44,7 +37,6 @@ enum WorkspaceBarPosition: String, CaseIterable, Identifiable {
         }
     }
 }
-
 @MainActor
 final class WorkspaceBarManager {
     private struct MonitorBarInstance {
@@ -52,39 +44,31 @@ final class WorkspaceBarManager {
         let panel: WorkspaceBarPanel
         let hostingView: NSHostingView<WorkspaceBarView>
     }
-
     private var barsByMonitor: [Monitor.ID: MonitorBarInstance] = [:]
     private var screenObserver: Any?
     private var sleepWakeObserver: Any?
     private weak var controller: WMController?
     private weak var settings: SettingsStore?
-
     init() {
         setupScreenChangeObserver()
         setupSleepWakeObserver()
     }
-
     func setup(controller: WMController, settings: SettingsStore) {
         self.controller = controller
         self.settings = settings
-
         guard settings.workspaceBarEnabled else {
             removeAllBars()
             return
         }
-
         setupBars()
     }
-
     func update() {
         guard let settings, settings.workspaceBarEnabled else {
             removeAllBars()
             return
         }
-
         setupBars()
     }
-
     func setEnabled(_ enabled: Bool) {
         if enabled {
             setupBars()
@@ -92,49 +76,38 @@ final class WorkspaceBarManager {
             removeAllBars()
         }
     }
-
     func updateSettings() {
         guard settings != nil else { return }
         setupBars()
     }
-
     private func setupBars() {
         guard controller != nil, let settings else { return }
-
         let currentMonitors = Monitor.current()
         var existingMonitorIds = Set(barsByMonitor.keys)
-
         for monitor in currentMonitors {
             existingMonitorIds.remove(monitor.id)
             let resolved = settings.resolvedBarSettings(for: monitor)
-
             if !resolved.enabled {
                 removeBarForMonitor(monitor.id)
                 continue
             }
-
             if let existing = barsByMonitor[monitor.id] {
                 updateBarForMonitor(monitor, instance: existing)
             } else {
                 createBarForMonitor(monitor)
             }
         }
-
         for monitorId in existingMonitorIds {
             removeBarForMonitor(monitorId)
         }
     }
-
     private func createBarForMonitor(_ monitor: Monitor) {
         guard let controller, let settings else { return }
-
         let resolved = settings.resolvedBarSettings(for: monitor)
         let panel = createPanel()
-
         if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
             panel.targetScreen = screen
         }
-
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
         let contentView = WorkspaceBarView(
             controller: controller,
@@ -144,28 +117,22 @@ final class WorkspaceBarManager {
             barHeight: CGFloat(barHeight)
         )
         let hostingView = NSHostingView(rootView: contentView)
-
         panel.contentView = hostingView
         applySettingsToPanel(panel, for: monitor)
-
         let instance = MonitorBarInstance(
             monitorId: monitor.id,
             panel: panel,
             hostingView: hostingView
         )
         barsByMonitor[monitor.id] = instance
-
         updateBarFrameAndPosition(for: monitor, instance: instance)
         panel.orderFrontRegardless()
     }
-
     private func updateBarForMonitor(_ monitor: Monitor, instance: MonitorBarInstance) {
         guard let controller, let settings else { return }
-
         if let screen = NSScreen.screens.first(where: { $0.displayId == monitor.displayId }) {
             instance.panel.targetScreen = screen
         }
-
         let resolved = settings.resolvedBarSettings(for: monitor)
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
         instance.hostingView.rootView = WorkspaceBarView(
@@ -178,7 +145,6 @@ final class WorkspaceBarManager {
         applySettingsToPanel(instance.panel, for: monitor)
         updateBarFrameAndPosition(for: monitor, instance: instance)
     }
-
     private func removeBarForMonitor(_ monitorId: Monitor.ID) {
         if let instance = barsByMonitor[monitorId] {
             instance.panel.orderOut(nil)
@@ -186,7 +152,6 @@ final class WorkspaceBarManager {
             barsByMonitor.removeValue(forKey: monitorId)
         }
     }
-
     func removeAllBars() {
         for (_, instance) in barsByMonitor {
             instance.panel.orderOut(nil)
@@ -194,7 +159,6 @@ final class WorkspaceBarManager {
         }
         barsByMonitor.removeAll()
     }
-
     private func createPanel() -> WorkspaceBarPanel {
         let panel = WorkspaceBarPanel(
             contentRect: .zero,
@@ -202,7 +166,6 @@ final class WorkspaceBarManager {
             backing: .buffered,
             defer: false
         )
-
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -214,32 +177,25 @@ final class WorkspaceBarManager {
         panel.isReleasedWhenClosed = false
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
-
         return panel
     }
-
     private func updateBarFrameAndPosition(for monitor: Monitor, instance: MonitorBarInstance) {
         guard let settings else { return }
-
         let resolved = settings.resolvedBarSettings(for: monitor)
         let fittingSize = instance.hostingView.fittingSize
         let screenFrame = monitor.frame
         let visibleFrame = monitor.visibleFrame
         let barHeight = max(menuBarHeight(for: monitor), resolved.height)
-
         let notchAware = resolved.notchAware
         let screenHasNotch = monitor.hasNotch
-
         let width: CGFloat
         var x: CGFloat
         let height = CGFloat(barHeight)
-
         var y: CGFloat = if resolved.position == .belowMenuBar {
             visibleFrame.maxY - height
         } else {
             visibleFrame.maxY
         }
-
         if notchAware, screenHasNotch {
             let notchClearance: CGFloat = 120
             x = screenFrame.midX + notchClearance
@@ -249,13 +205,10 @@ final class WorkspaceBarManager {
             width = max(fittingSize.width, 300)
             x = screenFrame.midX - width / 2
         }
-
         x += CGFloat(resolved.xOffset)
         y += CGFloat(resolved.yOffset)
-
         instance.panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
     }
-
     private func setupScreenChangeObserver() {
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -268,7 +221,6 @@ final class WorkspaceBarManager {
             }
         }
     }
-
     private func setupSleepWakeObserver() {
         sleepWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
@@ -281,13 +233,11 @@ final class WorkspaceBarManager {
             }
         }
     }
-
     private func handleWakeFromSleep() {
         guard let settings, settings.workspaceBarEnabled else { return }
         removeAllBars()
         setupBars()
     }
-
     func cleanup() {
         if let observer = screenObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -299,13 +249,11 @@ final class WorkspaceBarManager {
         }
         removeAllBars()
     }
-
     private func applySettingsToPanel(_ panel: NSPanel, for monitor: Monitor) {
         guard let settings else { return }
         let resolved = settings.resolvedBarSettings(for: monitor)
         panel.level = resolved.windowLevel.nsWindowLevel
     }
-
     private func menuBarHeight(for monitor: Monitor) -> Double {
         let h = monitor.frame.maxY - monitor.visibleFrame.maxY
         return h > 0 ? h : 28

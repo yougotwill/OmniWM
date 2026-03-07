@@ -1,53 +1,35 @@
 import AppKit
-
 private let menuWidth: CGFloat = 280
-
 @MainActor
 final class StatusBarMenuBuilder {
     private let settings: SettingsStore
     private weak var controller: WMController?
-
     private var toggleViews: [String: MenuToggleRowView] = [:]
-
     init(settings: SettingsStore, controller: WMController) {
         self.settings = settings
         self.controller = controller
     }
-
     func buildMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-
         let headerItem = NSMenuItem()
         headerItem.view = createHeaderView()
         menu.addItem(headerItem)
-
         menu.addItem(createDivider())
-
         menu.addItem(createSectionLabel("CONTROLS"))
         addControlsSection(to: menu)
-
         menu.addItem(createDivider())
-
         menu.addItem(createSectionLabel("SETTINGS"))
         addSettingsSection(to: menu)
-
         menu.addItem(createDivider())
-
         menu.addItem(createSectionLabel("LINKS"))
         addLinksSection(to: menu)
-
         menu.addItem(createDivider())
-
         addSponsorsSection(to: menu)
-
         menu.addItem(createDivider())
-
         addQuitSection(to: menu)
-
         return menu
     }
-
     func updateToggles() {
         toggleViews["focusFollowsMouse"]?.isOn = settings.focusFollowsMouse
         toggleViews["focusFollowsWindowToMonitor"]?.isOn = settings.focusFollowsWindowToMonitor
@@ -57,23 +39,19 @@ final class StatusBarMenuBuilder {
         toggleViews["workspaceBarEnabled"]?.isOn = settings.workspaceBarEnabled
         toggleViews["preventSleepEnabled"]?.isOn = settings.preventSleepEnabled
     }
-
     private func createHeaderView() -> NSView {
         MenuHeaderView()
     }
-
     private func createDivider() -> NSMenuItem {
         let item = NSMenuItem()
         item.view = MenuDividerView()
         return item
     }
-
     private func createSectionLabel(_ text: String) -> NSMenuItem {
         let item = NSMenuItem()
         item.view = MenuSectionLabelView(text: text)
         return item
     }
-
     private func addControlsSection(to menu: NSMenu) {
         let focusToggle = MenuToggleRowView(
             icon: "cursorarrow.motionlines",
@@ -87,7 +65,6 @@ final class StatusBarMenuBuilder {
         let focusItem = NSMenuItem()
         focusItem.view = focusToggle
         menu.addItem(focusItem)
-
         let followMoveToggle = MenuToggleRowView(
             icon: "arrow.right.square",
             label: "Follow Window to Workspace",
@@ -99,7 +76,6 @@ final class StatusBarMenuBuilder {
         let followMoveItem = NSMenuItem()
         followMoveItem.view = followMoveToggle
         menu.addItem(followMoveItem)
-
         let mouseToFocusedToggle = MenuToggleRowView(
             icon: "arrow.up.left.and.down.right.magnifyingglass",
             label: "Mouse to Focused",
@@ -112,7 +88,6 @@ final class StatusBarMenuBuilder {
         let mouseItem = NSMenuItem()
         mouseItem.view = mouseToFocusedToggle
         menu.addItem(mouseItem)
-
         let mouseWarpToggle = MenuToggleRowView(
             icon: "arrow.left.arrow.right",
             label: "Mouse Warp",
@@ -125,7 +100,6 @@ final class StatusBarMenuBuilder {
         let mouseWarpItem = NSMenuItem()
         mouseWarpItem.view = mouseWarpToggle
         menu.addItem(mouseWarpItem)
-
         let bordersToggle = MenuToggleRowView(
             icon: "square.dashed",
             label: "Window Borders",
@@ -138,7 +112,6 @@ final class StatusBarMenuBuilder {
         let bordersItem = NSMenuItem()
         bordersItem.view = bordersToggle
         menu.addItem(bordersItem)
-
         let workspaceBarToggle = MenuToggleRowView(
             icon: "menubar.rectangle",
             label: "Workspace Bar",
@@ -151,7 +124,6 @@ final class StatusBarMenuBuilder {
         let workspaceItem = NSMenuItem()
         workspaceItem.view = workspaceBarToggle
         menu.addItem(workspaceItem)
-
         let keepAwakeToggle = MenuToggleRowView(
             icon: "moon.zzz",
             label: "Keep Awake",
@@ -165,7 +137,6 @@ final class StatusBarMenuBuilder {
         keepAwakeItem.view = keepAwakeToggle
         menu.addItem(keepAwakeItem)
     }
-
     private func addSettingsSection(to menu: NSMenu) {
         let appRulesRow = MenuActionRowView(
             icon: "slider.horizontal.3",
@@ -178,7 +149,6 @@ final class StatusBarMenuBuilder {
         let appRulesItem = NSMenuItem()
         appRulesItem.view = appRulesRow
         menu.addItem(appRulesItem)
-
         let settingsRow = MenuActionRowView(
             icon: "gearshape",
             label: "Settings",
@@ -191,7 +161,6 @@ final class StatusBarMenuBuilder {
         settingsItem.view = settingsRow
         menu.addItem(settingsItem)
     }
-
     private func addLinksSection(to menu: NSMenu) {
         let githubRow = MenuActionRowView(
             icon: "link",
@@ -205,7 +174,6 @@ final class StatusBarMenuBuilder {
         let githubItem = NSMenuItem()
         githubItem.view = githubRow
         menu.addItem(githubItem)
-
         let sponsorGithubRow = MenuActionRowView(
             icon: "heart",
             label: "Sponsor on GitHub",
@@ -218,7 +186,6 @@ final class StatusBarMenuBuilder {
         let sponsorGithubItem = NSMenuItem()
         sponsorGithubItem.view = sponsorGithubRow
         menu.addItem(sponsorGithubItem)
-
         let sponsorPaypalRow = MenuActionRowView(
             icon: "heart",
             label: "Sponsor on PayPal",
@@ -232,7 +199,6 @@ final class StatusBarMenuBuilder {
         sponsorPaypalItem.view = sponsorPaypalRow
         menu.addItem(sponsorPaypalItem)
     }
-
     private func addSponsorsSection(to menu: NSMenu) {
         let sponsorsRow = MenuActionRowView(
             icon: "sparkles",
@@ -244,7 +210,6 @@ final class StatusBarMenuBuilder {
         sponsorsItem.view = sponsorsRow
         menu.addItem(sponsorsItem)
     }
-
     private func addQuitSection(to menu: NSMenu) {
         let quitRow = MenuActionRowView(
             icon: "power",
@@ -258,29 +223,24 @@ final class StatusBarMenuBuilder {
         menu.addItem(quitItem)
     }
 }
-
 final class MenuHeaderView: NSView {
     private var appVersion: String {
         Bundle.main.appVersion ?? "0.3.1"
     }
-
     override init(frame frameRect: NSRect) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 56))
         setupViews()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
-
     private func setupViews() {
         let iconContainer = NSView(frame: NSRect(x: 12, y: 10, width: 36, height: 36))
         iconContainer.wantsLayer = true
         iconContainer.layer?.cornerRadius = 18
         iconContainer.layer?.backgroundColor = NSColor(calibratedRed: 0.3, green: 0.4, blue: 0.8, alpha: 0.2).cgColor
         addSubview(iconContainer)
-
         let iconImageView = NSImageView(frame: NSRect(x: 9, y: 9, width: 18, height: 18))
         if let iconImage = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil) {
             let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .medium)
@@ -288,19 +248,16 @@ final class MenuHeaderView: NSView {
             iconImageView.contentTintColor = .labelColor
         }
         iconContainer.addSubview(iconImageView)
-
         let titleLabel = NSTextField(labelWithString: "OmniWM")
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.frame = NSRect(x: 56, y: 28, width: 80, height: 18)
         addSubview(titleLabel)
-
         let statusDot = NSView(frame: NSRect(x: 140, y: 33, width: 6, height: 6))
         statusDot.wantsLayer = true
         statusDot.layer?.cornerRadius = 3
         statusDot.layer?.backgroundColor = NSColor.systemGreen.cgColor
         addSubview(statusDot)
-
         let versionLabel = NSTextField(labelWithString: "v\(appVersion)")
         versionLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         versionLabel.textColor = .secondaryLabelColor
@@ -308,39 +265,32 @@ final class MenuHeaderView: NSView {
         addSubview(versionLabel)
     }
 }
-
 final class MenuSectionLabelView: NSView {
     init(text: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 24))
-
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 10, weight: .medium)
         label.textColor = .tertiaryLabelColor
         label.frame = NSRect(x: 14, y: 4, width: menuWidth - 28, height: 12)
         addSubview(label)
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 }
-
 final class MenuDividerView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 9))
-
         let divider = NSBox(frame: NSRect(x: 8, y: 4, width: menuWidth - 16, height: 1))
         divider.boxType = .separator
         addSubview(divider)
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 }
-
 final class MenuToggleSwitchView: NSView {
     var isOn: Bool {
         didSet {
@@ -348,22 +298,17 @@ final class MenuToggleSwitchView: NSView {
             updateAppearance(animated: true)
         }
     }
-
     var onToggle: ((Bool) -> Void)?
-
     private let trackLayer = CALayer()
     private let thumbLayer = CALayer()
     private var trackingAreaRef: NSTrackingArea?
     private var isHovered: Bool = false
-
     override var isFlipped: Bool { true }
-
     init(isOn: Bool) {
         self.isOn = isOn
         super.init(frame: NSRect(x: 0, y: 0, width: 42, height: 22))
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-
         trackLayer.cornerCurve = .continuous
         thumbLayer.cornerCurve = .continuous
         thumbLayer.backgroundColor = NSColor.white.cgColor
@@ -371,23 +316,19 @@ final class MenuToggleSwitchView: NSView {
         thumbLayer.shadowOpacity = 1
         thumbLayer.shadowRadius = 1.8
         thumbLayer.shadowOffset = CGSize(width: 0, height: 0.6)
-
         layer?.addSublayer(trackLayer)
         layer?.addSublayer(thumbLayer)
         updateAppearance(animated: false)
         updateTrackingAreas()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
-
     override func layout() {
         super.layout()
         updateAppearance(animated: false)
     }
-
     override func updateTrackingAreas() {
         if let existing = trackingAreaRef {
             removeTrackingArea(existing)
@@ -401,12 +342,10 @@ final class MenuToggleSwitchView: NSView {
         addTrackingArea(area)
         trackingAreaRef = area
     }
-
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
         updateAppearance(animated: true)
     }
-
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let hoveredNow = bounds.contains(point)
@@ -414,28 +353,23 @@ final class MenuToggleSwitchView: NSView {
         isHovered = hoveredNow
         updateAppearance(animated: true)
     }
-
     override func mouseExited(with event: NSEvent) {
         isHovered = false
         updateAppearance(animated: true)
     }
-
     override func mouseDown(with event: NSEvent) {
         isOn.toggle()
         onToggle?(isOn)
     }
-
     private func updateAppearance(animated: Bool) {
         let inset: CGFloat = 2
         let thumbSize = max(0, bounds.height - inset * 2)
         let thumbX = isOn
             ? bounds.width - inset - thumbSize
             : inset
-
         let onColor = NSColor.systemGreen.withAlphaComponent(isHovered ? 1.0 : 0.95).cgColor
         let offColor = NSColor(white: isHovered ? 0.32 : 0.26, alpha: 1.0).cgColor
         let targetTrack = isOn ? onColor : offColor
-
         CATransaction.begin()
         CATransaction.setDisableActions(!animated)
         CATransaction.setAnimationDuration(animated ? 0.14 : 0)
@@ -443,13 +377,11 @@ final class MenuToggleSwitchView: NSView {
         trackLayer.frame = bounds
         trackLayer.cornerRadius = bounds.height / 2
         trackLayer.backgroundColor = targetTrack
-
         thumbLayer.frame = NSRect(x: thumbX, y: inset, width: thumbSize, height: thumbSize)
         thumbLayer.cornerRadius = thumbSize / 2
         CATransaction.commit()
     }
 }
-
 final class MenuToggleRowView: NSView {
     var isOn: Bool {
         get { toggle.isOn }
@@ -457,27 +389,22 @@ final class MenuToggleRowView: NSView {
             toggle.isOn = newValue
         }
     }
-
     private let toggle: MenuToggleSwitchView
     private let onChange: (Bool) -> Void
     private var trackingArea: NSTrackingArea?
     private var backgroundLayer: CALayer?
     private var iconView: NSImageView?
     private var labelField: NSTextField?
-
     init(icon: String, label: String, isOn: Bool, onChange: @escaping (Bool) -> Void) {
         self.onChange = onChange
         self.toggle = MenuToggleSwitchView(isOn: isOn)
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
-
         wantsLayer = true
-
         backgroundLayer = CALayer()
         backgroundLayer?.cornerRadius = 6
         backgroundLayer?.cornerCurve = .continuous
         backgroundLayer?.backgroundColor = .clear
         layer?.addSublayer(backgroundLayer!)
-
         if let iconImage = NSImage(systemSymbolName: icon, accessibilityDescription: nil) {
             let iconView = NSImageView(frame: NSRect(x: 12, y: 6, width: 16, height: 16))
             let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
@@ -486,28 +413,23 @@ final class MenuToggleRowView: NSView {
             addSubview(iconView)
             self.iconView = iconView
         }
-
         let labelField = NSTextField(labelWithString: label)
         labelField.font = .systemFont(ofSize: 13)
         labelField.textColor = .labelColor
         labelField.frame = NSRect(x: 38, y: 5, width: menuWidth - 100, height: 18)
         addSubview(labelField)
         self.labelField = labelField
-
         toggle.frame = NSRect(x: menuWidth - 54, y: 3, width: 42, height: 22)
         toggle.onToggle = { [weak self] newValue in
             self?.onChange(newValue)
         }
         addSubview(toggle)
-
         updateTrackingAreas()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
-
     override func updateTrackingAreas() {
         if let existing = trackingArea {
             removeTrackingArea(existing)
@@ -520,42 +442,34 @@ final class MenuToggleRowView: NSView {
         )
         addTrackingArea(trackingArea!)
     }
-
     override func mouseEntered(with event: NSEvent) {
         setHovered(true)
     }
-
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         setHovered(bounds.contains(point))
     }
-
     override func mouseExited(with event: NSEvent) {
         setHovered(false)
     }
-
     override func layout() {
         super.layout()
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
     }
-
     private func setHovered(_ hovered: Bool) {
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
         let targetBackground = hovered
             ? NSColor.controlAccentColor.withAlphaComponent(0.34).cgColor
             : NSColor.clear.cgColor
-
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.12)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         backgroundLayer?.backgroundColor = targetBackground
         CATransaction.commit()
-
         iconView?.contentTintColor = hovered ? .white : .secondaryLabelColor
         labelField?.textColor = hovered ? .white : .labelColor
     }
 }
-
 final class MenuActionRowView: NSView {
     private let action: () -> Void
     private let isDestructive: Bool
@@ -564,7 +478,6 @@ final class MenuActionRowView: NSView {
     private var iconView: NSImageView?
     private var labelField: NSTextField?
     private var isHovered = false
-
     init(
         icon: String,
         label: String,
@@ -576,14 +489,11 @@ final class MenuActionRowView: NSView {
         self.action = action
         self.isDestructive = isDestructive
         super.init(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 28))
-
         wantsLayer = true
-
         backgroundLayer = CALayer()
         backgroundLayer?.cornerRadius = 6
         backgroundLayer?.backgroundColor = .clear
         layer?.addSublayer(backgroundLayer!)
-
         if let iconImage = NSImage(systemSymbolName: icon, accessibilityDescription: nil) {
             let iv = NSImageView(frame: NSRect(x: 12, y: 6, width: 16, height: 16))
             let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
@@ -592,14 +502,12 @@ final class MenuActionRowView: NSView {
             addSubview(iv)
             iconView = iv
         }
-
         let lf = NSTextField(labelWithString: label)
         lf.font = .systemFont(ofSize: 13)
         lf.textColor = .labelColor
         lf.frame = NSRect(x: 38, y: 5, width: menuWidth - 70, height: 18)
         addSubview(lf)
         labelField = lf
-
         if showChevron {
             if let chevronImage = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil) {
                 let chevronView = NSImageView(frame: NSRect(x: menuWidth - 24, y: 8, width: 10, height: 12))
@@ -609,7 +517,6 @@ final class MenuActionRowView: NSView {
                 addSubview(chevronView)
             }
         }
-
         if isExternal {
             if let externalImage = NSImage(systemSymbolName: "arrow.up.right", accessibilityDescription: nil) {
                 let externalView = NSImageView(frame: NSRect(x: menuWidth - 24, y: 8, width: 10, height: 12))
@@ -619,15 +526,12 @@ final class MenuActionRowView: NSView {
                 addSubview(externalView)
             }
         }
-
         updateTrackingAreas()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
-
     override func updateTrackingAreas() {
         if let existing = trackingArea {
             removeTrackingArea(existing)
@@ -640,12 +544,10 @@ final class MenuActionRowView: NSView {
         )
         addTrackingArea(trackingArea!)
     }
-
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
         setHoveredStyle(true)
     }
-
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let hoveredNow = bounds.contains(point)
@@ -653,12 +555,10 @@ final class MenuActionRowView: NSView {
         isHovered = hoveredNow
         setHoveredStyle(hoveredNow)
     }
-
     override func mouseExited(with event: NSEvent) {
         isHovered = false
         setHoveredStyle(false)
     }
-
     override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if bounds.contains(location) {
@@ -670,15 +570,12 @@ final class MenuActionRowView: NSView {
             }
         }
     }
-
     override func layout() {
         super.layout()
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
     }
-
     private func setHoveredStyle(_ hovered: Bool) {
         backgroundLayer?.frame = NSRect(x: 4, y: 2, width: menuWidth - 8, height: 24)
-
         let background: CGColor
         if hovered {
             if isDestructive {
@@ -689,13 +586,11 @@ final class MenuActionRowView: NSView {
         } else {
             background = NSColor.clear.cgColor
         }
-
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.12)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         backgroundLayer?.backgroundColor = background
         CATransaction.commit()
-
         if isDestructive && hovered {
             iconView?.contentTintColor = .systemRed
             labelField?.textColor = .systemRed

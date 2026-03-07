@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 @MainActor
 final class MouseEventHandler {
     struct State {
@@ -8,13 +7,11 @@ final class MouseEventHandler {
             let workspaceId: WorkspaceDescriptor.ID
             let monitorId: Monitor.ID
         }
-
         enum GesturePhase {
             case idle
             case armed
             case committed
         }
-
         var eventTap: CFMachPort?
         var runLoopSource: CFRunLoopSource?
         var gestureTap: CFMachPort?
@@ -22,38 +19,30 @@ final class MouseEventHandler {
         var currentHoveredEdges: ResizeEdge = []
         var isResizing: Bool = false
         var isMoving: Bool = false
-
         var lastFocusFollowsMouseTime: Date = .distantPast
         var lastFocusFollowsMouseHandle: WindowHandle?
         let focusFollowsMouseDebounce: TimeInterval = 0.1
         var dragGhostController: DragGhostController?
-
         var gesturePhase: GesturePhase = .idle
         var gestureStartX: CGFloat = 0.0
         var gestureStartY: CGFloat = 0.0
         var gestureLastDeltaX: CGFloat = 0.0
         var lockedGestureContext: LockedGestureContext?
     }
-
     nonisolated(unsafe) static weak var _instance: MouseEventHandler?
-
     weak var controller: WMController?
     var state = State()
-
     init(controller: WMController) {
         self.controller = controller
     }
-
     func setup() {
         MouseEventHandler._instance = self
-
         let eventMask: CGEventMask =
             (1 << CGEventType.mouseMoved.rawValue) |
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
-
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = MouseEventHandler._instance?.state.eventTap {
@@ -61,10 +50,8 @@ final class MouseEventHandler {
                 }
                 return Unmanaged.passUnretained(event)
             }
-
             let location = event.location
             let screenLocation = ScreenCoordinateSpace.toAppKit(point: location)
-
             switch type {
             case .mouseMoved:
                 Task { @MainActor in
@@ -107,10 +94,8 @@ final class MouseEventHandler {
             default:
                 break
             }
-
             return Unmanaged.passUnretained(event)
         }
-
         state.eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -119,7 +104,6 @@ final class MouseEventHandler {
             callback: callback,
             userInfo: nil
         )
-
         if let tap = state.eventTap {
             state.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             if let source = state.runLoopSource {
@@ -127,9 +111,7 @@ final class MouseEventHandler {
             }
             CGEvent.tapEnable(tap: tap, enable: true)
         }
-
         let gestureMask: CGEventMask = UInt64(NSEvent.EventTypeMask.gesture.rawValue)
-
         let gestureCallback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = MouseEventHandler._instance?.state.gestureTap {
@@ -137,16 +119,13 @@ final class MouseEventHandler {
                 }
                 return Unmanaged.passUnretained(event)
             }
-
             if type.rawValue == NSEvent.EventType.gesture.rawValue {
                 Task { @MainActor in
                     MouseEventHandler._instance?.handleGestureEventFromTap(event)
                 }
             }
-
             return Unmanaged.passUnretained(event)
         }
-
         state.gestureTap = CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
@@ -155,7 +134,6 @@ final class MouseEventHandler {
             callback: gestureCallback,
             userInfo: nil
         )
-
         if let tap = state.gestureTap {
             state.gestureRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             if let source = state.gestureRunLoopSource {
@@ -164,7 +142,6 @@ final class MouseEventHandler {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
     }
-
     func cleanup() {
         if let source = state.runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
@@ -187,7 +164,6 @@ final class MouseEventHandler {
         state.isResizing = false
         resetGestureState()
     }
-
     private func handleMouseMovedFromTap(at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else {
@@ -198,7 +174,6 @@ final class MouseEventHandler {
             return
         }
         if controller.isOverviewOpen() { return }
-
         if controller.isPointInOwnWindow(location) {
             if !state.currentHoveredEdges.isEmpty {
                 NSCursor.arrow.set()
@@ -206,13 +181,10 @@ final class MouseEventHandler {
             }
             return
         }
-
         if controller.focusFollowsMouseEnabled, !state.isResizing {
             handleFocusFollowsMouse(at: location)
         }
-
         guard !state.isResizing else { return }
-
         guard let context = resolveScrollContext(at: location) else {
             if !state.currentHoveredEdges.isEmpty {
                 NSCursor.arrow.set()
@@ -220,7 +192,6 @@ final class MouseEventHandler {
             }
             return
         }
-
         let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
         if let hitResult = context.engine.hitTestResize(at: location, request) {
             let legacy = resizeEdges(from: hitResult.edges)
@@ -233,17 +204,13 @@ final class MouseEventHandler {
             state.currentHoveredEdges = []
         }
     }
-
     private func handleMouseDownFromTap(at location: CGPoint, modifiers: CGEventFlags) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
-
         guard let context = resolveScrollContext(at: location) else { return }
-
         let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
-
         if modifiers.contains(.maskAlternate) {
             if let tiledWindow = context.engine.hitTestTiled(at: location, request) {
                 let started = context.engine.beginInteractiveMove(
@@ -255,11 +222,9 @@ final class MouseEventHandler {
                         currentHoverTarget: nil
                     )
                 )
-
                 if started {
                     state.isMoving = true
                     NSCursor.closedHand.set()
-
                     if let entry = controller.workspaceManager.entry(for: tiledWindow.windowHandle),
                        let frame = AXWindowService.framePreferFast(entry.axRef)
                     {
@@ -276,9 +241,7 @@ final class MouseEventHandler {
                 }
             }
         }
-
         guard !state.currentHoveredEdges.isEmpty else { return }
-
         if let hitResult = context.engine.hitTestResize(at: location, request) {
             let viewportOffset = context.engine.viewportOffset(in: context.wsId)
             if context.engine.beginInteractiveResize(
@@ -299,23 +262,18 @@ final class MouseEventHandler {
             }
         }
     }
-
     private func handleMouseDraggedFromTap(at _: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
         if controller.isOverviewOpen() { return }
         guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
-
         let location = NSEvent.mouseLocation
-
         if state.isMoving {
             guard let context = resolveScrollContext(at: location) else {
                 return
             }
-
             let hoverTarget = context.engine.updateInteractiveMove(mouseLocation: location)
             state.dragGhostController?.updatePosition(cursorLocation: location)
-
             if case let .window(_, handle, _) = hoverTarget,
                let entry = controller.workspaceManager.entry(for: handle),
                let frame = AXWindowService.framePreferFast(entry.axRef)
@@ -326,10 +284,8 @@ final class MouseEventHandler {
             }
             return
         }
-
         guard state.isResizing else { return }
         guard let context = resolveScrollContext(at: location) else { return }
-
         let update = context.engine.updateInteractiveResize(mouseLocation: location)
         if update.applied {
             if let viewportOffset = update.resizeOutput?.viewportOffset {
@@ -338,11 +294,9 @@ final class MouseEventHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func handleMouseUpFromTap(at location: CGPoint) {
         guard let controller else { return }
         if controller.isOverviewOpen() { return }
-
         if state.isMoving {
             if let context = resolveScrollContext(at: location) {
                 let result = context.engine.endInteractiveMove(commit: true)
@@ -350,19 +304,15 @@ final class MouseEventHandler {
                     controller.layoutRefreshController.executeLayoutRefreshImmediate()
                 }
             }
-
             state.dragGhostController?.endDrag()
             state.isMoving = false
             NSCursor.arrow.set()
             return
         }
-
         guard state.isResizing else { return }
-
         if let context = resolveScrollContext(at: location) {
             _ = context.engine.endInteractiveResize(commit: true)
             controller.layoutRefreshController.startScrollAnimation(for: context.wsId)
-
             let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
             if let hitResult = context.engine.hitTestResize(at: location, request) {
                 let legacy = resizeEdges(from: hitResult.edges)
@@ -373,10 +323,8 @@ final class MouseEventHandler {
                 state.currentHoveredEdges = []
             }
         }
-
         state.isResizing = false
     }
-
     private func handleScrollWheelFromTap(
         at location: CGPoint,
         deltaX _: CGFloat,
@@ -390,28 +338,22 @@ final class MouseEventHandler {
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
-
         let isTrackpad = momentumPhase != 0 || phase != 0
         if isTrackpad {
             return
         }
-
         guard modifiers.contains(controller.settings.scrollModifierKey.cgEventFlag) else {
             return
         }
-
         let scrollDeltaX: CGFloat = if modifiers.contains(.maskShift) {
             deltaY
         } else {
             -deltaY
         }
-
         guard abs(scrollDeltaX) > 0.5 else { return }
         guard let context = resolveScrollContext(at: location) else { return }
-
         let sensitivity = CGFloat(controller.settings.scrollSensitivity)
         let adjustedDelta = scrollDeltaX * sensitivity
-
         applyMouseViewportScrollDelta(
             adjustedDelta,
             isTrackpad: false,
@@ -421,27 +363,22 @@ final class MouseEventHandler {
             orientation: context.orientation
         )
     }
-
     private func handleFocusFollowsMouse(at location: CGPoint) {
         guard let controller else { return }
         guard !controller.focusManager.isNonManagedFocusActive, !controller.focusManager.isAppFullscreenActive else {
             return
         }
-
         let now = Date()
         guard now.timeIntervalSince(state.lastFocusFollowsMouseTime) >= state.focusFollowsMouseDebounce else {
             return
         }
-
         guard let context = resolveScrollContext(at: location) else { return }
         let request = makeHitTestRequest(wsId: context.wsId, monitor: context.monitor, orientation: context.orientation)
-
         if let tiledWindow = context.engine.hitTestTiled(at: location, request) {
             let handle = tiledWindow.windowHandle
             if handle != state.lastFocusFollowsMouseHandle, handle != controller.focusedHandle {
                 state.lastFocusFollowsMouseTime = now
                 state.lastFocusFollowsMouseHandle = handle
-
                 _ = context.engine.applyWorkspace(
                     .setSelection(
                         ZigNiriSelection(
@@ -459,23 +396,19 @@ final class MouseEventHandler {
             }
         }
     }
-
     private func handleGestureEventFromTap(_ cgEvent: CGEvent) {
         let screenLocation = ScreenCoordinateSpace.toAppKit(point: cgEvent.location)
         guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
         handleGestureEvent(nsEvent, at: screenLocation)
     }
-
     private func handleGestureEvent(_ event: NSEvent, at location: CGPoint) {
         guard let controller else { return }
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) { return }
         guard !state.isResizing, !state.isMoving else { return }
-
         let requiredFingers = controller.settings.gestureFingerCount.rawValue
         let invertDirection = controller.settings.gestureInvertDirection
-
         let phase = event.phase
         if phase == .ended || phase == .cancelled {
             if state.gesturePhase == .committed {
@@ -489,54 +422,44 @@ final class MouseEventHandler {
             resetGestureState()
             return
         }
-
         if phase == .began {
             resetGestureState()
         }
-
         guard resolveScrollContext(at: location) != nil else {
             resetGestureState()
             return
         }
-
         let touches = event.allTouches()
         guard !touches.isEmpty else {
             resetGestureState()
             return
         }
-
         var sumX: CGFloat = 0.0
         var sumY: CGFloat = 0.0
         var touchCount = 0
         var activeCount = 0
         var tooManyTouches = false
-
         for touch in touches {
             let touchPhase = touch.phase
             if touchPhase == .ended || touchPhase == .cancelled {
                 continue
             }
-
             touchCount += 1
             if touchCount > requiredFingers {
                 tooManyTouches = true
                 break
             }
-
             let pos = touch.normalizedPosition
             sumX += pos.x
             sumY += pos.y
             activeCount += 1
         }
-
         if tooManyTouches || touchCount != requiredFingers || activeCount == 0 {
             resetGestureState()
             return
         }
-
         let avgX = sumX / CGFloat(activeCount)
         let avgY = sumY / CGFloat(activeCount)
-
         switch state.gesturePhase {
         case .idle:
             guard let currentContext = resolveScrollContext(at: location) else {
@@ -551,7 +474,6 @@ final class MouseEventHandler {
             state.gestureStartY = avgY
             state.gestureLastDeltaX = 0.0
             state.gesturePhase = .armed
-
         case .armed, .committed:
             guard let lockedContext = state.lockedGestureContext else {
                 assertionFailure("Active gesture missing locked context")
@@ -566,24 +488,19 @@ final class MouseEventHandler {
                 resetGestureState()
                 return
             }
-
             let dx = avgX - state.gestureStartX
             let currentDeltaX = dx
             let deltaNorm = currentDeltaX - state.gestureLastDeltaX
             state.gestureLastDeltaX = currentDeltaX
-
             var deltaUnits = deltaNorm * CGFloat(controller.settings.scrollSensitivity) * 500.0
             if invertDirection {
                 deltaUnits = -deltaUnits
             }
-
             if abs(deltaUnits) < 0.5 {
                 state.gesturePhase = .committed
                 return
             }
-
             state.gesturePhase = .committed
-
             let orientation = controller.settings.effectiveOrientation(for: monitor)
             guard let engine = controller.zigNiriEngine else { return }
             applyMouseViewportScrollDelta(
@@ -596,7 +513,6 @@ final class MouseEventHandler {
             )
         }
     }
-
     private func applyMouseViewportScrollDelta(
         _ delta: CGFloat,
         isTrackpad: Bool,
@@ -609,14 +525,11 @@ final class MouseEventHandler {
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportSpan = orientation == .horizontal ? insetFrame.width : insetFrame.height
         let gap = CGFloat(controller.workspaceManager.gaps)
-
         var targetWindowHandle: WindowHandle?
-
         controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
             _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: vstate.selectedNodeId)
             guard let view = engine.workspaceView(for: wsId) else { return }
             let columnSpans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
-
             let timestamp = CACurrentMediaTime()
             if !engine.isViewportGestureActive(in: wsId, at: timestamp) {
                 _ = engine.beginViewportGesture(
@@ -625,7 +538,6 @@ final class MouseEventHandler {
                     sampleTime: timestamp
                 )
             }
-
             if let steps = engine.updateViewportGesture(
                 in: wsId,
                 deltaPixels: delta,
@@ -639,7 +551,6 @@ final class MouseEventHandler {
                 } else {
                     steps > 0 ? .down : .up
                 }
-
                 for _ in 0 ..< abs(steps) {
                     let result = engine.applyNavigation(
                         .focus(direction: stepDirection),
@@ -653,7 +564,6 @@ final class MouseEventHandler {
                     vstate.selectedNodeId = result.selection?.selectedNodeId
                     controller.workspaceManager.setSelection(result.selection?.selectedNodeId, for: wsId)
                 }
-
                 if let selectedNodeId = vstate.selectedNodeId,
                    let newHandle = controller.zigWindowHandle(for: selectedNodeId, workspaceId: wsId)
                 {
@@ -662,37 +572,31 @@ final class MouseEventHandler {
                 }
             }
         }
-
         controller.layoutRefreshController.executeLayoutRefreshImmediate()
         if let handle = targetWindowHandle {
             controller.focusWindow(handle)
         }
     }
-
     private func finalizeOrCancelCommittedGesture(using lockedContext: State.LockedGestureContext) {
         guard let controller,
               let engine = controller.zigNiriEngine
         else {
             return
         }
-
         let wsId = lockedContext.workspaceId
         guard let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId) else {
             cancelCommittedGestureViewportState(for: wsId)
             return
         }
-
         let orientation = controller.settings.effectiveOrientation(for: monitor)
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportSpan = orientation == .horizontal ? insetFrame.width : insetFrame.height
         let gap = CGFloat(controller.workspaceManager.gaps)
         let resolved = controller.settings.resolvedNiriSettings(for: monitor)
-
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
             _ = controller.syncZigNiriWorkspace(workspaceId: wsId, selectedNodeId: endState.selectedNodeId)
             guard let view = engine.workspaceView(for: wsId) else { return }
             let spans = columnSpans(for: view, orientation: orientation, fallbackFrame: insetFrame)
-
             _ = engine.endViewportGesture(
                 in: wsId,
                 spans: spans,
@@ -706,7 +610,6 @@ final class MouseEventHandler {
         }
         controller.layoutRefreshController.startScrollAnimation(for: wsId)
     }
-
     private func cancelCommittedGestureViewportState(for wsId: WorkspaceDescriptor.ID) {
         guard let controller,
               let engine = controller.zigNiriEngine
@@ -716,7 +619,6 @@ final class MouseEventHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func resolveScrollContext(at location: CGPoint) -> (
         engine: ZigNiriEngine,
         wsId: WorkspaceDescriptor.ID,
@@ -728,18 +630,15 @@ final class MouseEventHandler {
         else {
             return nil
         }
-
         let monitors = controller.workspaceManager.monitors
         guard let monitor = location.monitorApproximation(in: monitors),
               let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
         else {
             return nil
         }
-
         let orientation = controller.settings.effectiveOrientation(for: monitor)
         return (engine, workspace.id, monitor, orientation)
     }
-
     private func makeHitTestRequest(
         wsId: WorkspaceDescriptor.ID,
         monitor: Monitor,
@@ -754,7 +653,6 @@ final class MouseEventHandler {
                 orientation: orientation
             )
         }
-
         return ZigNiriHitTestRequest(
             workspaceId: wsId,
             monitorFrame: controller.insetWorkingFrame(for: monitor),
@@ -766,16 +664,13 @@ final class MouseEventHandler {
             orientation: orientation
         )
     }
-
     private func columnSpans(
         for view: ZigNiriWorkspaceView,
         orientation: Monitor.Orientation,
         fallbackFrame: CGRect
     ) -> [CGFloat] {
         guard !view.columns.isEmpty else { return [] }
-
         let fallback = (orientation == .horizontal ? fallbackFrame.width : fallbackFrame.height) / CGFloat(max(1, view.columns.count))
-
         return view.columns.map { column in
             let frames = column.windowIds.compactMap { view.windowsById[$0]?.frame }
             if orientation == .horizontal {
@@ -784,7 +679,6 @@ final class MouseEventHandler {
             return frames.map(\.height).max() ?? fallback
         }
     }
-
     private func resizeEdges(from edges: ZigNiriResizeEdge) -> ResizeEdge {
         var result: ResizeEdge = []
         if edges.contains(.top) { result.insert(.top) }
@@ -793,7 +687,6 @@ final class MouseEventHandler {
         if edges.contains(.right) { result.insert(.right) }
         return result
     }
-
     private func resetGestureState() {
         state.gesturePhase = .idle
         state.gestureStartX = 0.0

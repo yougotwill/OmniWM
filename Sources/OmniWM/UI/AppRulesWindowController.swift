@@ -1,22 +1,17 @@
 import AppKit
 import SwiftUI
-
 @MainActor
 final class AppRulesWindowController {
     static let shared = AppRulesWindowController()
-
     private var window: NSWindow?
-
     func show(settings: SettingsStore, controller: WMController) {
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-
         let appRulesView = AppRulesView(settings: settings, controller: controller)
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-
         let hosting = NSHostingController(rootView: appRulesView)
         let window = NSWindow(contentViewController: hosting)
         window.title = "App Rules"
@@ -28,7 +23,6 @@ final class AppRulesWindowController {
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
         NotificationCenter.default
             .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                 Task { @MainActor in
@@ -37,7 +31,6 @@ final class AppRulesWindowController {
             }
         self.window = window
     }
-
     func isPointInside(_ point: CGPoint) -> Bool {
         guard let window, window.isVisible else { return false }
         return window.frame.contains(point)

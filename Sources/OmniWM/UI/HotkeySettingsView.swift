@@ -1,12 +1,10 @@
 import SwiftUI
-
 struct HotkeySettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     @State private var recordingBindingId: String?
     @State private var conflictAlert: ConflictAlert?
     @State private var searchText: String = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -20,7 +18,6 @@ struct HotkeySettingsView: View {
                 .buttonStyle(.link)
             }
             .padding(.bottom, 12)
-
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
@@ -38,7 +35,6 @@ struct HotkeySettingsView: View {
             .background(Color.secondary.opacity(0.1))
             .cornerRadius(8)
             .padding(.bottom, 12)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(HotkeyCategory.allCases, id: \.self) { category in
@@ -70,7 +66,6 @@ struct HotkeySettingsView: View {
             )
         }
     }
-
     private func bindingsForCategory(_ category: HotkeyCategory) -> [HotkeyBinding] {
         settings.hotkeyBindings.filter { binding in
             binding.category == category &&
@@ -79,7 +74,6 @@ struct HotkeySettingsView: View {
                  binding.command.layoutCompatibility.rawValue.localizedCaseInsensitiveContains(searchText))
         }
     }
-
     private func handleBindingChange(bindingId: String, newBinding: KeyBinding) {
         let conflicts = settings.findConflicts(for: newBinding, excluding: bindingId)
         if !conflicts.isEmpty {
@@ -92,7 +86,6 @@ struct HotkeySettingsView: View {
             applyBinding(newBinding, to: bindingId, clearingConflicts: false)
         }
     }
-
     private func applyBinding(_ binding: KeyBinding, to bindingId: String, clearingConflicts: Bool) {
         if clearingConflicts {
             let conflicts = settings.findConflicts(for: binding, excluding: bindingId)
@@ -104,19 +97,16 @@ struct HotkeySettingsView: View {
         controller.updateHotkeyBindings(settings.hotkeyBindings)
         recordingBindingId = nil
     }
-
     private func clearBinding(bindingId: String) {
         settings.updateBinding(for: bindingId, newBinding: .unassigned)
         controller.updateHotkeyBindings(settings.hotkeyBindings)
     }
 }
-
 struct ConflictAlert: Identifiable {
     let id = UUID()
     let bindingId: String
     let newBinding: KeyBinding
     let conflictingCommands: [String]
-
     var message: String {
         if conflictingCommands.count == 1 {
             return "This key combination is already used by \"\(conflictingCommands[0])\". Do you want to replace it?"
@@ -126,7 +116,6 @@ struct ConflictAlert: Identifiable {
         }
     }
 }
-
 struct HotkeyCategorySection: View {
     let category: HotkeyCategory
     let bindings: [HotkeyBinding]
@@ -134,14 +123,12 @@ struct HotkeyCategorySection: View {
     let registrationFailures: Set<HotkeyCommand>
     let onBindingChange: (String, KeyBinding) -> Void
     let onClear: (String) -> Void
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(category.rawValue)
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .foregroundColor(.accentColor)
-
             ForEach(bindings) { binding in
                 HotkeyBindingRow(
                     binding: binding,
@@ -158,7 +145,6 @@ struct HotkeyCategorySection: View {
         }
     }
 }
-
 struct HotkeyBindingRow: View {
     let binding: HotkeyBinding
     let isRecording: Bool
@@ -167,7 +153,6 @@ struct HotkeyBindingRow: View {
     let onBindingCaptured: (KeyBinding) -> Void
     let onCancel: () -> Void
     let onClear: () -> Void
-
     var body: some View {
         HStack {
             HStack(spacing: 6) {
@@ -184,13 +169,11 @@ struct HotkeyBindingRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
             if hasFailed {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .help("Failed to register: this key combination may be reserved by the system")
             }
-
             if isRecording {
                 KeyRecorderView(onCapture: onBindingCaptured, onCancel: onCancel)
                     .frame(width: 100, height: 24)
@@ -206,7 +189,6 @@ struct HotkeyBindingRow: View {
                 }
                 .buttonStyle(.plain)
                 .help(binding.binding.humanReadableString)
-
                 if !binding.binding.isUnassigned {
                     Button(action: onClear) {
                         Image(systemName: "xmark.circle.fill")

@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 @MainActor
 final class AppInfoCache {
     struct AppInfo {
@@ -9,16 +8,13 @@ final class AppInfoCache {
         let icon: NSImage?
         let activationPolicy: NSApplication.ActivationPolicy
     }
-
     private var cache: [pid_t: AppInfo] = [:]
     private var insertionOrder: [pid_t] = []
     private let maxEntries = 128
-
     func evict(pid: pid_t) {
         guard cache.removeValue(forKey: pid) != nil else { return }
         insertionOrder.removeAll { $0 == pid }
     }
-
     func info(for pid: pid_t) -> AppInfo? {
         if let cached = cache[pid] { return cached }
         guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
@@ -36,13 +32,10 @@ final class AppInfoCache {
         insertionOrder.append(pid)
         return info
     }
-
     func name(for pid: pid_t) -> String? {
         info(for: pid)?.name
     }
-
     func bundleId(for pid: pid_t) -> String? {
         info(for: pid)?.bundleId
     }
-
 }

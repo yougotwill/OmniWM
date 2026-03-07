@@ -1,47 +1,37 @@
 import Foundation
-
 @MainActor
 final class FocusManager {
     private(set) var focusedHandle: WindowHandle?
     private(set) var lastFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowHandle] = [:]
     private(set) var isNonManagedFocusActive: Bool = false
     private(set) var isAppFullscreenActive: Bool = false
-
     private var focusHistoryByWorkspace: [WorkspaceDescriptor.ID: [WindowHandle]] = [:]
     private let maxHistoryPerWorkspace = 32
-
     private var pendingFocusHandle: WindowHandle?
     private var deferredFocusHandle: WindowHandle?
     private var isFocusOperationPending = false
     private var lastFocusTime: Date = .distantPast
-
     var onFocusedHandleChanged: ((WindowHandle?) -> Void)?
-
     func setNonManagedFocus(active: Bool) {
         isNonManagedFocusActive = active
     }
-
     func setAppFullscreen(active: Bool) {
         isAppFullscreenActive = active
     }
-
     func setFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
         focusedHandle = handle
         lastFocusedByWorkspace[workspaceId] = handle
         recordFocus(handle, in: workspaceId)
         onFocusedHandleChanged?(handle)
     }
-
     func clearFocus() {
         focusedHandle = nil
         onFocusedHandleChanged?(nil)
     }
-
     func updateWorkspaceFocusMemory(_ handle: WindowHandle, for workspaceId: WorkspaceDescriptor.ID) {
         lastFocusedByWorkspace[workspaceId] = handle
         recordFocus(handle, in: workspaceId)
     }
-
     func previousFocusedHandle(
         in workspaceId: WorkspaceDescriptor.ID,
         excluding excludedHandle: WindowHandle? = nil,
@@ -50,25 +40,21 @@ final class FocusManager {
         guard var history = focusHistoryByWorkspace[workspaceId], !history.isEmpty else {
             return nil
         }
-
         if let isValid {
             history.removeAll { !isValid($0) }
             focusHistoryByWorkspace[workspaceId] = history
         }
-
         return history.first { candidate in
             guard let excludedHandle else { return true }
             return candidate.id != excludedHandle.id
         }
     }
-
     func resolveWorkspaceFocus(
         for workspaceId: WorkspaceDescriptor.ID,
         entries: [WindowModel.Entry]
     ) -> WindowHandle? {
         lastFocusedByWorkspace[workspaceId] ?? entries.first?.handle
     }
-
     @discardableResult
     func resolveAndSetWorkspaceFocus(
         for workspaceId: WorkspaceDescriptor.ID,
@@ -82,7 +68,6 @@ final class FocusManager {
             return nil
         }
     }
-
     func recoverSourceFocusAfterMove(
         in workspaceId: WorkspaceDescriptor.ID,
         preferredNodeId: NodeId?,
@@ -99,7 +84,6 @@ final class FocusManager {
             clearFocus()
         }
     }
-
     func handleWindowRemoved(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID?) {
         if pendingFocusHandle?.id == handle.id {
             pendingFocusHandle = nil
@@ -115,7 +99,6 @@ final class FocusManager {
         {
             lastFocusedByWorkspace[wsId] = nil
         }
-
         for workspaceId in Array(focusHistoryByWorkspace.keys) {
             focusHistoryByWorkspace[workspaceId]?.removeAll { $0.id == handle.id }
             if focusHistoryByWorkspace[workspaceId]?.isEmpty == true {
@@ -123,7 +106,6 @@ final class FocusManager {
             }
         }
     }
-
     func focusWindow(
         _ handle: WindowHandle,
         workspaceId: WorkspaceDescriptor.ID,
@@ -131,33 +113,27 @@ final class FocusManager {
         onDeferredFocus: @escaping (WindowHandle) -> Void
     ) {
         let now = Date()
-
         if pendingFocusHandle == handle {
             if now.timeIntervalSince(lastFocusTime) < 0.016 {
                 return
             }
         }
-
         if isFocusOperationPending {
             deferredFocusHandle = handle
             return
         }
-
         isFocusOperationPending = true
         pendingFocusHandle = handle
         lastFocusTime = now
         lastFocusedByWorkspace[workspaceId] = handle
         recordFocus(handle, in: workspaceId)
-
         performFocus()
-
         isFocusOperationPending = false
         if let deferred = deferredFocusHandle, deferred != handle {
             deferredFocusHandle = nil
             onDeferredFocus(deferred)
         }
     }
-
     func ensureFocusedHandleValid(
         in workspaceId: WorkspaceDescriptor.ID,
         zigEngine: ZigNiriEngine?,
@@ -174,7 +150,6 @@ final class FocusManager {
             }
             return
         }
-
         if let remembered = lastFocusedByWorkspace[workspaceId],
            workspaceManager.entry(for: remembered) != nil
         {
@@ -186,7 +161,6 @@ final class FocusManager {
             focusWindowAction(remembered)
             return
         }
-
         let newHandle = workspaceManager.entries(in: workspaceId).first?.handle
         if let newHandle {
             setFocus(newHandle, in: workspaceId)
@@ -199,7 +173,6 @@ final class FocusManager {
             clearFocus()
         }
     }
-
     private func recordFocus(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID) {
         var history = focusHistoryByWorkspace[workspaceId] ?? []
         history.removeAll { $0.id == handle.id }

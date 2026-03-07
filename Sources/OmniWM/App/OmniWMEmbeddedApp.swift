@@ -1,19 +1,16 @@
 import AppKit
 import SwiftUI
-
 @MainActor
 struct OmniWMEmbeddedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var settings: SettingsStore
     @State private var controller: WMController
-
     init() {
         SettingsMigration.run()
         let settings = SettingsStore()
         let controller = WMController(settings: settings)
         _settings = State(wrappedValue: settings)
         _controller = State(wrappedValue: controller)
-
         controller.updateHotkeyBindings(settings.hotkeyBindings)
         controller.setHotkeysEnabled(settings.hotkeysEnabled)
         controller.setGapSize(settings.gapSize)
@@ -41,23 +38,17 @@ struct OmniWMEmbeddedApp: App {
         )
         controller.updateWorkspaceConfig()
         controller.rebuildAppRulesCache()
-
         controller.setEnabled(true)
-
         controller.syncBorderConfigFromSettings()
-
         controller.setFocusFollowsMouse(settings.focusFollowsMouse)
         controller.setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
-
         controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)
         controller.setPreventSleepEnabled(settings.preventSleepEnabled)
         controller.setHiddenBarEnabled(settings.hiddenBarEnabled)
         controller.setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
-
         AppDelegate.sharedSettings = settings
         AppDelegate.sharedController = controller
     }
-
     var body: some Scene {
         Settings {
             SettingsView(settings: settings, controller: controller)
@@ -65,7 +56,6 @@ struct OmniWMEmbeddedApp: App {
         }
     }
 }
-
 @MainActor
 public func runOmniWMApp() {
     OmniWMEmbeddedApp.main()

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-
 struct Sponsor: Identifiable {
     let id = UUID()
     let name: String
@@ -8,7 +7,6 @@ struct Sponsor: Identifiable {
     let imageName: String
     let imageExtension: String
 }
-
 private let sponsors: [Sponsor] = [
     Sponsor(name: "Christopher2K", githubUsername: "Christopher2K", imageName: "christopher2k", imageExtension: "jpg"),
     Sponsor(name: "Aelte", githubUsername: "aelte", imageName: "aelte", imageExtension: "png"),
@@ -17,28 +15,22 @@ private let sponsors: [Sponsor] = [
     Sponsor(name: "aidansunbury", githubUsername: "aidansunbury", imageName: "aidansunbury", imageExtension: "png"),
     Sponsor(name: "dwstevens", githubUsername: "dwstevens", imageName: "dwstevens", imageExtension: "png")
 ]
-
 struct SponsorsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var appeared = false
     @State private var currentIndex = 0
     let onClose: () -> Void
-
     private let visibleCount = 1
-
     private var canNavigateLeft: Bool {
         currentIndex > 0
     }
-
     private var canNavigateRight: Bool {
         currentIndex < sponsors.count - visibleCount
     }
-
     private var visibleSponsors: ArraySlice<Sponsor> {
         let endIndex = min(currentIndex + visibleCount, sponsors.count)
         return sponsors[currentIndex..<endIndex]
     }
-
     private func tier(for index: Int) -> SponsorTier {
         switch index {
         case 0:
@@ -51,7 +43,6 @@ struct SponsorsView: View {
             return .standard
         }
     }
-
     private func rankLabel(for index: Int) -> String {
         let rank = index + 1
         let mod100 = rank % 100
@@ -72,21 +63,18 @@ struct SponsorsView: View {
         }
         return "\(rank)\(suffix)"
     }
-
     private func navigateLeft() {
         guard canNavigateLeft else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
             currentIndex -= 1
         }
     }
-
     private func navigateRight() {
         guard canNavigateRight else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
             currentIndex += 1
         }
     }
-
     private var leftArrowButton: some View {
         Button(action: navigateLeft) {
             Image(systemName: "chevron.left")
@@ -98,7 +86,6 @@ struct SponsorsView: View {
         .opacity(canNavigateLeft ? 1.0 : 0.3)
         .disabled(!canNavigateLeft)
     }
-
     private var rightArrowButton: some View {
         Button(action: navigateRight) {
             Image(systemName: "chevron.right")
@@ -110,16 +97,13 @@ struct SponsorsView: View {
         .opacity(canNavigateRight ? 1.0 : 0.3)
         .disabled(!canNavigateRight)
     }
-
     var body: some View {
         VStack(spacing: 20) {
             headerSection
-
             HStack(spacing: 16) {
                 if sponsors.count > visibleCount {
                     leftArrowButton
                 }
-
                 HStack(spacing: 0) {
                     ForEach(Array(Array(visibleSponsors).enumerated()), id: \.element.id) { offset, sponsor in
                         SponsorCardView(
@@ -133,13 +117,11 @@ struct SponsorsView: View {
                         .frame(maxWidth: 360)
                     }
                 }
-
                 if sponsors.count > visibleCount {
                     rightArrowButton
                 }
             }
             .padding(.horizontal, 24)
-
             VStack(spacing: 8) {
                 Button(action: onClose) {
                     Text("Close")
@@ -147,7 +129,6 @@ struct SponsorsView: View {
                         .frame(width: 100)
                 }
                 .buttonStyle(GlassButtonStyle())
-
                 Text("Ranks reflect sponsorship order, not donation amounts")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
@@ -165,7 +146,6 @@ struct SponsorsView: View {
             }
         }
     }
-
     private var headerSection: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
@@ -190,20 +170,17 @@ struct SponsorsView: View {
                         )
                     )
             }
-
             Text("Thank you to our amazing supporters!")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
         }
     }
 }
-
 enum SponsorTier {
     case gold
     case silver
     case bronze
     case standard
-
     var gradientColors: [Color] {
         switch self {
         case .gold:
@@ -220,7 +197,6 @@ enum SponsorTier {
                     Color(red: 0.12, green: 0.44, blue: 0.36)]
         }
     }
-
     var glowColor: Color {
         switch self {
         case .gold:
@@ -234,7 +210,6 @@ enum SponsorTier {
         }
     }
 }
-
 struct SponsorCardView: View {
     let name: String
     let githubUsername: String
@@ -242,13 +217,10 @@ struct SponsorCardView: View {
     let imageExtension: String
     let tier: SponsorTier
     let rankLabel: String
-
     @State private var isHovered = false
-
     private var githubURL: URL? {
         URL(string: "https://github.com/\(githubUsername)")
     }
-
     var body: some View {
         Button(action: {
             if let url = githubURL {
@@ -261,7 +233,6 @@ struct SponsorCardView: View {
                     imageExtension: imageExtension,
                     tier: tier
                 )
-
                 VStack(spacing: 4) {
                     Text(name)
                         .font(.system(size: 16, weight: .semibold))
@@ -269,7 +240,6 @@ struct SponsorCardView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .allowsTightening(true)
-
                     HStack(spacing: 4) {
                         Image(systemName: "link")
                             .font(.system(size: 11))
@@ -281,7 +251,6 @@ struct SponsorCardView: View {
                     }
                     .foregroundStyle(.secondary)
                 }
-
                 Text(rankLabel)
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
@@ -317,14 +286,11 @@ struct SponsorCardView: View {
         }
     }
 }
-
 struct GlowingAvatarView: View {
     let imageName: String
     let imageExtension: String
     let tier: SponsorTier
-
     @State private var isAnimating = false
-
     private var avatarImage: NSImage? {
         guard let url = Bundle.module.url(forResource: imageName, withExtension: imageExtension),
               let image = NSImage(contentsOf: url) else {
@@ -332,7 +298,6 @@ struct GlowingAvatarView: View {
         }
         return image
     }
-
     var body: some View {
         ZStack {
             Circle()
@@ -349,7 +314,6 @@ struct GlowingAvatarView: View {
                     color: tier.glowColor.opacity(isAnimating ? 0.8 : 0.5),
                     radius: isAnimating ? 12 : 8
                 )
-
             if let image = avatarImage {
                 Image(nsImage: image)
                     .resizable()

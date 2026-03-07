@@ -1,12 +1,10 @@
 import AppKit
 import Foundation
-
 extension CGFloat {
     func roundedToPhysicalPixel(scale: CGFloat) -> CGFloat {
         (self * scale).rounded() / scale
     }
 }
-
 extension CGPoint {
     func roundedToPhysicalPixels(scale: CGFloat) -> CGPoint {
         CGPoint(
@@ -15,7 +13,6 @@ extension CGPoint {
         )
     }
 }
-
 extension CGSize {
     func roundedToPhysicalPixels(scale: CGFloat) -> CGSize {
         CGSize(
@@ -24,7 +21,6 @@ extension CGSize {
         )
     }
 }
-
 extension CGRect {
     func roundedToPhysicalPixels(scale: CGFloat) -> CGRect {
         CGRect(
@@ -33,16 +29,13 @@ extension CGRect {
         )
     }
 }
-
 extension CGPoint {
     func flipY(maxY: CGFloat) -> CGPoint {
         CGPoint(x: x, y: maxY - y)
     }
 }
-
 extension CGRect {
     var center: CGPoint { CGPoint(x: midX, y: midY) }
-
     func approximatelyEqual(to other: CGRect, tolerance: CGFloat = 10) -> Bool {
         abs(origin.x - other.origin.x) < tolerance &&
         abs(origin.y - other.origin.y) < tolerance &&
@@ -50,14 +43,12 @@ extension CGRect {
         abs(height - other.height) < tolerance
     }
 }
-
 enum ScreenCoordinateSpace {
     private struct ScreenTransform {
         let appKitFrame: CGRect
         let quartzFrame: CGRect
         let scaleX: CGFloat
         let scaleY: CGFloat
-
         func toAppKit(point: CGPoint) -> CGPoint {
             let dx = point.x - quartzFrame.minX
             let dy = point.y - quartzFrame.minY
@@ -65,7 +56,6 @@ enum ScreenCoordinateSpace {
             let y = appKitFrame.maxY - (dy / scaleY)
             return CGPoint(x: x, y: y)
         }
-
         func toWindowServer(point: CGPoint) -> CGPoint {
             let dx = point.x - appKitFrame.minX
             let dy = appKitFrame.maxY - point.y
@@ -73,7 +63,6 @@ enum ScreenCoordinateSpace {
             let y = quartzFrame.minY + (dy * scaleY)
             return CGPoint(x: x, y: y)
         }
-
         func toAppKit(rect: CGRect) -> CGRect {
             let dx = rect.origin.x - quartzFrame.minX
             let dy = rect.origin.y - quartzFrame.minY
@@ -83,7 +72,6 @@ enum ScreenCoordinateSpace {
             let y = appKitFrame.maxY - (dy / scaleY) - height
             return CGRect(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
         }
-
         func toWindowServer(rect: CGRect) -> CGRect {
             let dx = rect.origin.x - appKitFrame.minX
             let dy = appKitFrame.maxY - rect.origin.y - rect.size.height
@@ -94,11 +82,9 @@ enum ScreenCoordinateSpace {
             return CGRect(origin: CGPoint(x: x, y: y), size: CGSize(width: width, height: height))
         }
     }
-
     nonisolated(unsafe) private static var cachedTransforms: [ScreenTransform]?
     nonisolated(unsafe) private static var cachedGlobalFrame: CGRect?
     nonisolated(unsafe) private static var screenConfigurationToken: Int = 0
-
     private static func currentToken() -> Int {
         var hasher = Hasher()
         for screen in NSScreen.screens {
@@ -111,13 +97,11 @@ enum ScreenCoordinateSpace {
         }
         return hasher.finalize()
     }
-
     private static func transforms() -> [ScreenTransform] {
         let token = currentToken()
         if let cached = cachedTransforms, token == screenConfigurationToken {
             return cached
         }
-
         let transforms = NSScreen.screens.compactMap { screen -> ScreenTransform? in
             guard let displayId = screen.displayId else { return nil }
             let quartzFrame = CGDisplayBounds(displayId)
@@ -131,13 +115,11 @@ enum ScreenCoordinateSpace {
                 scaleY: scaleY
             )
         }
-
         cachedTransforms = transforms
         cachedGlobalFrame = nil
         screenConfigurationToken = token
         return transforms
     }
-
     static var globalFrame: CGRect {
         let token = currentToken()
         if let cached = cachedGlobalFrame, token == screenConfigurationToken {
@@ -150,15 +132,12 @@ enum ScreenCoordinateSpace {
         screenConfigurationToken = token
         return frame
     }
-
     private static func transformForQuartz(point: CGPoint) -> ScreenTransform? {
         transforms().first { $0.quartzFrame.contains(point) }
     }
-
     private static func transformForAppKit(point: CGPoint) -> ScreenTransform? {
         transforms().first { $0.appKitFrame.contains(point) }
     }
-
     private static func transformClosestToQuartz(point: CGPoint) -> ScreenTransform? {
         if let transform = transformForQuartz(point: point) {
             return transform
@@ -167,7 +146,6 @@ enum ScreenCoordinateSpace {
             lhs.quartzFrame.distanceSquared(to: point) < rhs.quartzFrame.distanceSquared(to: point)
         }
     }
-
     private static func transformClosestToAppKit(point: CGPoint) -> ScreenTransform? {
         if let transform = transformForAppKit(point: point) {
             return transform
@@ -176,7 +154,6 @@ enum ScreenCoordinateSpace {
             lhs.appKitFrame.distanceSquared(to: point) < rhs.appKitFrame.distanceSquared(to: point)
         }
     }
-
     static func toAppKit(point: CGPoint) -> CGPoint {
         if let transform = transformClosestToQuartz(point: point) {
             return transform.toAppKit(point: point)
@@ -184,7 +161,6 @@ enum ScreenCoordinateSpace {
         let global = globalFrame
         return CGPoint(x: point.x, y: global.maxY - point.y)
     }
-
     static func toAppKit(rect: CGRect) -> CGRect {
         if let transform = transformClosestToQuartz(point: rect.center) {
             return transform.toAppKit(rect: rect)
@@ -193,7 +169,6 @@ enum ScreenCoordinateSpace {
         let flippedY = global.maxY - (rect.origin.y + rect.size.height)
         return CGRect(origin: CGPoint(x: rect.origin.x, y: flippedY), size: rect.size)
     }
-
     static func toWindowServer(point: CGPoint) -> CGPoint {
         if let transform = transformClosestToAppKit(point: point) {
             return transform.toWindowServer(point: point)
@@ -201,7 +176,6 @@ enum ScreenCoordinateSpace {
         let global = globalFrame
         return CGPoint(x: point.x, y: global.maxY - point.y)
     }
-
     static func toWindowServer(rect: CGRect) -> CGRect {
         if let transform = transformClosestToAppKit(point: rect.center) {
             return transform.toWindowServer(rect: rect)
@@ -211,12 +185,10 @@ enum ScreenCoordinateSpace {
         return CGRect(origin: CGPoint(x: rect.origin.x, y: flippedY), size: rect.size)
     }
 }
-
 extension NSScreen {
     static func screen(containing point: CGPoint) -> NSScreen? {
         screens.first(where: { $0.frame.contains(point) })
     }
-
     static func screen(containing rect: CGRect) -> NSScreen? {
         screens.first(where: { $0.frame.intersects(rect) })
             ?? screen(containing: rect.center)

@@ -1,12 +1,10 @@
 import Foundation
-
 enum RefreshSessionEvent {
     case axWindowCreated
     case axWindowChanged
     case appHidden
     case appUnhidden
     case timerRefresh
-
     var requiresFullEnumeration: Bool {
         switch self {
         case .timerRefresh:
@@ -15,7 +13,6 @@ enum RefreshSessionEvent {
             false
         }
     }
-
     var debounceInterval: UInt64 {
         switch self {
         case .axWindowChanged:

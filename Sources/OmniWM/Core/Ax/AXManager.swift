@@ -1,9 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
-
 private let perAppTimeout: TimeInterval = 0.5
-
 @MainActor
 final class AXManager {
     private static let systemUIBundleIds: Set<String> = [
@@ -11,24 +9,18 @@ final class AXManager {
         "com.apple.controlcenter",
         "com.apple.Spotlight"
     ]
-
     private var appTerminationObserver: NSObjectProtocol?
     private var appLaunchObserver: NSObjectProtocol?
     var onAppLaunched: ((NSRunningApplication) -> Void)?
     var onAppTerminated: ((pid_t) -> Void)?
-
     private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
     private var lastAppliedFrames: [Int: CGRect] = [:]
     private var forceApplyWindowIds: Set<Int> = []
-
-    /// Window IDs belonging to inactive workspaces — checked LIVE in applyFramesParallel.
     private(set) var inactiveWorkspaceWindowIds: Set<Int> = []
-
     init() {
         setupTerminationObserver()
         setupLaunchObserver()
     }
-
     private func setupTerminationObserver() {
         appTerminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
@@ -46,7 +38,6 @@ final class AXManager {
             }
         }
     }
-
     private func setupLaunchObserver() {
         appLaunchObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
@@ -60,7 +51,6 @@ final class AXManager {
             }
         }
     }
-
     func updateInactiveWorkspaceWindows(
         allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)],
         activeWorkspaceIds: Set<WorkspaceDescriptor.ID>
@@ -72,24 +62,19 @@ final class AXManager {
             }
         }
     }
-
     func markWindowActive(_ windowId: Int) {
         inactiveWorkspaceWindowIds.remove(windowId)
     }
-
     func markWindowInactive(_ windowId: Int) {
         inactiveWorkspaceWindowIds.insert(windowId)
     }
-
     func forceApplyNextFrame(for windowId: Int) {
         forceApplyWindowIds.insert(windowId)
         lastAppliedFrames.removeValue(forKey: windowId)
     }
-
     func clearInactiveWorkspaceWindows() {
         inactiveWorkspaceWindowIds.removeAll()
     }
-
     func cleanup() {
         if let observer = appTerminationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -99,14 +84,12 @@ final class AXManager {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appLaunchObserver = nil
         }
-
         Task { @MainActor in
             for (_, context) in AppAXContext.contexts {
                 context.destroy()
             }
         }
     }
-
     func windowsForApp(_ app: NSRunningApplication) async -> [(AXWindowRef, pid_t, Int)] {
         guard shouldTrack(app) else { return [] }
         do {
@@ -120,26 +103,19 @@ final class AXManager {
         } catch {}
         return []
     }
-
     func requestPermission() -> Bool {
         if AccessibilityPermissionMonitor.shared.isGranted { return true }
-
         let options: NSDictionary = [axTrustedCheckOptionPrompt as NSString: true]
         _ = AXIsProcessTrustedWithOptions(options)
-
         return AccessibilityPermissionMonitor.shared.isGranted
     }
-
     func currentWindowsAsync() async -> [(AXWindowRef, pid_t, Int)] {
         AppAXContext.garbageCollect()
-
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
         let pidsWithWindows = Set(visibleWindows.map { $0.pid })
-
         let apps = NSWorkspace.shared.runningApplications.filter {
             shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
         }
-
         return await withTaskGroup(of: [(AXWindowRef, pid_t, Int)].self) { group in
             for app in apps {
                 group.addTask {
@@ -147,11 +123,9 @@ final class AXManager {
                         guard let context = try await AppAXContext.getOrCreate(app) else {
                             return []
                         }
-
                         let appWindows = try await self.withTimeoutOrNil(seconds: perAppTimeout) {
                             try await context.getWindowsAsync()
                         }
-
                         if let windows = appWindows {
                             return windows.map { ($0.0, app.processIdentifier, $0.1) }
                         }
@@ -160,7 +134,6 @@ final class AXManager {
                     return []
                 }
             }
-
             var results: [(AXWindowRef, pid_t, Int)] = []
             for await appWindows in group {
                 results.append(contentsOf: appWindows)
@@ -168,12 +141,10 @@ final class AXManager {
             return results
         }
     }
-
     func applyFramesParallel(_ frames: [(pid: pid_t, windowId: Int, frame: CGRect)]) {
         for key in framesByPidBuffer.keys {
             framesByPidBuffer[key]?.removeAll(keepingCapacity: true)
         }
-
         for (pid, windowId, frame) in frames {
             if inactiveWorkspaceWindowIds.contains(windowId) {
                 continue
@@ -194,7 +165,6 @@ final class AXManager {
             }
             framesByPidBuffer[pid]?.append((windowId, frame))
         }
-
         for (pid, appFrames) in framesByPidBuffer where !appFrames.isEmpty {
             guard let context = AppAXContext.contexts[pid] else {
                 continue
@@ -202,13 +172,11 @@ final class AXManager {
             context.setFramesBatch(appFrames)
         }
     }
-
     func cancelPendingFrameJobs(_ entries: [(pid: pid_t, windowId: Int)]) {
         for (pid, windowId) in entries {
             AppAXContext.contexts[pid]?.cancelFrameJob(for: windowId)
         }
     }
-
     func suppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
         for (_, windowId) in entries {
             lastAppliedFrames.removeValue(forKey: windowId)
@@ -217,13 +185,11 @@ final class AXManager {
             AppAXContext.contexts[pid]?.suppressFrameWrites(for: windowIds)
         }
     }
-
     func unsuppressFrameWrites(_ entries: [(pid: pid_t, windowId: Int)]) {
         for (pid, windowIds) in groupedWindowIdsByPid(entries) {
             AppAXContext.contexts[pid]?.unsuppressFrameWrites(for: windowIds)
         }
     }
-
     func applyPositionsViaSkyLight(
         _ positions: [(windowId: Int, origin: CGPoint)],
         allowInactive: Bool = false
@@ -237,7 +203,6 @@ final class AXManager {
         }
         SkyLight.shared.batchMoveWindows(batchPositions)
     }
-
     private func withTimeoutOrNil<T: Sendable>(
         seconds: TimeInterval,
         operation: @Sendable @escaping () async throws -> T
@@ -250,7 +215,6 @@ final class AXManager {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 return nil
             }
-
             if let result = try await group.next() {
                 group.cancelAll()
                 return result
@@ -258,17 +222,13 @@ final class AXManager {
             return nil
         }
     }
-
     private func shouldTrack(_ app: NSRunningApplication) -> Bool {
         guard !app.isTerminated, app.activationPolicy != .prohibited else { return false }
-
         if let bundleId = app.bundleIdentifier, Self.systemUIBundleIds.contains(bundleId) {
             return false
         }
-
         return true
     }
-
     private func groupedWindowIdsByPid(
         _ entries: [(pid: pid_t, windowId: Int)]
     ) -> [pid_t: [Int]] {

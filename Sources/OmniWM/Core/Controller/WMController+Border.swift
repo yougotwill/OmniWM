@@ -2,11 +2,9 @@ import AppKit
 import CoreGraphics
 import CZigLayout
 import Foundation
-
 enum BorderPresentationUpdateMode {
     case coalesced
     case realtime
-
     var abiValue: UInt8 {
         switch self {
         case .coalesced:
@@ -16,13 +14,11 @@ enum BorderPresentationUpdateMode {
         }
     }
 }
-
 @MainActor
 extension WMController {
     func syncBorderConfigFromSettings() {
         refreshBorderPresentation()
     }
-
     func refreshBorderPresentation(
         focusedFrame: CGRect? = nil,
         windowId: Int? = nil,
@@ -39,7 +35,6 @@ extension WMController {
         )
         focusManager.setAppFullscreen(active: snapshot.is_native_fullscreen_active != 0)
         let shouldCreateRuntime = snapshot.force_hide == 0 && snapshot.config.enabled != 0
-
         let rc = submitBorderSnapshot(
             &snapshot,
             displays: displayInfos,
@@ -48,7 +43,6 @@ extension WMController {
         guard let rc else { return }
         handleBorderRuntimeResult(rc, operation: "omni_border_runtime_submit_snapshot")
     }
-
     func invalidateBorderDisplays() {
         borderDisplayCache.removeAll(keepingCapacity: false)
         borderDisplayCacheValid = false
@@ -61,17 +55,14 @@ extension WMController {
         ) else { return }
         handleBorderRuntimeResult(rc, operation: "omni_border_runtime_invalidate_displays")
     }
-
     func cleanupBorderRuntime() {
         borderRuntimeStorage.destroy()
         clearBorderRuntimeFailures()
     }
-
     func resetBorderRuntimeHealth() {
         borderRuntimeStorage.destroy()
         clearBorderRuntimeFailures()
     }
-
     private func currentBorderConfig() -> OmniBorderConfig {
         let width = normalizedBorderWidth(settings.borderWidth)
         return OmniBorderConfig(
@@ -85,7 +76,6 @@ extension WMController {
             )
         )
     }
-
     private func buildBorderSnapshotInput(
         focusedFrame: CGRect?,
         windowId: Int?,
@@ -111,7 +101,6 @@ extension WMController {
         }
         let managedFullscreen = currentFocusedHandle.map(isManagedBorderWindowFullscreen(_:)) ?? false
         let layoutAnimationActive = activeWorkspace.map { isLayoutAnimationActive(for: $0.id) } ?? false
-
         return OmniBorderSnapshotInput(
             config: config,
             has_focused_window_id: resolvedWindowId == nil ? 0 : 1,
@@ -130,16 +119,13 @@ extension WMController {
             display_count: displays.count
         )
     }
-
     private func currentBorderDisplays() -> [OmniBorderDisplayInfo] {
         if borderDisplayCacheValid {
             return borderDisplayCache
         }
-
         let screens = NSScreen.screens
         var displayInfos: [OmniBorderDisplayInfo] = []
         displayInfos.reserveCapacity(screens.count)
-
         for (index, screen) in screens.enumerated() {
             guard let appKitFrame = sanitizeBorderFrame(screen.frame) else { continue }
             let resolvedDisplayId = screen.displayId ?? fallbackDisplayId(for: index)
@@ -155,7 +141,6 @@ extension WMController {
                 backing_scale: normalizedBackingScale(screen.backingScaleFactor)
             ))
         }
-
         if displayInfos.isEmpty, let primary = screens.first, let primaryFrame = sanitizeBorderFrame(primary.frame) {
             let fallbackId = primary.displayId ?? CGMainDisplayID()
             let wsFrame = sanitizeBorderFrame(ScreenCoordinateSpace.toWindowServer(rect: primaryFrame)) ?? primaryFrame
@@ -166,12 +151,10 @@ extension WMController {
                 backing_scale: normalizedBackingScale(primary.backingScaleFactor)
             )]
         }
-
         borderDisplayCache = displayInfos
         borderDisplayCacheValid = true
         return displayInfos
     }
-
     private func makeBorderRect(_ rect: CGRect) -> OmniBorderRect {
         OmniBorderRect(
             x: rect.origin.x,
@@ -180,19 +163,15 @@ extension WMController {
             height: rect.size.height
         )
     }
-
     func isLayoutAnimationActive(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
         if zigNiriEngine?.hasActiveAnimation(in: workspaceId) == true {
             return true
         }
-
         if layoutRefreshController.hasDwindleAnimationRunning(in: workspaceId) {
             return true
         }
-
         return false
     }
-
     private func isManagedBorderWindowFullscreen(_ handle: WindowHandle) -> Bool {
         guard let workspaceId = workspaceManager.workspace(for: handle),
               let workspaceView = zigNiriEngine?.workspaceView(for: workspaceId),
@@ -203,7 +182,6 @@ extension WMController {
         }
         return windowView.sizingMode == .fullscreen
     }
-
     private func callBorderRuntime(
         operation: String,
         createIfMissing: Bool = true,
@@ -213,7 +191,6 @@ extension WMController {
         if borderRuntimeDegraded, !shouldRetryBorderRuntime(at: now) {
             return nil
         }
-
         let runtime: OpaquePointer
         if let borderRuntime {
             runtime = borderRuntime
@@ -223,10 +200,8 @@ extension WMController {
             }
             runtime = createdRuntime
         }
-
         return invoke(runtime)
     }
-
     private func ensureBorderRuntime(operation: String, now: TimeInterval) -> OpaquePointer? {
         if let borderRuntime {
             return borderRuntime
@@ -242,7 +217,6 @@ extension WMController {
         clearBorderRuntimeFailures()
         return runtime
     }
-
     private func submitBorderSnapshot(
         _ snapshot: inout OmniBorderSnapshotInput,
         displays: [OmniBorderDisplayInfo],
@@ -263,40 +237,30 @@ extension WMController {
                 }
             }
         }
-
         guard let rc = performSubmit() else { return nil }
         guard rc == Int32(OMNI_ERR_PLATFORM) else { return rc }
-
-        // Retry once with a fresh runtime before considering backoff.
         borderRuntimeStorage.destroy()
         return performSubmit() ?? rc
     }
-
     private func handleBorderRuntimeResult(_ rc: Int32, operation: String) {
         if rc == Int32(OMNI_OK) {
             clearBorderRuntimeFailures()
             return
         }
-
         if rc == Int32(OMNI_ERR_INVALID_ARGS) || rc == Int32(OMNI_ERR_OUT_OF_RANGE) {
-            NSLog("OmniWM: \(operation) rejected invalid border snapshot (rc=\(rc)); skipping update.")
             return
         }
-
         borderRuntimeFailureCount += 1
         if rc == Int32(OMNI_ERR_PLATFORM) {
             borderRuntimePlatformFailureStreak += 1
         } else {
             borderRuntimePlatformFailureStreak = 0
         }
-        NSLog("OmniWM: \(operation) failed with rc=\(rc).")
-
         let shouldEnterBackoff = borderRuntimePlatformFailureStreak >= 3 || borderRuntimeFailureCount >= 5
         if shouldEnterBackoff {
             enterBorderRuntimeBackoff(reason: "\(operation) rc=\(rc)", now: Date().timeIntervalSince1970)
         }
     }
-
     private func recordBorderRuntimeCreationFailure(operation: String, now: TimeInterval) {
         borderRuntimeFailureCount += 1
         borderRuntimePlatformFailureStreak = 0
@@ -305,36 +269,29 @@ extension WMController {
             now: now
         )
     }
-
     private func enterBorderRuntimeBackoff(reason: String, now: TimeInterval) {
         borderRuntimeStorage.destroy()
         borderRuntimeDegraded = true
         borderRuntimeRetryNotBefore = now + runtimeRetryDelaySeconds(for: borderRuntimeFailureCount)
-        NSLog("OmniWM: border runtime unavailable (\(reason)); retrying after backoff.")
     }
-
     private func shouldRetryBorderRuntime(at now: TimeInterval) -> Bool {
         now >= borderRuntimeRetryNotBefore
     }
-
     private func runtimeRetryDelaySeconds(for failureCount: Int) -> TimeInterval {
         let clampedFailures = max(1, min(failureCount, 6))
         let multiplier = Double(1 << (clampedFailures - 1))
         return min(0.25 * multiplier, 4.0)
     }
-
     private func clearBorderRuntimeFailures() {
         borderRuntimeDegraded = false
         borderRuntimeFailureCount = 0
         borderRuntimePlatformFailureStreak = 0
         borderRuntimeRetryNotBefore = 0
     }
-
     private func normalizeWindowId(_ windowId: Int?) -> Int? {
         guard let windowId, windowId >= 0 else { return nil }
         return windowId
     }
-
     private func sanitizeBorderFrame(_ frame: CGRect?) -> CGRect? {
         guard let frame else { return nil }
         let normalized = frame.standardized
@@ -347,7 +304,6 @@ extension WMController {
         else {
             return nil
         }
-
         let maxAbsCoordinate = 1_000_000.0
         let values = [
             normalized.minX,
@@ -360,22 +316,18 @@ extension WMController {
         }
         return normalized
     }
-
     private func normalizedBorderWidth(_ width: Double) -> Double {
         guard width.isFinite else { return 0 }
         return min(max(width, 0), 64)
     }
-
     private func normalizedColorComponent(_ value: Double) -> Double {
         guard value.isFinite else { return 1 }
         return min(max(value, 0), 1)
     }
-
     private func normalizedBackingScale(_ scale: Double) -> Double {
         guard scale.isFinite, scale > 0 else { return 2.0 }
         return scale
     }
-
     private func fallbackDisplayId(for index: Int) -> CGDirectDisplayID {
         CGMainDisplayID() &+ CGDirectDisplayID(index)
     }

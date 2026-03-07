@@ -1,10 +1,8 @@
 import SwiftUI
-
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     @State private var selectedSection: SettingsSection = .general
-
     var body: some View {
         NavigationSplitView {
             SettingsSidebar(selection: $selectedSection)
@@ -19,12 +17,10 @@ struct SettingsView: View {
         .frame(minWidth: 680, minHeight: 500)
     }
 }
-
 struct GeneralSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     @State private var exportStatus: ExportStatus?
-
     var body: some View {
         Form {
             Section("Appearance") {
@@ -36,12 +32,10 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.appearanceMode) { _, newValue in
                     newValue.apply()
                 }
-
                 Text("Controls the appearance of menus and workspace bar")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-
             Section("Layout") {
                 HStack {
                     Text("Inner Gaps")
@@ -53,10 +47,8 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.gapSize) { _, newValue in
                     controller.setGapSize(newValue)
                 }
-
                 Divider()
                 Text("Outer Margins").font(.subheadline).foregroundColor(.secondary)
-
                 HStack {
                     Text("Left")
                     Slider(value: $settings.outerGapLeft, in: 0 ... 64, step: 1)
@@ -67,7 +59,6 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapLeft) { _, _ in
                     syncOuterGaps()
                 }
-
                 HStack {
                     Text("Right")
                     Slider(value: $settings.outerGapRight, in: 0 ... 64, step: 1)
@@ -78,7 +69,6 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapRight) { _, _ in
                     syncOuterGaps()
                 }
-
                 HStack {
                     Text("Top")
                     Slider(value: $settings.outerGapTop, in: 0 ... 64, step: 1)
@@ -89,7 +79,6 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapTop) { _, _ in
                     syncOuterGaps()
                 }
-
                 HStack {
                     Text("Bottom")
                     Slider(value: $settings.outerGapBottom, in: 0 ... 64, step: 1)
@@ -100,12 +89,9 @@ struct GeneralSettingsTab: View {
                 .onChange(of: settings.outerGapBottom) { _, _ in
                     syncOuterGaps()
                 }
-
                 Divider()
                 Text("Scroll Gestures").font(.subheadline).foregroundColor(.secondary)
-
                 Toggle("Enable Scroll Gestures", isOn: $settings.scrollGestureEnabled)
-
                 HStack {
                     Text("Scroll Sensitivity")
                     Slider(value: $settings.scrollSensitivity, in: 0.1 ... 100.0, step: 0.1)
@@ -113,35 +99,28 @@ struct GeneralSettingsTab: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .frame(width: 56, alignment: .trailing)
                 }
-
                 Picker("Trackpad Gesture Fingers", selection: $settings.gestureFingerCount) {
                     ForEach(GestureFingerCount.allCases, id: \.self) { count in
                         Text(count.displayName).tag(count)
                     }
                 }
                 .disabled(!settings.scrollGestureEnabled)
-
                 Toggle("Invert Direction (Natural)", isOn: $settings.gestureInvertDirection)
                     .disabled(!settings.scrollGestureEnabled)
-
                 Text(settings.gestureInvertDirection ? "Swipe right = scroll right" : "Swipe right = scroll left")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Divider()
-
                 Picker("Mouse Scroll Modifier", selection: $settings.scrollModifierKey) {
                     ForEach(ScrollModifierKey.allCases, id: \.self) { key in
                         Text(key.displayName).tag(key)
                     }
                 }
                 .disabled(!settings.scrollGestureEnabled)
-
                 Text("Hold this key + scroll wheel to navigate workspaces")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-
             Section("Settings Backup") {
                 HStack {
                     Button("Export Settings") {
@@ -152,7 +131,6 @@ struct GeneralSettingsTab: View {
                             exportStatus = .error(error.localizedDescription)
                         }
                     }
-
                     Button("Import Settings") {
                         do {
                             try settings.importSettings()
@@ -163,12 +141,10 @@ struct GeneralSettingsTab: View {
                     }
                     .disabled(!settings.settingsFileExists)
                 }
-
                 Text("~/.config/omniwm/settings.json")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .textSelection(.enabled)
-
                 if let status = exportStatus {
                     Label(status.message, systemImage: status.icon)
                         .foregroundColor(status.color)
@@ -177,7 +153,6 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
     }
-
     private func syncOuterGaps() {
         controller.setOuterGaps(
             left: settings.outerGapLeft,
@@ -187,18 +162,14 @@ struct GeneralSettingsTab: View {
         )
     }
 }
-
 struct NiriSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Configuration Scope")
-
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Configure settings for:", selection: $selectedMonitor) {
                     Text("Global Defaults").tag(nil as Monitor.ID?)
@@ -216,7 +187,6 @@ struct NiriSettingsTab: View {
                         }
                     }
                 }
-
                 if let monitorId = selectedMonitor,
                    let monitor = connectedMonitors.first(where: { $0.id == monitorId })
                 {
@@ -239,9 +209,7 @@ struct NiriSettingsTab: View {
                     }
                 }
             }
-
             Divider()
-
             if let monitorId = selectedMonitor,
                let monitor = connectedMonitors.first(where: { $0.id == monitorId })
             {
@@ -262,11 +230,9 @@ struct NiriSettingsTab: View {
         }
     }
 }
-
 private struct GlobalNiriSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Niri Layout")
@@ -284,7 +250,6 @@ private struct GlobalNiriSettingsSection: View {
                 .onChange(of: settings.niriMaxWindowsPerColumn) { _, newValue in
                     controller.updateNiriConfig(maxWindowsPerColumn: newValue)
                 }
-
                 HStack {
                     Text("Visible Columns")
                     Slider(value: .init(
@@ -298,12 +263,10 @@ private struct GlobalNiriSettingsSection: View {
                 .onChange(of: settings.niriMaxVisibleColumns) { _, newValue in
                     controller.updateNiriConfig(maxVisibleColumns: newValue)
                 }
-
                 Toggle("Infinite Loop Navigation", isOn: $settings.niriInfiniteLoop)
                     .onChange(of: settings.niriInfiniteLoop) { _, newValue in
                         controller.updateNiriConfig(infiniteLoop: newValue)
                     }
-
                 Picker("Center Focused Column", selection: $settings.niriCenterFocusedColumn) {
                     ForEach(CenterFocusedColumn.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -312,12 +275,10 @@ private struct GlobalNiriSettingsSection: View {
                 .onChange(of: settings.niriCenterFocusedColumn) { _, newValue in
                     controller.updateNiriConfig(centerFocusedColumn: newValue)
                 }
-
                 Toggle("Always Center Single Column", isOn: $settings.niriAlwaysCenterSingleColumn)
                     .onChange(of: settings.niriAlwaysCenterSingleColumn) { _, newValue in
                         controller.updateNiriConfig(alwaysCenterSingleColumn: newValue)
                     }
-
                 Picker("Single Window Ratio", selection: $settings.niriSingleWindowAspectRatio) {
                     ForEach(SingleWindowAspectRatio.allCases, id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
@@ -327,9 +288,7 @@ private struct GlobalNiriSettingsSection: View {
                     controller.updateNiriConfig(singleWindowAspectRatio: newValue)
                 }
             }
-
             Divider()
-
             SectionHeader("Column Width Presets")
             let presets = settings.niriColumnWidthPresets
             VStack(alignment: .leading, spacing: 8) {
@@ -360,7 +319,6 @@ private struct GlobalNiriSettingsSection: View {
                         .disabled(settings.niriColumnWidthPresets.count <= 2)
                     }
                 }
-
                 HStack {
                     Button("Add Preset") {
                         var presets = settings.niriColumnWidthPresets
@@ -378,19 +336,16 @@ private struct GlobalNiriSettingsSection: View {
         }
     }
 }
-
 private struct MonitorNiriSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     let monitor: Monitor
-
     private var monitorSettings: MonitorNiriSettings {
         settings.niriSettings(for: monitor) ?? MonitorNiriSettings(
             monitorName: monitor.name,
             monitorDisplayId: monitor.displayId
         )
     }
-
     private func updateSetting(_ update: (inout MonitorNiriSettings) -> Void) {
         var ms = monitorSettings
         ms.monitorName = monitor.name
@@ -399,10 +354,8 @@ private struct MonitorNiriSettingsSection: View {
         settings.updateNiriSettings(ms)
         controller.updateMonitorNiriSettings()
     }
-
     var body: some View {
         let ms = monitorSettings
-
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Niri Layout")
             VStack(alignment: .leading, spacing: 8) {
@@ -416,7 +369,6 @@ private struct MonitorNiriSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.maxWindowsPerColumn = Int(newValue) } },
                     onReset: { updateSetting { $0.maxWindowsPerColumn = nil } }
                 )
-
                 OverridableSlider(
                     label: "Visible Columns",
                     value: ms.maxVisibleColumns.map { Double($0) },
@@ -427,7 +379,6 @@ private struct MonitorNiriSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.maxVisibleColumns = Int(newValue) } },
                     onReset: { updateSetting { $0.maxVisibleColumns = nil } }
                 )
-
                 OverridableToggle(
                     label: "Infinite Loop Navigation",
                     value: ms.infiniteLoop,
@@ -435,7 +386,6 @@ private struct MonitorNiriSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.infiniteLoop = newValue } },
                     onReset: { updateSetting { $0.infiniteLoop = nil } }
                 )
-
                 OverridablePicker(
                     label: "Center Focused Column",
                     value: ms.centerFocusedColumn,
@@ -445,7 +395,6 @@ private struct MonitorNiriSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.centerFocusedColumn = newValue } },
                     onReset: { updateSetting { $0.centerFocusedColumn = nil } }
                 )
-
                 OverridableToggle(
                     label: "Always Center Single Column",
                     value: ms.alwaysCenterSingleColumn,
@@ -453,7 +402,6 @@ private struct MonitorNiriSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.alwaysCenterSingleColumn = newValue } },
                     onReset: { updateSetting { $0.alwaysCenterSingleColumn = nil } }
                 )
-
                 OverridablePicker(
                     label: "Single Window Ratio",
                     value: ms.singleWindowAspectRatio,
@@ -467,10 +415,8 @@ private struct MonitorNiriSettingsSection: View {
         }
     }
 }
-
 struct MenuAnywhereSettingsTab: View {
     @Bindable var settings: SettingsStore
-
     var body: some View {
         Form {
             Section("Menu Anywhere") {
@@ -478,18 +424,15 @@ struct MenuAnywhereSettingsTab: View {
                 Text("Shows the frontmost app's menu bar as a popup at your cursor")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Toggle("Enable Menu Palette", isOn: $settings.menuAnywherePaletteEnabled)
                 Text("Shows a searchable command palette with all menu items")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Picker("Popup Position", selection: $settings.menuAnywherePosition) {
                     ForEach(MenuAnywherePosition.allCases, id: \.self) { position in
                         Text(position.displayName).tag(position)
                     }
                 }
-
                 Toggle("Show Keyboard Shortcuts", isOn: $settings.menuAnywhereShowShortcuts)
                 Text("Display keyboard shortcuts in the menu palette")
                     .font(.caption)
@@ -499,12 +442,10 @@ struct MenuAnywhereSettingsTab: View {
         .formStyle(.grouped)
     }
 }
-
 private enum ExportStatus {
     case exported
     case imported
     case error(String)
-
     var message: String {
         switch self {
         case .exported: "Settings exported"
@@ -512,14 +453,12 @@ private enum ExportStatus {
         case .error(let msg): "Error: \(msg)"
         }
     }
-
     var icon: String {
         switch self {
         case .exported, .imported: "checkmark.circle.fill"
         case .error: "xmark.circle.fill"
         }
     }
-
     var color: Color {
         switch self {
         case .exported, .imported: .green

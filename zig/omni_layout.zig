@@ -1,13 +1,3 @@
-/// omni_layout.zig
-///
-/// ABI facade for the OmniWM Zig kernel.
-/// Internal logic lives in `zig/omni/` modules:
-/// - `abi_types.zig`: C ABI structs/constants
-/// - `state_validation.zig`: snapshot validation
-/// - `interaction.zig`: hit-testing/dropzone/resize math
-/// - `viewport.zig`: viewport offset/snap math
-/// - `layout_context.zig`: context-based Niri layout and state ops
-/// - `dwindle.zig`: Dwindle context ABI scaffolding
 
 const abi = @import("omni/abi_types.zig");
 const state_validation = @import("omni/state_validation.zig");
@@ -17,10 +7,6 @@ const runtime = @import("omni/runtime.zig");
 const viewport = @import("omni/viewport.zig");
 const dwindle = @import("omni/dwindle.zig");
 const border = @import("omni/border.zig");
-
-/// Validate a Niri state snapshot for bounds, ownership, and assignment consistency.
-///
-/// Populates `out_result` and returns `OMNI_OK` when valid, otherwise an error code.
 export fn omni_niri_validate_state_snapshot(
     columns: [*c]const abi.OmniNiriStateColumnInput,
     column_count: usize,
@@ -36,63 +22,42 @@ export fn omni_niri_validate_state_snapshot(
         out_result,
     );
 }
-
-/// Create a reusable Niri layout context.
 export fn omni_niri_layout_context_create() [*c]layout_context.OmniNiriLayoutContext {
     return layout_context.omni_niri_layout_context_create_impl();
 }
-
-/// Create a reusable border runtime owner.
 export fn omni_border_runtime_create() [*c]border.OmniBorderRuntime {
     return border.omni_border_runtime_create_impl();
 }
-
-/// Destroy a reusable Niri layout context.
 export fn omni_niri_layout_context_destroy(context: [*c]layout_context.OmniNiriLayoutContext) void {
     layout_context.omni_niri_layout_context_destroy_impl(context);
 }
-
-/// Destroy a reusable border runtime owner.
 export fn omni_border_runtime_destroy(runtime_owner: [*c]border.OmniBorderRuntime) void {
     border.omni_border_runtime_destroy_impl(runtime_owner);
 }
-
-/// Synchronize border config into the runtime owner.
 export fn omni_border_runtime_apply_config(
     runtime_owner: [*c]border.OmniBorderRuntime,
     config: [*c]const abi.OmniBorderConfig,
 ) i32 {
     return border.omni_border_runtime_apply_config_impl(runtime_owner, config);
 }
-
-/// Compatibility wrapper for legacy callers.
-/// Prefer `omni_border_runtime_submit_snapshot` for all new integrations.
 export fn omni_border_runtime_apply_presentation(
     runtime_owner: [*c]border.OmniBorderRuntime,
     input: [*c]const abi.OmniBorderPresentationInput,
 ) i32 {
     return border.omni_border_runtime_apply_presentation_impl(runtime_owner, input);
 }
-
-/// Submit a full border snapshot (config + presentation flags + display payload).
 export fn omni_border_runtime_submit_snapshot(
     runtime_owner: [*c]border.OmniBorderRuntime,
     snapshot: [*c]const abi.OmniBorderSnapshotInput,
 ) i32 {
     return border.omni_border_runtime_submit_snapshot_impl(runtime_owner, snapshot);
 }
-
-/// Invalidate cached display geometry and hide the current border.
 export fn omni_border_runtime_invalidate_displays(runtime_owner: [*c]border.OmniBorderRuntime) i32 {
     return border.omni_border_runtime_invalidate_displays_impl(runtime_owner);
 }
-
-/// Hide the current border without destroying the runtime.
 export fn omni_border_runtime_hide(runtime_owner: [*c]border.OmniBorderRuntime) i32 {
     return border.omni_border_runtime_hide_impl(runtime_owner);
 }
-
-/// Seed context interaction buffers directly (primarily for tests and parity harnesses).
 export fn omni_niri_layout_context_set_interaction(
     context: [*c]layout_context.OmniNiriLayoutContext,
     windows: [*c]const abi.OmniNiriHitTestWindow,
@@ -108,8 +73,6 @@ export fn omni_niri_layout_context_set_interaction(
         column_count,
     );
 }
-
-/// Run Niri tiled layout pass and update a reusable context with hit-test/dropzone feed data.
 export fn omni_niri_layout_pass_v3(
     context: [*c]layout_context.OmniNiriLayoutContext,
     columns: [*c]const abi.OmniNiriColumnInput,
@@ -171,8 +134,6 @@ export fn omni_niri_layout_pass_v3(
         out_column_count,
     );
 }
-
-/// Hit-test tiled windows and return the first window index containing the point.
 export fn omni_niri_hit_test_tiled(
     windows: [*c]const abi.OmniNiriHitTestWindow,
     window_count: usize,
@@ -188,8 +149,6 @@ export fn omni_niri_hit_test_tiled(
         out_window_index,
     );
 }
-
-/// Hit-test tiled windows from a reusable context.
 export fn omni_niri_ctx_hit_test_tiled(
     context: [*c]const layout_context.OmniNiriLayoutContext,
     point_x: f64,
@@ -203,8 +162,6 @@ export fn omni_niri_ctx_hit_test_tiled(
         out_window_index,
     );
 }
-
-/// Hit-test resize edges for tiled windows.
 export fn omni_niri_hit_test_resize(
     windows: [*c]const abi.OmniNiriHitTestWindow,
     window_count: usize,
@@ -222,8 +179,6 @@ export fn omni_niri_hit_test_resize(
         out_result,
     );
 }
-
-/// Hit-test resize edges from a reusable context.
 export fn omni_niri_ctx_hit_test_resize(
     context: [*c]const layout_context.OmniNiriLayoutContext,
     point_x: f64,
@@ -239,8 +194,6 @@ export fn omni_niri_ctx_hit_test_resize(
         out_result,
     );
 }
-
-/// Hit-test a move target and insertion position for a drag point.
 export fn omni_niri_hit_test_move_target(
     windows: [*c]const abi.OmniNiriHitTestWindow,
     window_count: usize,
@@ -260,8 +213,6 @@ export fn omni_niri_hit_test_move_target(
         out_result,
     );
 }
-
-/// Hit-test move target from a reusable context.
 export fn omni_niri_ctx_hit_test_move_target(
     context: [*c]const layout_context.OmniNiriLayoutContext,
     point_x: f64,
@@ -279,16 +230,12 @@ export fn omni_niri_ctx_hit_test_move_target(
         out_result,
     );
 }
-
-/// Compute insertion dropzone frame for before/after/swap placement.
 export fn omni_niri_insertion_dropzone(
     input: [*c]const abi.OmniNiriDropzoneInput,
     out_result: [*c]abi.OmniNiriDropzoneResult,
 ) i32 {
     return interaction.omni_niri_insertion_dropzone_impl(input, out_result);
 }
-
-/// Compute insertion dropzone from a reusable context by target window index.
 export fn omni_niri_ctx_insertion_dropzone(
     context: [*c]const layout_context.OmniNiriLayoutContext,
     target_window_index: i64,
@@ -304,8 +251,6 @@ export fn omni_niri_ctx_insertion_dropzone(
         out_result,
     );
 }
-
-/// Seed authoritative runtime state into a reusable context.
 export fn omni_niri_ctx_seed_runtime_state(
     context: [*c]layout_context.OmniNiriLayoutContext,
     columns: [*c]const abi.OmniNiriRuntimeColumnState,
@@ -321,8 +266,6 @@ export fn omni_niri_ctx_seed_runtime_state(
         window_count,
     );
 }
-
-/// Apply one Niri transaction against source/target authoritative runtime contexts.
 export fn omni_niri_ctx_apply_txn(
     source_context: [*c]layout_context.OmniNiriLayoutContext,
     target_context: [*c]layout_context.OmniNiriLayoutContext,
@@ -336,8 +279,6 @@ export fn omni_niri_ctx_apply_txn(
         out_result,
     );
 }
-
-/// Export context-owned transaction delta pointers/counts from last apply.
 export fn omni_niri_ctx_export_delta(
     context: [*c]const layout_context.OmniNiriLayoutContext,
     out_export: [*c]abi.OmniNiriTxnDeltaExport,
@@ -347,18 +288,12 @@ export fn omni_niri_ctx_export_delta(
         out_export,
     );
 }
-
-/// Create a Niri runtime owner for authoritative workspace state.
 export fn omni_niri_runtime_create() [*c]runtime.OmniNiriRuntime {
     return runtime.omni_niri_runtime_create_impl();
 }
-
-/// Destroy a Niri runtime owner.
 export fn omni_niri_runtime_destroy(runtime_context: [*c]runtime.OmniNiriRuntime) void {
     runtime.omni_niri_runtime_destroy_impl(runtime_context);
 }
-
-/// Seed authoritative runtime state.
 export fn omni_niri_runtime_seed(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     request: [*c]const abi.OmniNiriRuntimeSeedRequest,
@@ -368,8 +303,6 @@ export fn omni_niri_runtime_seed(
         request,
     );
 }
-
-/// Apply one runtime command (navigation/mutation/workspace transaction).
 export fn omni_niri_runtime_apply_command(
     source_runtime: [*c]runtime.OmniNiriRuntime,
     target_runtime: [*c]runtime.OmniNiriRuntime,
@@ -383,8 +316,6 @@ export fn omni_niri_runtime_apply_command(
         out_result,
     );
 }
-
-/// Render current runtime state into frame outputs.
 export fn omni_niri_runtime_render(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     layout: [*c]layout_context.OmniNiriLayoutContext,
@@ -398,8 +329,6 @@ export fn omni_niri_runtime_render(
         out_output,
     );
 }
-
-/// Start the workspace-switch structural animation track for a runtime.
 export fn omni_niri_runtime_start_workspace_switch_animation(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -409,8 +338,6 @@ export fn omni_niri_runtime_start_workspace_switch_animation(
         sample_time,
     );
 }
-
-/// Start the mutation structural animation track for a runtime.
 export fn omni_niri_runtime_start_mutation_animation(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -420,15 +347,11 @@ export fn omni_niri_runtime_start_mutation_animation(
         sample_time,
     );
 }
-
-/// Cancel any active Niri runtime animation track.
 export fn omni_niri_runtime_cancel_animation(
     runtime_context: [*c]runtime.OmniNiriRuntime,
 ) i32 {
     return runtime.omni_niri_runtime_cancel_animation_impl(runtime_context);
 }
-
-/// Query whether the runtime still has an active animation track at `sample_time`.
 export fn omni_niri_runtime_animation_active(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -440,8 +363,6 @@ export fn omni_niri_runtime_animation_active(
         out_active,
     );
 }
-
-/// Query the current runtime-owned viewport motion state.
 export fn omni_niri_runtime_viewport_status(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -453,8 +374,6 @@ export fn omni_niri_runtime_viewport_status(
         out_status,
     );
 }
-
-/// Begin a runtime-owned viewport gesture sequence.
 export fn omni_niri_runtime_viewport_begin_gesture(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -466,8 +385,6 @@ export fn omni_niri_runtime_viewport_begin_gesture(
         is_trackpad,
     );
 }
-
-/// Advance a runtime-owned viewport gesture sequence.
 export fn omni_niri_runtime_viewport_update_gesture(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     spans: [*c]const f64,
@@ -489,8 +406,6 @@ export fn omni_niri_runtime_viewport_update_gesture(
         out_result,
     );
 }
-
-/// Finish a runtime-owned viewport gesture sequence and start its snap spring.
 export fn omni_niri_runtime_viewport_end_gesture(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     spans: [*c]const f64,
@@ -518,8 +433,6 @@ export fn omni_niri_runtime_viewport_end_gesture(
         out_result,
     );
 }
-
-/// Transition the runtime-owned viewport toward a selected column.
 export fn omni_niri_runtime_viewport_transition_to_column(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     spans: [*c]const f64,
@@ -553,8 +466,6 @@ export fn omni_niri_runtime_viewport_transition_to_column(
         out_result,
     );
 }
-
-/// Force the runtime-owned viewport to a static offset.
 export fn omni_niri_runtime_viewport_set_offset(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     offset: f64,
@@ -564,8 +475,6 @@ export fn omni_niri_runtime_viewport_set_offset(
         offset,
     );
 }
-
-/// Cancel any runtime-owned viewport gesture or spring motion.
 export fn omni_niri_runtime_viewport_cancel(
     runtime_context: [*c]runtime.OmniNiriRuntime,
     sample_time: f64,
@@ -575,8 +484,6 @@ export fn omni_niri_runtime_viewport_cancel(
         sample_time,
     );
 }
-
-/// Snapshot full runtime state buffers.
 export fn omni_niri_runtime_snapshot(
     runtime_context: [*c]const runtime.OmniNiriRuntime,
     out_export: [*c]abi.OmniNiriRuntimeStateExport,
@@ -586,18 +493,12 @@ export fn omni_niri_runtime_snapshot(
         out_export,
     );
 }
-
-/// Create a reusable Dwindle layout context.
 export fn omni_dwindle_layout_context_create() [*c]dwindle.OmniDwindleLayoutContext {
     return dwindle.omni_dwindle_layout_context_create_impl();
 }
-
-/// Destroy a reusable Dwindle layout context.
 export fn omni_dwindle_layout_context_destroy(context: [*c]dwindle.OmniDwindleLayoutContext) void {
     dwindle.omni_dwindle_layout_context_destroy_impl(context);
 }
-
-/// Seed deterministic Dwindle state topology into a context.
 export fn omni_dwindle_ctx_seed_state(
     context: [*c]dwindle.OmniDwindleLayoutContext,
     nodes: [*c]const abi.OmniDwindleSeedNode,
@@ -611,8 +512,6 @@ export fn omni_dwindle_ctx_seed_state(
         seed_state,
     );
 }
-
-/// Apply a single Dwindle operation to context state.
 export fn omni_dwindle_ctx_apply_op(
     context: [*c]dwindle.OmniDwindleLayoutContext,
     request: [*c]const abi.OmniDwindleOpRequest,
@@ -628,8 +527,6 @@ export fn omni_dwindle_ctx_apply_op(
         out_removed_window_capacity,
     );
 }
-
-/// Calculate Dwindle output frames for current context state.
 export fn omni_dwindle_ctx_calculate_layout(
     context: [*c]dwindle.OmniDwindleLayoutContext,
     request: [*c]const abi.OmniDwindleLayoutRequest,
@@ -649,8 +546,6 @@ export fn omni_dwindle_ctx_calculate_layout(
         out_frame_count,
     );
 }
-
-/// Resolve directional Dwindle neighbor from cached context state.
 export fn omni_dwindle_ctx_find_neighbor(
     context: [*c]const dwindle.OmniDwindleLayoutContext,
     window_id: abi.OmniUuid128,
@@ -668,16 +563,12 @@ export fn omni_dwindle_ctx_find_neighbor(
         out_neighbor_window_id,
     );
 }
-
-/// Compute interactive resize result for column width/window weight.
 export fn omni_niri_resize_compute(
     input: [*c]const abi.OmniNiriResizeInput,
     out_result: [*c]abi.OmniNiriResizeResult,
 ) i32 {
     return interaction.omni_niri_resize_compute_impl(input, out_result);
 }
-
-/// Compute the viewport offset needed to reveal a target container.
 export fn omni_viewport_compute_visible_offset(
     spans: [*c]const f64,
     span_count: usize,
@@ -703,8 +594,6 @@ export fn omni_viewport_compute_visible_offset(
         out_target_offset,
     );
 }
-
-/// Build transition plan values for switching active viewport container.
 export fn omni_viewport_transition_to_column(
     spans: [*c]const f64,
     span_count: usize,
@@ -734,8 +623,6 @@ export fn omni_viewport_transition_to_column(
         out_result,
     );
 }
-
-/// Build ensure-visible plan for a viewport container target.
 export fn omni_viewport_ensure_visible(
     spans: [*c]const f64,
     span_count: usize,
@@ -765,8 +652,6 @@ export fn omni_viewport_ensure_visible(
         out_result,
     );
 }
-
-/// Apply one scroll delta in viewport space.
 export fn omni_viewport_scroll_step(
     spans: [*c]const f64,
     span_count: usize,
@@ -790,8 +675,6 @@ export fn omni_viewport_scroll_step(
         out_result,
     );
 }
-
-/// Initialize viewport gesture tracking state.
 export fn omni_viewport_gesture_begin(
     current_view_offset: f64,
     is_trackpad: u8,
@@ -803,8 +686,6 @@ export fn omni_viewport_gesture_begin(
         out_state,
     );
 }
-
-/// Compute current gesture velocity from tracker history.
 export fn omni_viewport_gesture_velocity(
     gesture_state: [*c]const abi.OmniViewportGestureState,
     out_velocity: [*c]f64,
@@ -814,8 +695,6 @@ export fn omni_viewport_gesture_velocity(
         out_velocity,
     );
 }
-
-/// Update viewport gesture tracking state with one delta sample.
 export fn omni_viewport_gesture_update(
     gesture_state: [*c]abi.OmniViewportGestureState,
     spans: [*c]const f64,
@@ -841,8 +720,6 @@ export fn omni_viewport_gesture_update(
         out_result,
     );
 }
-
-/// Resolve viewport gesture end snap target and spring endpoints.
 export fn omni_viewport_gesture_end(
     gesture_state: [*c]const abi.OmniViewportGestureState,
     spans: [*c]const f64,

@@ -1,38 +1,30 @@
 import SwiftUI
-
 struct SectionHeader: View {
     let title: String
-
     init(_ title: String) {
         self.title = title
     }
-
     var body: some View {
         Text(title)
             .font(.headline)
             .foregroundColor(.secondary)
     }
 }
-
 struct OverridableToggle: View {
     let label: String
     let value: Bool?
     let globalValue: Bool
     let onChange: (Bool) -> Void
     let onReset: () -> Void
-
     private var effectiveValue: Bool { value ?? globalValue }
     private var isOverridden: Bool { value != nil }
-
     var body: some View {
         HStack {
             Toggle(label, isOn: Binding(
                 get: { effectiveValue },
                 set: { onChange($0) }
             ))
-
             Spacer()
-
             if isOverridden {
                 Button {
                     onReset()
@@ -50,7 +42,6 @@ struct OverridableToggle: View {
         }
     }
 }
-
 struct OverridablePicker<T: Hashable & Identifiable>: View {
     let label: String
     let value: T?
@@ -59,10 +50,8 @@ struct OverridablePicker<T: Hashable & Identifiable>: View {
     let displayName: (T) -> String
     let onChange: (T) -> Void
     let onReset: () -> Void
-
     private var effectiveValue: T { value ?? globalValue }
     private var isOverridden: Bool { value != nil }
-
     var body: some View {
         HStack {
             Picker(label, selection: Binding(
@@ -73,7 +62,6 @@ struct OverridablePicker<T: Hashable & Identifiable>: View {
                     Text(displayName(option)).tag(option)
                 }
             }
-
             if isOverridden {
                 Button {
                     onReset()
@@ -92,7 +80,6 @@ struct OverridablePicker<T: Hashable & Identifiable>: View {
         }
     }
 }
-
 struct OverridableSlider: View {
     let label: String
     let value: Double?
@@ -102,10 +89,8 @@ struct OverridableSlider: View {
     let formatter: (Double) -> String
     let onChange: (Double) -> Void
     let onReset: () -> Void
-
     private var effectiveValue: Double { value ?? globalValue }
     private var isOverridden: Bool { value != nil }
-
     var body: some View {
         HStack {
             Text(label)
@@ -116,7 +101,6 @@ struct OverridableSlider: View {
             Text(formatter(effectiveValue))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 48, alignment: .trailing)
-
             if isOverridden {
                 Button {
                     onReset()
@@ -135,7 +119,6 @@ struct OverridableSlider: View {
         }
     }
 }
-
 struct OverridableStepper: View {
     let label: String
     let value: Double?
@@ -145,15 +128,12 @@ struct OverridableStepper: View {
     let formatter: (Double) -> String
     let onChange: (Double) -> Void
     let onReset: () -> Void
-
     private var effectiveValue: Double { value ?? globalValue }
     private var isOverridden: Bool { value != nil }
-
     var body: some View {
         HStack {
             Text(label)
             Spacer()
-
             HStack(spacing: 4) {
                 Button {
                     onChange(max(range.lowerBound, effectiveValue - step))
@@ -161,7 +141,6 @@ struct OverridableStepper: View {
                     Image(systemName: "minus")
                 }
                 .buttonStyle(.bordered)
-
                 TextField("", value: Binding(
                     get: { effectiveValue },
                     set: { onChange(min(max($0, range.lowerBound), range.upperBound)) }
@@ -169,7 +148,6 @@ struct OverridableStepper: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 60)
                     .multilineTextAlignment(.center)
-
                 Button {
                     onChange(min(range.upperBound, effectiveValue + step))
                 } label: {
@@ -177,11 +155,9 @@ struct OverridableStepper: View {
                 }
                 .buttonStyle(.bordered)
             }
-
             Text(formatter(effectiveValue))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 48, alignment: .trailing)
-
             if isOverridden {
                 Button {
                     onReset()

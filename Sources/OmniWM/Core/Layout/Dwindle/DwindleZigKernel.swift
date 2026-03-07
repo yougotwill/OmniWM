@@ -1,18 +1,15 @@
 import CZigLayout
 import CoreGraphics
 import Foundation
-
 enum DwindleZigKernel {
     enum NodeKind: UInt8 {
         case split = 0
         case leaf = 1
     }
-
     enum Orientation: UInt8 {
         case horizontal = 0
         case vertical = 1
     }
-
     struct SeedNode {
         let nodeId: UUID
         let parentIndex: Int
@@ -24,12 +21,10 @@ enum DwindleZigKernel {
         let windowId: UUID?
         let isFullscreen: Bool
     }
-
     struct SeedState {
         let rootNodeIndex: Int
         let selectedNodeIndex: Int
         let preselection: Direction?
-
         init(
             rootNodeIndex: Int,
             selectedNodeIndex: Int = -1,
@@ -40,7 +35,6 @@ enum DwindleZigKernel {
             self.preselection = preselection
         }
     }
-
     struct LayoutRequest {
         let screen: CGRect
         let innerGap: CGFloat
@@ -51,7 +45,6 @@ enum DwindleZigKernel {
         let singleWindowAspectRatio: CGSize
         let singleWindowAspectTolerance: CGFloat
         let runtimeSettings: OmniDwindleRuntimeSettings
-
         init(screen: CGRect, settings: DwindleSettings) {
             self.screen = screen
             innerGap = settings.innerGap
@@ -64,7 +57,6 @@ enum DwindleZigKernel {
             runtimeSettings = DwindleZigKernel.runtimeSettingsRaw(from: settings)
         }
     }
-
     struct WindowConstraint {
         let windowId: UUID
         let minSize: CGSize
@@ -72,7 +64,6 @@ enum DwindleZigKernel {
         let hasMaxWidth: Bool
         let hasMaxHeight: Bool
         let isFixed: Bool
-
         init(windowId: UUID, constraints: WindowSizeConstraints) {
             self.windowId = windowId
             minSize = constraints.minSize
@@ -82,18 +73,15 @@ enum DwindleZigKernel {
             isFixed = constraints.isFixed
         }
     }
-
     struct LayoutResult {
         let rc: Int32
         let frameCount: Int
         let framesByWindowId: [UUID: CGRect]
     }
-
     struct NeighborResult {
         let rc: Int32
         let neighborWindowId: UUID?
     }
-
     enum Op {
         case addWindow(windowId: UUID)
         case removeWindow(windowId: UUID)
@@ -111,7 +99,6 @@ enum DwindleZigKernel {
         case clearPreselection
         case validateSelection
     }
-
     struct OpResult {
         let rc: Int32
         let applied: Bool
@@ -120,20 +107,16 @@ enum DwindleZigKernel {
         let preselection: Direction?
         let removedWindowIds: [UUID]
     }
-
     final class LayoutContext {
         fileprivate let raw: OpaquePointer
-
         init?() {
             guard let raw = omni_dwindle_layout_context_create() else { return nil }
             self.raw = raw
         }
-
         deinit {
             omni_dwindle_layout_context_destroy(raw)
         }
     }
-
     static func seedState(
         context: LayoutContext,
         nodes: [SeedNode],
@@ -153,14 +136,12 @@ enum DwindleZigKernel {
                 is_fullscreen: node.isFullscreen ? 1 : 0
             )
         }
-
         var rawState = OmniDwindleSeedState(
             root_node_index: Int64(state.rootNodeIndex),
             selected_node_index: Int64(state.selectedNodeIndex),
             has_preselection: state.preselection == nil ? 0 : 1,
             preselection_direction: directionCode(state.preselection ?? .left)
         )
-
         return rawNodes.withUnsafeBufferPointer { nodeBuf in
             withUnsafePointer(to: &rawState) { statePtr in
                 omni_dwindle_ctx_seed_state(
@@ -172,7 +153,6 @@ enum DwindleZigKernel {
             }
         }
     }
-
     static func calculateLayout(
         context: LayoutContext,
         request: LayoutRequest,
@@ -193,7 +173,6 @@ enum DwindleZigKernel {
             single_window_aspect_tolerance: Double(request.singleWindowAspectTolerance),
             runtime_settings: request.runtimeSettings
         )
-
         let rawConstraints = constraints.map { constraint in
             OmniDwindleWindowConstraint(
                 window_id: omniUUID(from: constraint.windowId),
@@ -206,7 +185,6 @@ enum DwindleZigKernel {
                 is_fixed: constraint.isFixed ? 1 : 0
             )
         }
-
         var rawFrames = [OmniDwindleWindowFrame](
             repeating: OmniDwindleWindowFrame(
                 window_id: zeroUUID(),
@@ -217,7 +195,6 @@ enum DwindleZigKernel {
             ),
             count: 512
         )
-
         var outFrameCount: Int = 0
         let rc: Int32 = rawConstraints.withUnsafeBufferPointer { constraintBuf in
             rawFrames.withUnsafeMutableBufferPointer { frameBuf in
@@ -237,15 +214,12 @@ enum DwindleZigKernel {
                 }
             }
         }
-
         guard rc == OMNI_OK else {
             return LayoutResult(rc: rc, frameCount: max(0, outFrameCount), framesByWindowId: [:])
         }
-
         let resolvedCount = min(max(outFrameCount, 0), rawFrames.count)
         var framesByWindowId: [UUID: CGRect] = [:]
         framesByWindowId.reserveCapacity(resolvedCount)
-
         for idx in 0 ..< resolvedCount {
             let frame = rawFrames[idx]
             framesByWindowId[uuid(from: frame.window_id)] = CGRect(
@@ -255,10 +229,8 @@ enum DwindleZigKernel {
                 height: frame.frame_height
             )
         }
-
         return LayoutResult(rc: rc, frameCount: outFrameCount, framesByWindowId: framesByWindowId)
     }
-
     static func findNeighbor(
         context: LayoutContext,
         windowId: UUID,
@@ -267,7 +239,6 @@ enum DwindleZigKernel {
     ) -> NeighborResult {
         var hasNeighbor: UInt8 = 0
         var neighborId = zeroUUID()
-
         let rc = withUnsafeMutablePointer(to: &hasNeighbor) { hasNeighborPtr in
             withUnsafeMutablePointer(to: &neighborId) { neighborPtr in
                 omni_dwindle_ctx_find_neighbor(
@@ -280,18 +251,14 @@ enum DwindleZigKernel {
                 )
             }
         }
-
         guard rc == OMNI_OK else {
             return NeighborResult(rc: rc, neighborWindowId: nil)
         }
-
         guard hasNeighbor != 0, !isZeroUUID(neighborId) else {
             return NeighborResult(rc: rc, neighborWindowId: nil)
         }
-
         return NeighborResult(rc: rc, neighborWindowId: uuid(from: neighborId))
     }
-
     static func applyOp(
         context: LayoutContext,
         op: Op,
@@ -310,7 +277,6 @@ enum DwindleZigKernel {
             removed_window_count: 0
         )
         let rawRuntimeSettings = runtimeSettingsRaw(from: runtimeSettings)
-
         func invoke(opCode: UInt8, configure: (inout OmniDwindleOpPayload) -> Void) -> Int32 {
             var payload = OmniDwindleOpPayload()
             configure(&payload)
@@ -333,7 +299,6 @@ enum DwindleZigKernel {
                 }
             }
         }
-
         let rc: Int32
         switch op {
         case let .addWindow(windowId):
@@ -410,28 +375,24 @@ enum DwindleZigKernel {
                 payload.validate_selection = OmniDwindleValidateSelectionPayload(unused: 0)
             }
         }
-
         let selected: UUID?
         if rawResult.has_selected_window_id != 0, !isZeroUUID(rawResult.selected_window_id) {
             selected = uuid(from: rawResult.selected_window_id)
         } else {
             selected = nil
         }
-
         let focused: UUID?
         if rawResult.has_focused_window_id != 0, !isZeroUUID(rawResult.focused_window_id) {
             focused = uuid(from: rawResult.focused_window_id)
         } else {
             focused = nil
         }
-
         let preselection: Direction?
         if rawResult.has_preselection != 0 {
             preselection = direction(from: rawResult.preselection_direction)
         } else {
             preselection = nil
         }
-
         let resolvedRemovedCount = min(max(0, rawResult.removed_window_count), removedRaw.count)
         var removedIds: [UUID] = []
         removedIds.reserveCapacity(resolvedRemovedCount)
@@ -441,7 +402,6 @@ enum DwindleZigKernel {
                 removedIds.append(uuid(from: removedRaw[idx]))
             }
         }
-
         return OpResult(
             rc: rc,
             applied: rawResult.applied != 0,
@@ -451,7 +411,6 @@ enum DwindleZigKernel {
             removedWindowIds: removedIds
         )
     }
-
     static func omniUUID(from uuid: UUID) -> OmniUuid128 {
         var rawUUID = uuid.uuid
         var encoded = OmniUuid128()
@@ -462,7 +421,6 @@ enum DwindleZigKernel {
         }
         return encoded
     }
-
     static func uuid(from omniUuid: OmniUuid128) -> UUID {
         var decoded = UUID().uuid
         var value = omniUuid
@@ -473,17 +431,14 @@ enum DwindleZigKernel {
         }
         return UUID(uuid: decoded)
     }
-
     private static func zeroUUID() -> OmniUuid128 {
         OmniUuid128()
     }
-
     private static func isZeroUUID(_ value: OmniUuid128) -> Bool {
         withUnsafeBytes(of: value) { raw in
             raw.allSatisfy { $0 == 0 }
         }
     }
-
     private static func runtimeSettingsRaw(from settings: DwindleSettings) -> OmniDwindleRuntimeSettings {
         OmniDwindleRuntimeSettings(
             smart_split: settings.smartSplit ? 1 : 0,
@@ -492,7 +447,6 @@ enum DwindleZigKernel {
             inner_gap: Double(settings.innerGap)
         )
     }
-
     private static func rawRect(from frame: CGRect) -> OmniDwindleRect {
         OmniDwindleRect(
             x: Double(frame.origin.x),
@@ -501,11 +455,9 @@ enum DwindleZigKernel {
             height: Double(frame.size.height)
         )
     }
-
     private static func zeroRect() -> OmniDwindleRect {
         OmniDwindleRect(x: 0, y: 0, width: 0, height: 0)
     }
-
     private static func directionCode(_ direction: Direction) -> UInt8 {
         switch direction {
         case .left:
@@ -518,7 +470,6 @@ enum DwindleZigKernel {
             return 3
         }
     }
-
     private static func direction(from raw: UInt8) -> Direction? {
         switch raw {
         case 0:

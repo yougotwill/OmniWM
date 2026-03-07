@@ -1,13 +1,11 @@
 import AppKit
 import Foundation
-
 extension ViewportState {
     mutating func beginGesture(isTrackpad: Bool) {
         let currentOffset = viewOffsetPixels.current()
         viewOffsetPixels = .gesture(ViewGesture(currentViewOffset: Double(currentOffset), isTrackpad: isTrackpad))
         selectionProgress = 0.0
     }
-
     mutating func updateGesture(
         deltaPixels: CGFloat,
         timestamp: TimeInterval,
@@ -18,13 +16,11 @@ extension ViewportState {
         guard case let .gesture(gesture) = viewOffsetPixels else {
             return nil
         }
-
         let normalizedActiveIndex: Int = if columnSpans.isEmpty {
             0
         } else {
             activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         }
-
         let result = ZigNiriViewportMath.gestureUpdate(
             state: &gesture.gestureState,
             spans: columnSpans.map(Double.init),
@@ -35,11 +31,9 @@ extension ViewportState {
             viewportSpan: viewportSpan,
             selectionProgress: selectionProgress
         )
-
         selectionProgress = result.selectionProgress
         return result.selectionSteps
     }
-
     mutating func endGesture(
         columnSpans: [CGFloat],
         gap: CGFloat,
@@ -50,13 +44,11 @@ extension ViewportState {
         guard case let .gesture(gesture) = viewOffsetPixels else {
             return
         }
-
         let normalizedActiveIndex: Int = if columnSpans.isEmpty {
             0
         } else {
             activeColumnIndex.clamped(to: 0 ... (columnSpans.count - 1))
         }
-
         let result = ZigNiriViewportMath.gestureEnd(
             state: gesture.gestureState,
             spans: columnSpans.map(Double.init),
@@ -66,7 +58,6 @@ extension ViewportState {
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
-
         let now = animationClock?.now() ?? CACurrentMediaTime()
         let animation = SpringAnimation(
             from: result.springFrom,
@@ -78,7 +69,6 @@ extension ViewportState {
         )
         activeColumnIndex = result.resolvedColumnIndex
         viewOffsetPixels = .spring(animation)
-
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
         selectionProgress = 0.0

@@ -1,8 +1,6 @@
 import SwiftUI
-
 struct MenuPaletteView: View {
     @ObservedObject var controller: MenuPaletteController
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -24,9 +22,7 @@ struct MenuPaletteView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-
             Divider()
-
             if controller.isLoading {
                 VStack {
                     Spacer()
@@ -84,12 +80,10 @@ struct MenuPaletteView: View {
         .omniGlassEffect(in: RoundedRectangle(cornerRadius: 12))
     }
 }
-
 struct MenuPaletteRow: View {
     let item: MenuItemModel
     let isSelected: Bool
     let showShortcut: Bool
-
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -103,9 +97,7 @@ struct MenuPaletteRow: View {
                         .lineLimit(1)
                 }
             }
-
             Spacer()
-
             if showShortcut, let shortcut = item.keyboardShortcut {
                 Text(shortcut)
                     .font(.system(size: 11, design: .monospaced))

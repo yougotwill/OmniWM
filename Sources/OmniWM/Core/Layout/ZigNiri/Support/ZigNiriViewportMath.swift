@@ -1,6 +1,5 @@
 import CZigLayout
 import Foundation
-
 enum ZigNiriViewportMath {
     struct TransitionPlan {
         let resolvedColumnIndex: Int
@@ -10,37 +9,31 @@ enum ZigNiriViewportMath {
         let snapDelta: CGFloat
         let snapToTargetImmediately: Bool
     }
-
     struct EnsureVisiblePlan {
         let targetOffset: CGFloat
         let offsetDelta: CGFloat
         let isNoop: Bool
     }
-
     struct ScrollStepResult {
         let applied: Bool
         let newOffset: CGFloat
         let selectionProgress: CGFloat
         let selectionSteps: Int?
     }
-
     struct GestureUpdateResult {
         let currentViewOffset: Double
         let selectionProgress: CGFloat
         let selectionSteps: Int?
     }
-
     struct GestureEndResult {
         let resolvedColumnIndex: Int
         let springFrom: Double
         let springTo: Double
         let initialVelocity: Double
     }
-
     enum ViewportMathError: Error, CustomStringConvertible {
         case invalidInput(operation: String, reason: String)
         case kernelCallFailed(operation: String, rc: Int32, details: String)
-
         var description: String {
             switch self {
             case let .invalidInput(operation, reason):
@@ -50,11 +43,9 @@ enum ZigNiriViewportMath {
             }
         }
     }
-
     private static func report(_ error: ViewportMathError) {
-        NSLog("ZigNiriViewportMath error: %@", error.description)
+        _ = error
     }
-
     private static func centerModeCode(_ centerMode: CenterFocusedColumn) -> UInt8 {
         switch centerMode {
         case .never:
@@ -65,7 +56,6 @@ enum ZigNiriViewportMath {
             2
         }
     }
-
     static func computeVisibleOffset(
         spans: [Double],
         containerIndex: Int,
@@ -85,10 +75,8 @@ enum ZigNiriViewportMath {
             )
             return currentViewStart
         }
-
         var outTarget: Double = 0
         let fromIndex = Int64(fromContainerIndex ?? -1)
-
         let rc: Int32 = spans.withUnsafeBufferPointer { spansBuf in
             withUnsafeMutablePointer(to: &outTarget) { outPtr in
                 omni_viewport_compute_visible_offset(
@@ -105,7 +93,6 @@ enum ZigNiriViewportMath {
                 )
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -118,7 +105,6 @@ enum ZigNiriViewportMath {
         }
         return CGFloat(outTarget)
     }
-
     static func transitionPlan(
         spans: [Double],
         currentActiveIndex: Int,
@@ -147,7 +133,6 @@ enum ZigNiriViewportMath {
                 snapToTargetImmediately: true
             )
         }
-
         var out = OmniViewportTransitionResult(
             resolved_column_index: 0,
             offset_delta: 0,
@@ -157,7 +142,6 @@ enum ZigNiriViewportMath {
             snap_to_target_immediately: 0
         )
         let fromIndex = Int64(fromContainerIndex ?? -1)
-
         let rc: Int32 = spans.withUnsafeBufferPointer { spansBuf in
             withUnsafeMutablePointer(to: &out) { outPtr in
                 omni_viewport_transition_to_column(
@@ -176,7 +160,6 @@ enum ZigNiriViewportMath {
                 )
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -194,7 +177,6 @@ enum ZigNiriViewportMath {
                 snapToTargetImmediately: true
             )
         }
-
         return TransitionPlan(
             resolvedColumnIndex: Int(out.resolved_column_index),
             offsetDelta: CGFloat(out.offset_delta),
@@ -204,7 +186,6 @@ enum ZigNiriViewportMath {
             snapToTargetImmediately: out.snap_to_target_immediately != 0
         )
     }
-
     static func ensureVisiblePlan(
         spans: [Double],
         activeContainerIndex: Int,
@@ -230,14 +211,12 @@ enum ZigNiriViewportMath {
                 isNoop: true
             )
         }
-
         var out = OmniViewportEnsureVisibleResult(
             target_offset: 0,
             offset_delta: 0,
             is_noop: 0
         )
         let fromIndex = Int64(fromContainerIndex ?? -1)
-
         let rc: Int32 = spans.withUnsafeBufferPointer { spansBuf in
             withUnsafeMutablePointer(to: &out) { outPtr in
                 omni_viewport_ensure_visible(
@@ -256,7 +235,6 @@ enum ZigNiriViewportMath {
                 )
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -271,14 +249,12 @@ enum ZigNiriViewportMath {
                 isNoop: true
             )
         }
-
         return EnsureVisiblePlan(
             targetOffset: CGFloat(out.target_offset),
             offsetDelta: CGFloat(out.offset_delta),
             isNoop: out.is_noop != 0
         )
     }
-
     static func scrollStep(
         spans: [Double],
         deltaPixels: CGFloat,
@@ -295,7 +271,6 @@ enum ZigNiriViewportMath {
             has_selection_steps: 0,
             selection_steps: 0
         )
-
         let rc: Int32 = spans.withUnsafeBufferPointer { spansBuf in
             withUnsafeMutablePointer(to: &out) { outPtr in
                 omni_viewport_scroll_step(
@@ -311,7 +286,6 @@ enum ZigNiriViewportMath {
                 )
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -327,7 +301,6 @@ enum ZigNiriViewportMath {
                 selectionSteps: nil
             )
         }
-
         return ScrollStepResult(
             applied: out.applied != 0,
             newOffset: CGFloat(out.new_offset),
@@ -335,13 +308,11 @@ enum ZigNiriViewportMath {
             selectionSteps: out.has_selection_steps != 0 ? Int(out.selection_steps) : nil
         )
     }
-
     static func gestureBegin(
         currentViewOffset: CGFloat,
         isTrackpad: Bool
     ) -> OmniViewportGestureState {
         var state = OmniViewportGestureState()
-
         let rc: Int32 = withUnsafeMutablePointer(to: &state) { statePtr in
             omni_viewport_gesture_begin(
                 Double(currentViewOffset),
@@ -349,7 +320,6 @@ enum ZigNiriViewportMath {
                 statePtr
             )
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -362,14 +332,11 @@ enum ZigNiriViewportMath {
             state.current_view_offset = Double(currentViewOffset)
             state.stationary_view_offset = Double(currentViewOffset)
         }
-
         return state
     }
-
     static func gestureVelocity(state: OmniViewportGestureState) -> Double {
         var mutableState = state
         var outVelocity: Double = 0
-
         let rc: Int32 = withUnsafePointer(to: &mutableState) { statePtr in
             withUnsafeMutablePointer(to: &outVelocity) { outPtr in
                 omni_viewport_gesture_velocity(
@@ -378,7 +345,6 @@ enum ZigNiriViewportMath {
                 )
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -389,10 +355,8 @@ enum ZigNiriViewportMath {
             )
             return 0
         }
-
         return outVelocity
     }
-
     static func gestureUpdate(
         state: inout OmniViewportGestureState,
         spans: [Double],
@@ -416,14 +380,12 @@ enum ZigNiriViewportMath {
                 selectionSteps: nil
             )
         }
-
         var out = OmniViewportGestureUpdateResult(
             current_view_offset: 0,
             selection_progress: Double(selectionProgress),
             has_selection_steps: 0,
             selection_steps: 0
         )
-
         let rc: Int32 = withUnsafeMutablePointer(to: &state) { statePtr in
             spans.withUnsafeBufferPointer { spansBuf in
                 withUnsafeMutablePointer(to: &out) { outPtr in
@@ -442,7 +404,6 @@ enum ZigNiriViewportMath {
                 }
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -457,14 +418,12 @@ enum ZigNiriViewportMath {
                 selectionSteps: nil
             )
         }
-
         return GestureUpdateResult(
             currentViewOffset: out.current_view_offset,
             selectionProgress: CGFloat(out.selection_progress),
             selectionSteps: out.has_selection_steps != 0 ? Int(out.selection_steps) : nil
         )
     }
-
     static func gestureEnd(
         state: OmniViewportGestureState,
         spans: [Double],
@@ -488,7 +447,6 @@ enum ZigNiriViewportMath {
                 initialVelocity: 0
             )
         }
-
         var mutableState = state
         var out = OmniViewportGestureEndResult(
             resolved_column_index: 0,
@@ -496,7 +454,6 @@ enum ZigNiriViewportMath {
             spring_to: 0,
             initial_velocity: 0
         )
-
         let rc: Int32 = withUnsafePointer(to: &mutableState) { statePtr in
             spans.withUnsafeBufferPointer { spansBuf in
                 withUnsafeMutablePointer(to: &out) { outPtr in
@@ -514,7 +471,6 @@ enum ZigNiriViewportMath {
                 }
             }
         }
-
         if rc != OMNI_OK {
             report(
                 .kernelCallFailed(
@@ -530,7 +486,6 @@ enum ZigNiriViewportMath {
                 initialVelocity: 0
             )
         }
-
         return GestureEndResult(
             resolvedColumnIndex: Int(out.resolved_column_index),
             springFrom: out.spring_from,

@@ -1,10 +1,8 @@
 import AppKit
 import SwiftUI
-
 struct BorderSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     var body: some View {
         Form {
             Section("Window Borders") {
@@ -12,7 +10,6 @@ struct BorderSettingsTab: View {
                     .onChange(of: settings.bordersEnabled) { _, newValue in
                         controller.setBordersEnabled(newValue)
                     }
-
                 if settings.bordersEnabled {
                     HStack {
                         Text("Border Width")
@@ -24,7 +21,6 @@ struct BorderSettingsTab: View {
                     .onChange(of: settings.borderWidth) { _, _ in
                         syncBorderConfig()
                     }
-
                     ColorPicker("Border Color", selection: colorBinding, supportsOpacity: true)
                         .onChange(of: settings.borderColorRed) { _, _ in syncBorderConfig() }
                         .onChange(of: settings.borderColorGreen) { _, _ in syncBorderConfig() }
@@ -32,7 +28,6 @@ struct BorderSettingsTab: View {
                         .onChange(of: settings.borderColorAlpha) { _, _ in syncBorderConfig() }
                 }
             }
-
             Section("About") {
                 Text("Borders are displayed around the currently focused window.")
                     .font(.footnote)
@@ -41,7 +36,6 @@ struct BorderSettingsTab: View {
         }
         .formStyle(.grouped)
     }
-
     private var colorBinding: Binding<Color> {
         Binding(
             get: {
@@ -66,7 +60,6 @@ struct BorderSettingsTab: View {
             }
         )
     }
-
     private func syncBorderConfig() {
         controller.updateBorderConfig()
     }

@@ -1,11 +1,9 @@
 import Foundation
-
 enum LayoutCompatibility: String {
     case shared = "Shared"
     case niri = "Niri"
     case dwindle = "Dwindle"
 }
-
 enum HotkeyCommand: Codable, Equatable, Hashable {
     case focus(Direction)
     case focusPrevious
@@ -32,7 +30,6 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case consumeWindow(Direction)
     case expelWindow(Direction)
     case toggleColumnTabbed
-
     case focusDownOrLeft
     case focusUpOrRight
     case focusColumnFirst
@@ -40,16 +37,13 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case focusColumn(Int)
     case focusWindowTop
     case focusWindowBottom
-
     case cycleColumnWidthForward
     case cycleColumnWidthBackward
     case toggleColumnFullWidth
-
     case moveWorkspaceToMonitor(Direction)
     case moveWorkspaceToMonitorNext
     case moveWorkspaceToMonitorPrevious
     case swapWorkspaceWithMonitor(Direction)
-
     case balanceSizes
     case moveToRoot
     case toggleSplit
@@ -57,24 +51,18 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case resizeInDirection(Direction, Bool)
     case preselect(Direction)
     case preselectClear
-
     case summonWorkspace(Int)
     case workspaceBackAndForth
     case focusWorkspaceAnywhere(Int)
     case moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction)
-
     case openWindowFinder
-
     case raiseAllFloatingWindows
-
     case openMenuAnywhere
     case openMenuPalette
-
     case toggleHiddenBar
     case toggleQuakeTerminal
     case toggleWorkspaceLayout
     case toggleOverview
-
     var displayName: String {
         switch self {
         case let .focus(dir): "Focus \(dir.displayName)"
@@ -137,12 +125,10 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
         case .toggleOverview: "Toggle Overview"
         }
     }
-
     var layoutCompatibility: LayoutCompatibility {
         switch self {
         case .moveToRoot, .toggleSplit, .swapSplit, .preselect, .preselectClear, .resizeInDirection:
             .dwindle
-
         case .moveColumn, .moveColumnToWorkspace, .moveColumnToWorkspaceUp, .moveColumnToWorkspaceDown,
              .moveColumnToMonitor, .toggleColumnFullWidth, .toggleColumnTabbed,
              .consumeWindow, .expelWindow,
@@ -151,7 +137,6 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
              .focusWindowTop, .focusWindowBottom,
              .move:
             .niri
-
         case .focus, .swap, .toggleFullscreen, .cycleColumnWidthForward, .cycleColumnWidthBackward,
              .balanceSizes,
              .moveToWorkspace, .moveWindowToWorkspaceUp, .moveWindowToWorkspaceDown,

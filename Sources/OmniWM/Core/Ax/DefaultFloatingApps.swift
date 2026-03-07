@@ -1,5 +1,4 @@
 import Foundation
-
 enum DefaultFloatingApps {
     static let bundleIds: Set<String> = [
         "com.apple.systempreferences",
@@ -10,7 +9,6 @@ enum DefaultFloatingApps {
         "com.apple.ScreenSharing",
         "com.apple.remotedesktop"
     ]
-
     static func shouldFloat(_ bundleId: String?) -> Bool {
         guard let bundleId else { return false }
         return bundleIds.contains(bundleId)

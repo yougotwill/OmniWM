@@ -1,16 +1,12 @@
 import SwiftUI
-
 struct DwindleSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Configuration Scope")
-
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Configure settings for:", selection: $selectedMonitor) {
                     Text("Global Defaults").tag(nil as Monitor.ID?)
@@ -28,7 +24,6 @@ struct DwindleSettingsTab: View {
                         }
                     }
                 }
-
                 if let monitorId = selectedMonitor,
                    let monitor = connectedMonitors.first(where: { $0.id == monitorId })
                 {
@@ -51,9 +46,7 @@ struct DwindleSettingsTab: View {
                     }
                 }
             }
-
             Divider()
-
             if let monitorId = selectedMonitor,
                let monitor = connectedMonitors.first(where: { $0.id == monitorId })
             {
@@ -74,11 +67,9 @@ struct DwindleSettingsTab: View {
         }
     }
 }
-
 private struct GlobalDwindleSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Dwindle Layout")
@@ -90,14 +81,11 @@ private struct GlobalDwindleSettingsSection: View {
                 Text("Automatically choose split direction based on cursor position")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Toggle("Move to Root: Stable", isOn: $settings.dwindleMoveToRootStable)
                 Text("Keep window on same screen side when moving to root")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Divider()
-
                 HStack {
                     Text("Default Split Ratio")
                     Slider(value: $settings.dwindleDefaultSplitRatio, in: 0.1 ... 1.9, step: 0.1)
@@ -111,7 +99,6 @@ private struct GlobalDwindleSettingsSection: View {
                 Text("1.0 = equal split, <1.0 = first smaller, >1.0 = first larger")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 HStack {
                     Text("Split Width Multiplier")
                     Slider(value: $settings.dwindleSplitWidthMultiplier, in: 0.5 ... 2.0, step: 0.1)
@@ -125,9 +112,7 @@ private struct GlobalDwindleSettingsSection: View {
                 Text("Affects when to prefer vertical vs horizontal splits")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Divider()
-
                 Picker("Single Window Ratio", selection: $settings.dwindleSingleWindowAspectRatio) {
                     ForEach(DwindleSingleWindowAspectRatio.allCases, id: \.self) { ratio in
                         Text(ratio.displayName).tag(ratio)
@@ -136,9 +121,7 @@ private struct GlobalDwindleSettingsSection: View {
                 .onChange(of: settings.dwindleSingleWindowAspectRatio) { _, newValue in
                     controller.updateDwindleConfig(singleWindowAspectRatio: newValue.size)
                 }
-
                 Divider()
-
                 Toggle("Use Global Gap Settings", isOn: $settings.dwindleUseGlobalGaps)
                     .onChange(of: settings.dwindleUseGlobalGaps) { _, _ in
                         controller.updateDwindleConfig()
@@ -150,19 +133,16 @@ private struct GlobalDwindleSettingsSection: View {
         }
     }
 }
-
 private struct MonitorDwindleSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     let monitor: Monitor
-
     private var monitorSettings: MonitorDwindleSettings {
         settings.dwindleSettings(for: monitor) ?? MonitorDwindleSettings(
             monitorName: monitor.name,
             monitorDisplayId: monitor.displayId
         )
     }
-
     private func updateSetting(_ update: (inout MonitorDwindleSettings) -> Void) {
         var ms = monitorSettings
         ms.monitorName = monitor.name
@@ -171,10 +151,8 @@ private struct MonitorDwindleSettingsSection: View {
         settings.updateDwindleSettings(ms)
         controller.updateMonitorDwindleSettings()
     }
-
     var body: some View {
         let ms = monitorSettings
-
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Dwindle Layout")
             VStack(alignment: .leading, spacing: 8) {
@@ -188,9 +166,7 @@ private struct MonitorDwindleSettingsSection: View {
                 Text("Automatically choose split direction based on cursor position")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Divider()
-
                 OverridableSlider(
                     label: "Default Split Ratio",
                     value: ms.defaultSplitRatio,
@@ -204,7 +180,6 @@ private struct MonitorDwindleSettingsSection: View {
                 Text("1.0 = equal split, <1.0 = first smaller, >1.0 = first larger")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 OverridableSlider(
                     label: "Split Width Multiplier",
                     value: ms.splitWidthMultiplier,
@@ -218,9 +193,7 @@ private struct MonitorDwindleSettingsSection: View {
                 Text("Affects when to prefer vertical vs horizontal splits")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 Divider()
-
                 OverridablePicker(
                     label: "Single Window Ratio",
                     value: ms.singleWindowAspectRatio,
@@ -230,9 +203,7 @@ private struct MonitorDwindleSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.singleWindowAspectRatio = newValue } },
                     onReset: { updateSetting { $0.singleWindowAspectRatio = nil } }
                 )
-
                 Divider()
-
                 OverridableToggle(
                     label: "Use Global Gap Settings",
                     value: ms.useGlobalGaps,
@@ -243,10 +214,8 @@ private struct MonitorDwindleSettingsSection: View {
                 Text("When enabled, uses the gap values from General settings")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
                 if !(ms.useGlobalGaps ?? settings.dwindleUseGlobalGaps) {
                     Divider()
-
                     OverridableSlider(
                         label: "Inner Gap",
                         value: ms.innerGap,
@@ -257,9 +226,7 @@ private struct MonitorDwindleSettingsSection: View {
                         onChange: { newValue in updateSetting { $0.innerGap = newValue } },
                         onReset: { updateSetting { $0.innerGap = nil } }
                     )
-
                     Text("Outer Margins").font(.subheadline).foregroundColor(.secondary)
-
                     OverridableSlider(
                         label: "Left",
                         value: ms.outerGapLeft,
@@ -270,7 +237,6 @@ private struct MonitorDwindleSettingsSection: View {
                         onChange: { newValue in updateSetting { $0.outerGapLeft = newValue } },
                         onReset: { updateSetting { $0.outerGapLeft = nil } }
                     )
-
                     OverridableSlider(
                         label: "Right",
                         value: ms.outerGapRight,
@@ -281,7 +247,6 @@ private struct MonitorDwindleSettingsSection: View {
                         onChange: { newValue in updateSetting { $0.outerGapRight = newValue } },
                         onReset: { updateSetting { $0.outerGapRight = nil } }
                     )
-
                     OverridableSlider(
                         label: "Top",
                         value: ms.outerGapTop,
@@ -292,7 +257,6 @@ private struct MonitorDwindleSettingsSection: View {
                         onChange: { newValue in updateSetting { $0.outerGapTop = newValue } },
                         onReset: { updateSetting { $0.outerGapTop = nil } }
                     )
-
                     OverridableSlider(
                         label: "Bottom",
                         value: ms.outerGapBottom,

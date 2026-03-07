@@ -1,7 +1,6 @@
 import CZigLayout
 import Foundation
 import QuartzCore
-
 enum ZigNiriStateKernel {
     enum NavigationOp {
         case moveByColumns
@@ -16,7 +15,6 @@ enum ZigNiriStateKernel {
         case focusWindowTop
         case focusWindowBottom
     }
-
     enum MutationOp: UInt8 {
         case moveWindowVertical = 0
         case swapWindowVertical = 1
@@ -45,29 +43,24 @@ enum ZigNiriStateKernel {
         case setWindowHeight = 24
         case clearWorkspace = 25
     }
-
     enum MutationNodeKind: UInt8 {
         case none = 0
         case window = 1
         case column = 2
     }
-
     enum IncomingSpawnMode: UInt8 {
         case newColumn = 0
         case focusedColumn = 1
     }
-
     enum WorkspaceOp: UInt8 {
         case moveWindowToWorkspace = 0
         case moveColumnToWorkspace = 1
     }
-
     struct WorkspaceRequest {
         let op: WorkspaceOp
         let sourceWindowId: NodeId?
         let sourceColumnId: NodeId?
         let maxVisibleColumns: Int
-
         init(
             op: WorkspaceOp,
             sourceWindowId: NodeId? = nil,
@@ -80,7 +73,6 @@ enum ZigNiriStateKernel {
             self.maxVisibleColumns = maxVisibleColumns
         }
     }
-
     struct NavigationRequest {
         let op: NavigationOp
         let direction: Direction?
@@ -94,7 +86,6 @@ enum ZigNiriStateKernel {
         let targetRowIndex: Int
         let focusColumnIndex: Int
         let focusWindowIndex: Int
-
         init(
             op: NavigationOp,
             sourceWindowId: NodeId? = nil,
@@ -123,7 +114,6 @@ enum ZigNiriStateKernel {
             self.focusWindowIndex = focusWindowIndex
         }
     }
-
     struct MutationRequest {
         let op: MutationOp
         let sourceWindowId: NodeId?
@@ -145,7 +135,6 @@ enum ZigNiriStateKernel {
         let customI64B: Int
         let customF64A: Double
         let customF64B: Double
-
         init(
             op: MutationOp,
             sourceWindowId: NodeId? = nil,
@@ -190,7 +179,6 @@ enum ZigNiriStateKernel {
             self.customF64B = customF64B
         }
     }
-
     struct RuntimeColumnState: Equatable {
         let columnId: NodeId
         let windowStart: Int
@@ -203,7 +191,6 @@ enum ZigNiriStateKernel {
         let hasSavedWidth: Bool
         let savedWidthKind: UInt8
         let savedWidthValue: Double
-
         init(
             columnId: NodeId,
             windowStart: Int,
@@ -230,7 +217,6 @@ enum ZigNiriStateKernel {
             self.savedWidthValue = savedWidthValue
         }
     }
-
     struct RuntimeWindowState: Equatable {
         let windowId: NodeId
         let columnId: NodeId
@@ -238,7 +224,6 @@ enum ZigNiriStateKernel {
         let sizeValue: Double
         let heightKind: UInt8
         let heightValue: Double
-
         init(
             windowId: NodeId,
             columnId: NodeId,
@@ -255,12 +240,10 @@ enum ZigNiriStateKernel {
             self.heightValue = heightValue
         }
     }
-
     struct RuntimeStateExport: Equatable {
         var columns: [RuntimeColumnState]
         var windows: [RuntimeWindowState]
     }
-
     struct RuntimeRenderRequest {
         let columns: [OmniNiriColumnInput]
         let windows: [OmniNiriWindowInput]
@@ -276,13 +259,11 @@ enum ZigNiriStateKernel {
         let orientation: Monitor.Orientation
         let sampleTime: TimeInterval
     }
-
     struct RuntimeRenderOutput {
         let windows: [OmniNiriWindowOutput]
         let columns: [OmniNiriColumnOutput]
         let animationActive: Bool
     }
-
     struct RuntimeViewportStatus {
         let currentOffset: CGFloat
         let targetOffset: CGFloat
@@ -291,13 +272,11 @@ enum ZigNiriStateKernel {
         let isGesture: Bool
         let isAnimating: Bool
     }
-
     struct RuntimeViewportGestureUpdateResult {
         let currentOffset: CGFloat
         let selectionProgress: CGFloat
         let selectionSteps: Int?
     }
-
     struct RuntimeViewportTransitionRequest {
         let spans: [Double]
         let requestedIndex: Int
@@ -311,7 +290,6 @@ enum ZigNiriStateKernel {
         let displayRefreshRate: Double
         let reduceMotion: Bool
     }
-
     struct RuntimeViewportGestureEndRequest {
         let spans: [Double]
         let gap: CGFloat
@@ -322,12 +300,10 @@ enum ZigNiriStateKernel {
         let displayRefreshRate: Double
         let reduceMotion: Bool
     }
-
     enum RuntimeExportDecodeError: Error, Equatable, CustomStringConvertible {
         case runtimeCallFailed(operation: String, rc: Int32)
         case countOutOfRange(field: String, count: Int, max: Int)
         case missingBuffer(field: String, count: Int)
-
         var rc: Int32 {
             switch self {
             case let .runtimeCallFailed(_, rc):
@@ -338,7 +314,6 @@ enum ZigNiriStateKernel {
                 return Int32(OMNI_ERR_INVALID_ARGS)
             }
         }
-
         var description: String {
             switch self {
             case let .runtimeCallFailed(operation, rc):
@@ -350,18 +325,15 @@ enum ZigNiriStateKernel {
             }
         }
     }
-
     struct DeltaColumnRecord: Equatable {
         let column: RuntimeColumnState
         let orderIndex: Int
     }
-
     struct DeltaWindowRecord: Equatable {
         let window: RuntimeWindowState
         let columnOrderIndex: Int
         let rowIndex: Int
     }
-
     struct DeltaExport {
         let columns: [DeltaColumnRecord]
         let windows: [DeltaWindowRecord]
@@ -377,20 +349,17 @@ enum ZigNiriStateKernel {
         let movedWindowId: NodeId?
         let generation: UInt64
     }
-
     enum TxnKind: UInt8 {
         case layout = 0
         case navigation = 1
         case mutation = 2
         case workspace = 3
     }
-
     enum TxnRequest {
         case navigation(context: ZigNiriLayoutKernel.LayoutContext, request: NavigationApplyRequest)
         case mutation(context: ZigNiriLayoutKernel.LayoutContext, request: MutationApplyRequest)
         case workspace(sourceContext: ZigNiriLayoutKernel.LayoutContext, targetContext: ZigNiriLayoutKernel.LayoutContext, request: WorkspaceApplyRequest)
     }
-
     struct TxnOutcome {
         let rc: Int32
         let kind: TxnKind
@@ -405,18 +374,15 @@ enum ZigNiriStateKernel {
         let removedColumnCount: Int
         let removedWindowCount: Int
     }
-
     struct RuntimeNodeTarget: Equatable {
         let kind: MutationNodeKind
         let nodeId: NodeId
     }
-
     struct MutationApplyRequest {
         let request: MutationRequest
         let incomingWindowId: UUID?
         let createdColumnId: UUID?
         let placeholderColumnId: UUID?
-
         init(
             request: MutationRequest,
             incomingWindowId: UUID? = nil,
@@ -429,7 +395,6 @@ enum ZigNiriStateKernel {
             self.placeholderColumnId = placeholderColumnId
         }
     }
-
     struct MutationApplyOutcome {
         let rc: Int32
         let applied: Bool
@@ -438,12 +403,10 @@ enum ZigNiriStateKernel {
         let targetNode: RuntimeNodeTarget?
         let delta: DeltaExport?
     }
-
     struct WorkspaceApplyRequest {
         let request: WorkspaceRequest
         let targetCreatedColumnId: UUID?
         let sourcePlaceholderColumnId: UUID?
-
         init(
             request: WorkspaceRequest,
             targetCreatedColumnId: UUID? = nil,
@@ -454,7 +417,6 @@ enum ZigNiriStateKernel {
             self.sourcePlaceholderColumnId = sourcePlaceholderColumnId
         }
     }
-
     struct WorkspaceApplyOutcome {
         let rc: Int32
         let applied: Bool
@@ -465,20 +427,16 @@ enum ZigNiriStateKernel {
         let sourceDelta: DeltaExport?
         let targetDelta: DeltaExport?
     }
-
     struct RuntimeActiveTileUpdate {
         let columnId: NodeId
         let activeTileIdx: Int
     }
-
     struct NavigationApplyRequest {
         let request: NavigationRequest
-
         init(request: NavigationRequest) {
             self.request = request
         }
     }
-
     struct NavigationApplyOutcome {
         let rc: Int32
         let applied: Bool
@@ -489,11 +447,9 @@ enum ZigNiriStateKernel {
         let refreshTargetColumnId: NodeId?
         let delta: DeltaExport?
     }
-
     static func omniUUID(from nodeId: NodeId) -> OmniUuid128 {
         omniUUID(from: nodeId.uuid)
     }
-
     static func omniUUID(from uuid: UUID) -> OmniUuid128 {
         var rawUUID = uuid.uuid
         var encoded = OmniUuid128()
@@ -504,7 +460,6 @@ enum ZigNiriStateKernel {
         }
         return encoded
     }
-
     static func uuid(from omniUuid: OmniUuid128) -> UUID {
         var decoded = UUID().uuid
         var value = omniUuid
@@ -515,20 +470,13 @@ enum ZigNiriStateKernel {
         }
         return UUID(uuid: decoded)
     }
-
     static func nodeId(from omniUuid: OmniUuid128) -> NodeId {
         NodeId(uuid: uuid(from: omniUuid))
     }
-
     private static func zeroUUID() -> OmniUuid128 {
         OmniUuid128()
     }
-
     private static let runtimeExportMaxEntries = 512
-#if DEBUG
-    nonisolated(unsafe) static var debugForceDeltaExportFailure = false
-#endif
-
     private static func validatedRuntimeExportCount<T: BinaryInteger>(
         _ rawCount: T,
         field: String
@@ -550,7 +498,6 @@ enum ZigNiriStateKernel {
         }
         return count
     }
-
     private static func validatedRefreshHintCount(_ rawCount: UInt8) throws -> Int {
         let count = Int(rawCount)
         let maxCount = Int(OMNI_NIRI_RUNTIME_HINT_MAX_COLUMNS)
@@ -563,7 +510,6 @@ enum ZigNiriStateKernel {
         }
         return count
     }
-
     private static func validateRuntimePointer<T>(
         _ pointer: UnsafePointer<T>?,
         count: Int,
@@ -574,7 +520,6 @@ enum ZigNiriStateKernel {
         }
         return pointer
     }
-
     private static func navigationOpCode(_ op: NavigationOp) -> UInt8 {
         switch op {
         case .moveByColumns:
@@ -601,7 +546,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_NAV_OP_FOCUS_WINDOW_BOTTOM.rawValue)
         }
     }
-
     private static func mutationOpCode(_ op: MutationOp) -> UInt8 {
         switch op {
         case .moveWindowVertical:
@@ -658,7 +602,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_MUTATION_OP_CLEAR_WORKSPACE.rawValue)
         }
     }
-
     private static func workspaceOpCode(_ op: WorkspaceOp) -> UInt8 {
         switch op {
         case .moveWindowToWorkspace:
@@ -667,7 +610,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_WORKSPACE_OP_MOVE_COLUMN_TO_WORKSPACE.rawValue)
         }
     }
-
     private static func navigationDirectionCode(_ direction: Direction?) -> UInt8 {
         switch direction {
         case .left:
@@ -682,7 +624,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_LEFT.rawValue)
         }
     }
-
     private static func mutationDirectionCode(_ direction: Direction?) -> UInt8 {
         switch direction {
         case .left:
@@ -694,11 +635,9 @@ enum ZigNiriStateKernel {
         case .down:
             return UInt8(truncatingIfNeeded: OMNI_NIRI_DIRECTION_DOWN.rawValue)
         case nil:
-            // Direction-required mutation ops must reject unspecified direction.
             return 0xFF
         }
     }
-
     private static func insertPositionCode(_ position: InsertPosition?) -> UInt8 {
         switch position {
         case .before:
@@ -711,7 +650,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_INSERT_BEFORE.rawValue)
         }
     }
-
     private static func orientationCode(_ orientation: Monitor.Orientation) -> UInt8 {
         switch orientation {
         case .horizontal:
@@ -720,7 +658,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_ORIENTATION_VERTICAL.rawValue)
         }
     }
-
     private static func centerModeCode(_ centerMode: CenterFocusedColumn) -> UInt8 {
         switch centerMode {
         case .never:
@@ -731,7 +668,6 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_CENTER_ON_OVERFLOW.rawValue)
         }
     }
-
     static func sizingModeCode(_ mode: SizingMode) -> UInt8 {
         switch mode {
         case .fullscreen:
@@ -740,12 +676,10 @@ enum ZigNiriStateKernel {
             return UInt8(truncatingIfNeeded: OMNI_NIRI_SIZING_NORMAL.rawValue)
         }
     }
-
     static let sizeKindProportion: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_PROPORTION.rawValue)
     static let sizeKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_SIZE_KIND_FIXED.rawValue)
     static let heightKindAuto: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_AUTO.rawValue)
     static let heightKindFixed: UInt8 = UInt8(truncatingIfNeeded: OMNI_NIRI_HEIGHT_KIND_FIXED.rawValue)
-
     static func encodeWidth(_ width: ProportionalSize) -> (kind: UInt8, value: Double) {
         switch width {
         case let .proportion(value):
@@ -754,7 +688,6 @@ enum ZigNiriStateKernel {
             return (kind: sizeKindFixed, value: Double(value))
         }
     }
-
     static func decodeWidth(kind: UInt8, value: Double) -> ProportionalSize? {
         if kind == sizeKindProportion {
             return .proportion(CGFloat(value))
@@ -764,7 +697,6 @@ enum ZigNiriStateKernel {
         }
         return nil
     }
-
     static func encodeHeight(_ height: WeightedSize) -> (kind: UInt8, value: Double) {
         switch height {
         case let .auto(weight):
@@ -773,7 +705,6 @@ enum ZigNiriStateKernel {
             return (kind: heightKindFixed, value: Double(value))
         }
     }
-
     static func decodeHeight(kind: UInt8, value: Double) -> WeightedSize? {
         if kind == heightKindAuto {
             return .auto(weight: CGFloat(value))
@@ -783,7 +714,6 @@ enum ZigNiriStateKernel {
         }
         return nil
     }
-
     private static func direction(from rawCode: UInt8) -> Direction? {
         switch rawCode {
         case 0:
@@ -798,7 +728,6 @@ enum ZigNiriStateKernel {
             return nil
         }
     }
-
     private static func decodeRuntimeStateExport(
         _ rawExport: OmniNiriRuntimeStateExport
     ) throws -> RuntimeStateExport {
@@ -814,7 +743,6 @@ enum ZigNiriStateKernel {
             count: windowCount,
             field: "windows"
         )
-
         let columns: [RuntimeColumnState]
         if let columnBase, columnCount > 0 {
             let rawColumns = Array(UnsafeBufferPointer(start: columnBase, count: columnCount))
@@ -836,7 +764,6 @@ enum ZigNiriStateKernel {
         } else {
             columns = []
         }
-
         let windows: [RuntimeWindowState]
         if let windowBase, windowCount > 0 {
             let rawWindows = Array(UnsafeBufferPointer(start: windowBase, count: windowCount))
@@ -853,10 +780,8 @@ enum ZigNiriStateKernel {
         } else {
             windows = []
         }
-
         return RuntimeStateExport(columns: columns, windows: windows)
     }
-
     static func validateAndDecodeRuntimeStateExport(
         _ rawExport: OmniNiriRuntimeStateExport
     ) -> Result<RuntimeStateExport, RuntimeExportDecodeError> {
@@ -870,7 +795,6 @@ enum ZigNiriStateKernel {
             )
         }
     }
-
     static func snapshotRuntimeStateResult(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> Result<RuntimeStateExport, RuntimeExportDecodeError> {
@@ -880,7 +804,6 @@ enum ZigNiriStateKernel {
             windows: nil,
             window_count: 0
         )
-
         let rc = context.withRawContext { raw in
             withUnsafeMutablePointer(to: &rawExport) { exportPtr in
                 omni_niri_runtime_snapshot(raw, exportPtr)
@@ -891,10 +814,8 @@ enum ZigNiriStateKernel {
                 .runtimeCallFailed(operation: "omni_niri_runtime_snapshot", rc: rc)
             )
         }
-
         return validateAndDecodeRuntimeStateExport(rawExport)
     }
-
     static func seedRuntimeState(
         context: ZigNiriLayoutKernel.LayoutContext,
         export: RuntimeStateExport
@@ -904,7 +825,6 @@ enum ZigNiriStateKernel {
         else {
             return Int32(OMNI_ERR_OUT_OF_RANGE)
         }
-
         let rawColumns = export.columns.map { column in
             OmniNiriRuntimeColumnState(
                 column_id: omniUUID(from: column.columnId),
@@ -930,7 +850,6 @@ enum ZigNiriStateKernel {
                 height_value: window.heightValue
             )
         }
-
         return rawColumns.withUnsafeBufferPointer { columnBuf in
             rawWindows.withUnsafeBufferPointer { windowBuf in
                 let columnPtr = columnBuf.count > 0 ? columnBuf.baseAddress : nil
@@ -941,7 +860,6 @@ enum ZigNiriStateKernel {
                     windows: windowPtr,
                     window_count: windowBuf.count
                 )
-
                 guard !(columnBuf.count > 0 && columnPtr == nil),
                       !(windowBuf.count > 0 && windowPtr == nil)
                 else {
@@ -955,7 +873,6 @@ enum ZigNiriStateKernel {
             }
         }
     }
-
     static func snapshotRuntimeState(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> (rc: Int32, export: RuntimeStateExport) {
@@ -969,7 +886,6 @@ enum ZigNiriStateKernel {
             )
         }
     }
-
     private static func emptyNavigationTxnPayload() -> OmniNiriTxnNavigationPayload {
         OmniNiriTxnNavigationPayload(
             op: 0,
@@ -990,7 +906,6 @@ enum ZigNiriStateKernel {
             focus_window_index: -1
         )
     }
-
     private static func emptyMutationTxnPayload() -> OmniNiriTxnMutationPayload {
         OmniNiriTxnMutationPayload(
             op: 0,
@@ -1027,7 +942,6 @@ enum ZigNiriStateKernel {
             custom_f64_b: 0
         )
     }
-
     private static func emptyWorkspaceTxnPayload() -> OmniNiriTxnWorkspacePayload {
         OmniNiriTxnWorkspacePayload(
             op: 0,
@@ -1042,7 +956,6 @@ enum ZigNiriStateKernel {
             source_placeholder_column_id: zeroUUID()
         )
     }
-
     private static func emptyDeltaExport() -> DeltaExport {
         DeltaExport(
             columns: [],
@@ -1060,7 +973,6 @@ enum ZigNiriStateKernel {
             generation: 0
         )
     }
-
     private static func decodeDeltaExport(
         _ rawExport: OmniNiriTxnDeltaExport
     ) throws -> DeltaExport {
@@ -1075,7 +987,6 @@ enum ZigNiriStateKernel {
             field: "removed_window_count"
         )
         let refreshCount = try validatedRefreshHintCount(rawExport.refresh_tabbed_visibility_count)
-
         let columnBase = try validateRuntimePointer(
             rawExport.columns,
             count: columnCount,
@@ -1096,7 +1007,6 @@ enum ZigNiriStateKernel {
             count: removedWindowCount,
             field: "removed_window_ids"
         )
-
         var columns: [DeltaColumnRecord] = []
         if let columnBase, columnCount > 0 {
             let rawColumns = Array(UnsafeBufferPointer(start: columnBase, count: columnCount))
@@ -1119,7 +1029,6 @@ enum ZigNiriStateKernel {
                 )
             }
         }
-
         var windows: [DeltaWindowRecord] = []
         if let windowBase, windowCount > 0 {
             let rawWindows = Array(UnsafeBufferPointer(start: windowBase, count: windowCount))
@@ -1138,7 +1047,6 @@ enum ZigNiriStateKernel {
                 )
             }
         }
-
         let removedColumnIds: [NodeId]
         if let removedColumnBase, removedColumnCount > 0 {
             removedColumnIds = Array(
@@ -1147,7 +1055,6 @@ enum ZigNiriStateKernel {
         } else {
             removedColumnIds = []
         }
-
         let removedWindowIds: [NodeId]
         if let removedWindowBase, removedWindowCount > 0 {
             removedWindowIds = Array(
@@ -1156,7 +1063,6 @@ enum ZigNiriStateKernel {
         } else {
             removedWindowIds = []
         }
-
         var refreshIds: [NodeId] = []
         refreshIds.reserveCapacity(refreshCount)
         withUnsafePointer(to: rawExport.refresh_tabbed_visibility_column_ids) { tuplePtr in
@@ -1165,7 +1071,6 @@ enum ZigNiriStateKernel {
                 refreshIds.append(nodeId(from: base[idx]))
             }
         }
-
         let delegatedMoveColumn: (columnId: NodeId, direction: Direction)?
         if rawExport.has_delegate_move_column != 0 {
             guard let resolvedDirection = direction(from: rawExport.delegate_move_direction) else {
@@ -1181,7 +1086,6 @@ enum ZigNiriStateKernel {
         } else {
             delegatedMoveColumn = nil
         }
-
         let targetNode: RuntimeNodeTarget?
         if rawExport.has_target_node_id != 0,
            let kind = MutationNodeKind(rawValue: rawExport.target_node_kind),
@@ -1193,7 +1097,6 @@ enum ZigNiriStateKernel {
         } else {
             targetNode = nil
         }
-
         return DeltaExport(
             columns: columns,
             windows: windows,
@@ -1218,7 +1121,6 @@ enum ZigNiriStateKernel {
             generation: rawExport.generation
         )
     }
-
     static func validateAndDecodeDeltaExport(
         _ rawExport: OmniNiriTxnDeltaExport
     ) -> Result<DeltaExport, RuntimeExportDecodeError> {
@@ -1232,7 +1134,6 @@ enum ZigNiriStateKernel {
             )
         }
     }
-
     static func exportDeltaResult(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> Result<DeltaExport, RuntimeExportDecodeError> {
@@ -1247,18 +1148,11 @@ enum ZigNiriStateKernel {
                 .runtimeCallFailed(operation: "omni_niri_ctx_export_delta", rc: rc)
             )
         }
-
         return validateAndDecodeDeltaExport(rawExport)
     }
-
     static func exportDelta(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> (rc: Int32, export: DeltaExport) {
-#if DEBUG
-        if debugForceDeltaExportFailure {
-            return (rc: Int32(OMNI_ERR_INVALID_ARGS), export: emptyDeltaExport())
-        }
-#endif
         switch exportDeltaResult(context: context) {
         case let .success(export):
             return (rc: Int32(OMNI_OK), export: export)
@@ -1266,7 +1160,6 @@ enum ZigNiriStateKernel {
             return (rc: error.rc, export: emptyDeltaExport())
         }
     }
-
     static func applyTxn(
         _ request: TxnRequest,
         sampleTime: TimeInterval
@@ -1277,13 +1170,11 @@ enum ZigNiriStateKernel {
         var rawNavigation = emptyNavigationTxnPayload()
         var rawMutation = emptyMutationTxnPayload()
         var rawWorkspace = emptyWorkspaceTxnPayload()
-
         switch request {
         case let .navigation(context, navRequest):
             sourceContext = context
             targetContext = nil
             kind = .navigation
-
             rawNavigation = OmniNiriTxnNavigationPayload(
                 op: navigationOpCode(navRequest.request.op),
                 direction: navigationDirectionCode(navRequest.request.direction),
@@ -1306,7 +1197,6 @@ enum ZigNiriStateKernel {
             sourceContext = context
             targetContext = nil
             kind = .mutation
-
             rawMutation = OmniNiriTxnMutationPayload(
                 op: mutationOpCode(mutationRequest.request.op),
                 direction: mutationDirectionCode(mutationRequest.request.direction),
@@ -1358,7 +1248,6 @@ enum ZigNiriStateKernel {
                 source_placeholder_column_id: workspaceRequest.sourcePlaceholderColumnId.map(omniUUID(from:)) ?? zeroUUID()
             )
         }
-
         let rawRequest = OmniNiriTxnRequest(
             kind: kind.rawValue,
             navigation: rawNavigation,
@@ -1372,7 +1261,6 @@ enum ZigNiriStateKernel {
             txn: rawRequest,
             sample_time: sampleTime
         )
-
         var rawRuntimeResult = OmniNiriRuntimeCommandResult()
         let rc = sourceContext.withRawContext { sourceRaw in
             withUnsafePointer(to: &rawRuntimeRequest) { requestPtr in
@@ -1387,7 +1275,6 @@ enum ZigNiriStateKernel {
             }
         }
         let rawResult = rawRuntimeResult.txn
-
         let targetNode: RuntimeNodeTarget?
         if rc == OMNI_OK,
            rawResult.has_target_node_id != 0,
@@ -1400,7 +1287,6 @@ enum ZigNiriStateKernel {
         } else {
             targetNode = nil
         }
-
         let resolvedKind = TxnKind(rawValue: rawResult.kind) ?? kind
         return TxnOutcome(
             rc: rc,
@@ -1419,7 +1305,6 @@ enum ZigNiriStateKernel {
             removedWindowCount: rawResult.removed_window_count
         )
     }
-
     static func applyMutation(
         context: ZigNiriLayoutKernel.LayoutContext,
         request: MutationApplyRequest,
@@ -1449,7 +1334,6 @@ enum ZigNiriStateKernel {
             delta: exported.deltaRC == OMNI_OK ? exported.delta : nil
         )
     }
-
     static func applyWorkspace(
         sourceContext: ZigNiriLayoutKernel.LayoutContext,
         targetContext: ZigNiriLayoutKernel.LayoutContext,
@@ -1473,7 +1357,6 @@ enum ZigNiriStateKernel {
             targetDelta: exported.targetDelta
         )
     }
-
     static func applyNavigation(
         context: ZigNiriLayoutKernel.LayoutContext,
         request: NavigationApplyRequest,
@@ -1501,7 +1384,6 @@ enum ZigNiriStateKernel {
             delta: exported.deltaRC == OMNI_OK ? exported.delta : nil
         )
     }
-
     static func renderRuntime(
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeRenderRequest
@@ -1518,7 +1400,6 @@ enum ZigNiriStateKernel {
                 )
             )
         }
-
         var rawWindows = Array(
             repeating: OmniNiriWindowOutput(),
             count: request.windows.count
@@ -1529,7 +1410,6 @@ enum ZigNiriStateKernel {
         )
         var rc = Int32(OMNI_OK)
         var animationActive = false
-
         request.columns.withUnsafeBufferPointer { columnBuf in
             request.windows.withUnsafeBufferPointer { windowBuf in
                 rawWindows.withUnsafeMutableBufferPointer { outWindowBuf in
@@ -1567,7 +1447,6 @@ enum ZigNiriStateKernel {
                             column_count: outColumnBuf.count,
                             animation_active: 0
                         )
-
                         rc = context.withRawContext { raw in
                             withUnsafePointer(to: &rawRequest) { requestPtr in
                                 withUnsafeMutablePointer(to: &rawOutput) { outputPtr in
@@ -1580,7 +1459,6 @@ enum ZigNiriStateKernel {
                 }
             }
         }
-
         if rc != OMNI_OK {
             return (
                 rc: rc,
@@ -1591,7 +1469,6 @@ enum ZigNiriStateKernel {
                 )
             )
         }
-
         return (
             rc: rc,
             output: RuntimeRenderOutput(
@@ -1601,7 +1478,6 @@ enum ZigNiriStateKernel {
             )
         )
     }
-
     static func startWorkspaceSwitchAnimation(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval
@@ -1610,7 +1486,6 @@ enum ZigNiriStateKernel {
             omni_niri_runtime_start_workspace_switch_animation(raw, sampleTime)
         }
     }
-
     static func startMutationAnimation(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval
@@ -1619,7 +1494,6 @@ enum ZigNiriStateKernel {
             omni_niri_runtime_start_mutation_animation(raw, sampleTime)
         }
     }
-
     static func cancelAnimation(
         context: ZigNiriLayoutKernel.LayoutContext
     ) -> Int32 {
@@ -1627,7 +1501,6 @@ enum ZigNiriStateKernel {
             omni_niri_runtime_cancel_animation(raw)
         }
     }
-
     static func isAnimationActive(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval
@@ -1640,7 +1513,6 @@ enum ZigNiriStateKernel {
         }
         return rc == OMNI_OK && rawActive != 0
     }
-
     static func viewportStatus(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval
@@ -1671,7 +1543,6 @@ enum ZigNiriStateKernel {
             )
         )
     }
-
     static func beginViewportGesture(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval,
@@ -1685,7 +1556,6 @@ enum ZigNiriStateKernel {
             )
         }
     }
-
     static func updateViewportGesture(
         context: ZigNiriLayoutKernel.LayoutContext,
         spans: [Double],
@@ -1697,7 +1567,6 @@ enum ZigNiriStateKernel {
         guard spans.count <= runtimeExportMaxEntries else {
             return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
         }
-
         var rawResult = OmniViewportGestureUpdateResult(
             current_view_offset: 0,
             selection_progress: 0,
@@ -1730,7 +1599,6 @@ enum ZigNiriStateKernel {
             )
         )
     }
-
     static func endViewportGesture(
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportGestureEndRequest
@@ -1738,7 +1606,6 @@ enum ZigNiriStateKernel {
         guard request.spans.count <= runtimeExportMaxEntries else {
             return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
         }
-
         var rawResult = OmniViewportGestureEndResult(
             resolved_column_index: 0,
             spring_from: 0,
@@ -1766,7 +1633,6 @@ enum ZigNiriStateKernel {
         }
         return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)
     }
-
     static func transitionViewportToColumn(
         context: ZigNiriLayoutKernel.LayoutContext,
         request: RuntimeViewportTransitionRequest
@@ -1774,7 +1640,6 @@ enum ZigNiriStateKernel {
         guard request.spans.count <= runtimeExportMaxEntries else {
             return (Int32(OMNI_ERR_OUT_OF_RANGE), nil)
         }
-
         var rawResult = OmniViewportTransitionResult(
             resolved_column_index: 0,
             offset_delta: 0,
@@ -1807,7 +1672,6 @@ enum ZigNiriStateKernel {
         }
         return (rc, rc == OMNI_OK ? Int(rawResult.resolved_column_index) : nil)
     }
-
     static func setViewportOffset(
         context: ZigNiriLayoutKernel.LayoutContext,
         offset: CGFloat
@@ -1816,7 +1680,6 @@ enum ZigNiriStateKernel {
             omni_niri_runtime_viewport_set_offset(raw, Double(offset))
         }
     }
-
     static func cancelViewportMotion(
         context: ZigNiriLayoutKernel.LayoutContext,
         sampleTime: TimeInterval
@@ -1825,7 +1688,6 @@ enum ZigNiriStateKernel {
             omni_niri_runtime_viewport_cancel(raw, sampleTime)
         }
     }
-
     private static func applyTxnAndExportSingleContext(
         _ request: TxnRequest,
         context: ZigNiriLayoutKernel.LayoutContext,
@@ -1843,7 +1705,6 @@ enum ZigNiriStateKernel {
             delta: delta.rc == OMNI_OK ? delta.export : nil
         )
     }
-
     private static func applyTxnAndExportWorkspace(
         sourceContext: ZigNiriLayoutKernel.LayoutContext,
         targetContext: ZigNiriLayoutKernel.LayoutContext,

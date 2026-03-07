@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 enum OverviewLayoutMetrics {
     static let searchBarHeight: CGFloat = 44
     static let searchBarPadding: CGFloat = 20
@@ -16,10 +15,8 @@ enum OverviewLayoutMetrics {
     static let contentTopPadding: CGFloat = 20
     static let contentBottomPadding: CGFloat = 40
 }
-
 @MainActor
 struct OverviewLayoutCalculator {
-
     static func calculateLayout(
         workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)],
         windows: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)],
@@ -29,7 +26,6 @@ struct OverviewLayoutCalculator {
     ) -> OverviewLayout {
         var layout = OverviewLayout()
         layout.scale = scale
-
         let metricsScale = max(0.5, min(1.5, scale))
         let scaledSearchBarHeight = OverviewLayoutMetrics.searchBarHeight * metricsScale
         let scaledSearchBarPadding = OverviewLayoutMetrics.searchBarPadding * metricsScale
@@ -40,7 +36,6 @@ struct OverviewLayoutCalculator {
             width: screenFrame.width * 0.5,
             height: scaledSearchBarHeight
         )
-
         let scaledWindowPadding = OverviewLayoutMetrics.windowPadding * metricsScale
         let availableWidth = screenFrame.width - (scaledWindowPadding * 2)
         let thumbnailWidth = min(
@@ -48,61 +43,46 @@ struct OverviewLayoutCalculator {
             max(OverviewLayoutMetrics.minThumbnailWidth * metricsScale, availableWidth / 4)
         )
         let thumbnailHeight = thumbnailWidth / OverviewLayoutMetrics.thumbnailAspectRatio
-
         var currentY = searchBarY - OverviewLayoutMetrics.contentTopPadding * metricsScale
-
         for workspace in workspaces {
             let workspaceWindows = windows.filter { $0.value.entry.workspaceId == workspace.id }
-
             if workspaceWindows.isEmpty {
                 continue
             }
-
             var windowItems: [OverviewWindowItem] = []
-
             let sortedWindows = workspaceWindows.sorted { lhs, rhs in
                 lhs.value.title < rhs.value.title
             }
-
             let columns = calculateOptimalColumns(
                 windowCount: sortedWindows.count,
                 availableWidth: availableWidth,
                 thumbnailWidth: thumbnailWidth
             )
-
             let totalGridWidth = CGFloat(columns) * thumbnailWidth + CGFloat(columns - 1) * OverviewLayoutMetrics.windowSpacing
             let gridStartX = screenFrame.minX + (screenFrame.width - totalGridWidth) / 2
-
             currentY -= OverviewLayoutMetrics.workspaceLabelHeight * metricsScale
-
             let labelFrame = CGRect(
                 x: screenFrame.minX + scaledWindowPadding,
                 y: currentY,
                 width: availableWidth,
                 height: OverviewLayoutMetrics.workspaceLabelHeight * metricsScale
             )
-
             currentY -= OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
-
             var windowIndex = 0
             for (handle, windowData) in sortedWindows {
                 let column = windowIndex % columns
                 let row = windowIndex / columns
-
                 let windowX = gridStartX + CGFloat(column) * (thumbnailWidth + OverviewLayoutMetrics.windowSpacing * metricsScale)
                 let windowY = currentY - CGFloat(row + 1) * (thumbnailHeight + OverviewLayoutMetrics.windowSpacing * metricsScale)
-
                 let overviewFrame = CGRect(
                     x: windowX,
                     y: windowY,
                     width: thumbnailWidth,
                     height: thumbnailHeight
                 )
-
                 let matchesSearch = searchQuery.isEmpty ||
                     windowData.title.localizedCaseInsensitiveContains(searchQuery) ||
                     windowData.appName.localizedCaseInsensitiveContains(searchQuery)
-
                 let item = OverviewWindowItem(
                     handle: handle,
                     windowId: windowData.entry.windowId,
@@ -121,7 +101,6 @@ struct OverviewLayoutCalculator {
                 windowItems.append(item)
                 windowIndex += 1
             }
-
             let rows = (sortedWindows.count + columns - 1) / columns
             let gridHeight = CGFloat(rows) * thumbnailHeight + CGFloat(rows - 1) * OverviewLayoutMetrics.windowSpacing * metricsScale
             let gridFrame = CGRect(
@@ -130,7 +109,6 @@ struct OverviewLayoutCalculator {
                 width: totalGridWidth,
                 height: gridHeight
             )
-
             let sectionBottom = currentY - gridHeight
             let sectionFrame = CGRect(
                 x: screenFrame.minX,
@@ -138,7 +116,6 @@ struct OverviewLayoutCalculator {
                 width: screenFrame.width,
                 height: currentY + OverviewLayoutMetrics.workspaceLabelHeight * metricsScale - sectionBottom
             )
-
             let section = OverviewWorkspaceSection(
                 workspaceId: workspace.id,
                 name: workspace.name,
@@ -149,18 +126,14 @@ struct OverviewLayoutCalculator {
                 isActive: workspace.isActive
             )
             layout.workspaceSections.append(section)
-
             currentY = sectionBottom - OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
         }
-
         let contentTop = searchBarY - OverviewLayoutMetrics.contentTopPadding * metricsScale
         let contentBottom = currentY + OverviewLayoutMetrics.workspaceSectionPadding * metricsScale
             - OverviewLayoutMetrics.contentBottomPadding * metricsScale
         layout.totalContentHeight = contentTop - contentBottom
-
         return layout
     }
-
     private static func calculateOptimalColumns(
         windowCount: Int,
         availableWidth: CGFloat,
@@ -168,18 +141,14 @@ struct OverviewLayoutCalculator {
     ) -> Int {
         let maxColumns = Int((availableWidth + OverviewLayoutMetrics.windowSpacing) / (thumbnailWidth + OverviewLayoutMetrics.windowSpacing))
         let idealColumns = min(windowCount, max(1, maxColumns))
-
         if windowCount <= 3 {
             return min(windowCount, idealColumns)
         }
-
         if windowCount <= 6 {
             return min(3, idealColumns)
         }
-
         return min(4, idealColumns)
     }
-
     static func updateSearchFilter(layout: inout OverviewLayout, searchQuery: String) {
         for sectionIndex in layout.workspaceSections.indices {
             for windowIndex in layout.workspaceSections[sectionIndex].windows.indices {
@@ -191,7 +160,6 @@ struct OverviewLayoutCalculator {
             }
         }
     }
-
     static func scrollOffsetBounds(layout: OverviewLayout, screenFrame: CGRect) -> ClosedRange<CGFloat> {
         let metricsScale = max(0.5, min(1.5, layout.scale))
         let contentTop = layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * metricsScale
@@ -199,7 +167,6 @@ struct OverviewLayoutCalculator {
         let minOffset = min(0, contentBottom - screenFrame.minY)
         return minOffset ... 0
     }
-
     static func clampedScrollOffset(
         _ scrollOffset: CGFloat,
         layout: OverviewLayout,
@@ -207,7 +174,6 @@ struct OverviewLayoutCalculator {
     ) -> CGFloat {
         scrollOffset.clamped(to: scrollOffsetBounds(layout: layout, screenFrame: screenFrame))
     }
-
     static func findNextWindow(
         in layout: OverviewLayout,
         from currentHandle: WindowHandle?,
@@ -215,17 +181,13 @@ struct OverviewLayoutCalculator {
     ) -> WindowHandle? {
         let visibleWindows = layout.allWindows.filter(\.matchesSearch)
         guard !visibleWindows.isEmpty else { return nil }
-
         guard let currentHandle else {
             return visibleWindows.first?.handle
         }
-
         guard let currentIndex = visibleWindows.firstIndex(where: { $0.handle == currentHandle }) else {
             return visibleWindows.first?.handle
         }
-
         let currentWindow = visibleWindows[currentIndex]
-
         switch direction {
         case .left:
             let leftWindows = visibleWindows.filter {
@@ -233,14 +195,12 @@ struct OverviewLayoutCalculator {
                 abs($0.overviewFrame.midY - currentWindow.overviewFrame.midY) < currentWindow.overviewFrame.height
             }.sorted { $0.overviewFrame.midX > $1.overviewFrame.midX }
             return leftWindows.first?.handle ?? findWrappedPrevious(in: visibleWindows, from: currentIndex)
-
         case .right:
             let rightWindows = visibleWindows.filter {
                 $0.overviewFrame.midX > currentWindow.overviewFrame.midX &&
                 abs($0.overviewFrame.midY - currentWindow.overviewFrame.midY) < currentWindow.overviewFrame.height
             }.sorted { $0.overviewFrame.midX < $1.overviewFrame.midX }
             return rightWindows.first?.handle ?? findWrappedNext(in: visibleWindows, from: currentIndex)
-
         case .up:
             let upWindows = visibleWindows.filter {
                 $0.overviewFrame.midY > currentWindow.overviewFrame.midY
@@ -260,7 +220,6 @@ struct OverviewLayoutCalculator {
                 return closest.handle
             }
             return upWindows.first?.handle
-
         case .down:
             let downWindows = visibleWindows.filter {
                 $0.overviewFrame.midY < currentWindow.overviewFrame.midY
@@ -282,12 +241,10 @@ struct OverviewLayoutCalculator {
             return downWindows.first?.handle
         }
     }
-
     private static func findWrappedNext(in windows: [OverviewWindowItem], from index: Int) -> WindowHandle? {
         let nextIndex = (index + 1) % windows.count
         return windows[nextIndex].handle
     }
-
     private static func findWrappedPrevious(in windows: [OverviewWindowItem], from index: Int) -> WindowHandle? {
         let prevIndex = (index - 1 + windows.count) % windows.count
         return windows[prevIndex].handle

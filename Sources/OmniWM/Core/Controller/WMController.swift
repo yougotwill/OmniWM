@@ -1,30 +1,24 @@
 import AppKit
 import CZigLayout
 import Foundation
-
 final class BorderRuntimeStorage {
     private var rawValue: UInt?
-
     var runtime: OpaquePointer? {
         guard let rawValue else { return nil }
         return OpaquePointer(bitPattern: rawValue)
     }
-
     func store(_ runtime: OpaquePointer) {
         rawValue = UInt(bitPattern: runtime)
     }
-
     func destroy() {
         guard let runtime else { return }
         omni_border_runtime_destroy(runtime)
         rawValue = nil
     }
-
     deinit {
         destroy()
     }
 }
-
 @MainActor @Observable
 final class WMController {
     var isEnabled: Bool = true
@@ -32,7 +26,6 @@ final class WMController {
     private(set) var focusFollowsMouseEnabled: Bool = false
     private(set) var moveMouseToFocusedWindowEnabled: Bool = false
     private(set) var workspaceBarVersion: Int = 0
-
     let settings: SettingsStore
     let workspaceManager: WorkspaceManager
     private let hotkeys = HotkeyCenter()
@@ -48,7 +41,6 @@ final class WMController {
             focusNotificationDispatcher.notifyFocusChangesIfNeeded()
         }
     }
-
     var activeMonitorId: Monitor.ID? {
         didSet {
             focusNotificationDispatcher.notifyFocusChangesIfNeeded()
@@ -56,10 +48,8 @@ final class WMController {
     }
     var previousMonitorId: Monitor.ID?
     private var suppressActiveMonitorUpdate: Bool = false
-
     var zigNiriEngine: ZigNiriEngine?
     var dwindleEngine: DwindleLayoutEngine?
-
     let tabbedOverlayManager = TabbedColumnOverlayManager()
     @ObservationIgnored
     let borderRuntimeStorage = BorderRuntimeStorage()
@@ -87,12 +77,9 @@ final class WMController {
     private lazy var hiddenBarController: HiddenBarController = .init(settings: settings)
     @ObservationIgnored
     private lazy var quakeTerminalController: QuakeTerminalController = .init(settings: settings)
-
     var isTransferringWindow: Bool = false
     var hiddenAppPIDs: Set<pid_t> = []
-
     private(set) var appRulesByBundleId: [String: AppRule] = [:]
-
     @ObservationIgnored
     private(set) lazy var mouseEventHandler = MouseEventHandler(controller: self)
     @ObservationIgnored
@@ -114,9 +101,7 @@ final class WMController {
     @ObservationIgnored
     private(set) lazy var focusNotificationDispatcher = FocusNotificationDispatcher(controller: self)
     var hasStartedServices = false
-
     let animationClock = AnimationClock()
-
     init(
         settings: SettingsStore,
         createBorderRuntime: @escaping () -> OpaquePointer? = { omni_border_runtime_create() }
@@ -135,7 +120,6 @@ final class WMController {
             self?.focusedHandle = handle
         }
     }
-
     func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         if enabled {
@@ -144,20 +128,16 @@ final class WMController {
             serviceLifecycleManager.stop()
         }
     }
-
     func setHotkeysEnabled(_ enabled: Bool) {
         hotkeysEnabled = enabled
         enabled ? hotkeys.start() : hotkeys.stop()
     }
-
     func setGapSize(_ size: Double) {
         workspaceManager.setGaps(to: size)
     }
-
     func setOuterGaps(left: Double, right: Double, top: Double, bottom: Double) {
         workspaceManager.setOuterGaps(left: left, right: right, top: top, bottom: bottom)
     }
-
     func setBordersEnabled(_ enabled: Bool) {
         settings.bordersEnabled = enabled
         if enabled {
@@ -165,11 +145,9 @@ final class WMController {
         }
         refreshBorderPresentation(forceHide: !enabled)
     }
-
     func updateBorderConfig() {
         refreshBorderPresentation()
     }
-
     func setWorkspaceBarEnabled(_ enabled: Bool) {
         if enabled {
             workspaceBarManager.setup(controller: self, settings: settings)
@@ -177,12 +155,10 @@ final class WMController {
             workspaceBarManager.removeAllBars()
         }
     }
-
     func cleanupUIOnStop() {
         workspaceBarManager.cleanup()
         hiddenBarController.cleanup()
     }
-
     func setPreventSleepEnabled(_ enabled: Bool) {
         if enabled {
             SleepPreventionManager.shared.preventSleep()
@@ -190,7 +166,6 @@ final class WMController {
             SleepPreventionManager.shared.allowSleep()
         }
     }
-
     func setHiddenBarEnabled(_ enabled: Bool) {
         if enabled {
             hiddenBarController.setup()
@@ -198,12 +173,10 @@ final class WMController {
             hiddenBarController.cleanup()
         }
     }
-
     func toggleHiddenBar() {
         guard settings.hiddenBarEnabled else { return }
         hiddenBarController.toggle()
     }
-
     func setQuakeTerminalEnabled(_ enabled: Bool) {
         if enabled {
             quakeTerminalController.setup()
@@ -211,33 +184,26 @@ final class WMController {
             quakeTerminalController.cleanup()
         }
     }
-
     func toggleQuakeTerminal() {
         guard settings.quakeTerminalEnabled else { return }
         quakeTerminalController.toggle()
     }
-
     func reloadQuakeTerminalOpacity() {
         quakeTerminalController.reloadOpacityConfig()
     }
-
     func updateWorkspaceBar() {
         workspaceBarVersion += 1
         workspaceBarManager.update()
     }
-
     func updateWorkspaceBarSettings() {
         workspaceBarManager.updateSettings()
     }
-
     func updateMonitorOrientations() {
         layoutRefreshController.refreshWindowsAndLayout()
     }
-
     func updateMonitorNiriSettings() {
         layoutRefreshController.refreshWindowsAndLayout()
     }
-
     func updateMonitorDwindleSettings() {
         guard let engine = dwindleEngine else { return }
         for monitor in workspaceManager.monitors {
@@ -246,7 +212,6 @@ final class WMController {
         }
         layoutRefreshController.refreshWindowsAndLayout()
     }
-
     func workspaceBarItems(for monitor: Monitor, deduplicate: Bool, hideEmpty: Bool) -> [WorkspaceBarItem] {
         WorkspaceBarDataSource.workspaceBarItems(
             for: monitor,
@@ -259,23 +224,18 @@ final class WMController {
             settings: settings
         )
     }
-
     func focusWorkspaceFromBar(named name: String) {
         windowActionHandler.focusWorkspaceFromBar(named: name)
     }
-
     func focusWindowFromBar(windowId: Int) {
         windowActionHandler.focusWindowFromBar(windowId: windowId)
     }
-
     func setFocusFollowsMouse(_ enabled: Bool) {
         focusFollowsMouseEnabled = enabled
     }
-
     func setMoveMouseToFocusedWindow(_ enabled: Bool) {
         moveMouseToFocusedWindowEnabled = enabled
     }
-
     func setMouseWarpEnabled(_ enabled: Bool) {
         if enabled {
             mouseWarpHandler.setup()
@@ -283,12 +243,10 @@ final class WMController {
             mouseWarpHandler.cleanup()
         }
     }
-
     func insetWorkingFrame(for monitor: Monitor) -> CGRect {
         let scale = NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 2.0
         return insetWorkingFrame(from: monitor.visibleFrame, scale: scale)
     }
-
     func insetWorkingFrame(from frame: CGRect, scale: CGFloat = 2.0) -> CGRect {
         let outer = workspaceManager.outerGaps
         let struts = Struts(
@@ -303,34 +261,28 @@ final class WMController {
             struts: struts
         )
     }
-
     func updateHotkeyBindings(_ bindings: [HotkeyBinding]) {
         hotkeys.updateBindings(bindings)
     }
-
     func updateWorkspaceConfig() {
         workspaceManager.applySettings()
         syncMonitorsToNiriEngine()
         layoutRefreshController.refreshWindowsAndLayout()
         updateWorkspaceBar()
     }
-
     func rebuildAppRulesCache() {
         appRulesByBundleId = Dictionary(
             settings.appRules.map { ($0.bundleId, $0) },
             uniquingKeysWith: { first, _ in first }
         )
     }
-
     func updateAppRules() {
         rebuildAppRulesCache()
         layoutRefreshController.refreshWindowsAndLayout()
     }
-
     var hotkeyRegistrationFailures: Set<HotkeyCommand> {
         hotkeys.registrationFailures
     }
-
     func enableNiriLayout(
         maxWindowsPerColumn: Int = 3,
         centerFocusedColumn: CenterFocusedColumn = .never,
@@ -342,11 +294,9 @@ final class WMController {
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
     }
-
     func syncMonitorsToNiriEngine() {
         niriLayoutHandler.syncMonitorsToNiriEngine()
     }
-
     func updateNiriConfig(
         maxWindowsPerColumn: Int? = nil,
         maxVisibleColumns: Int? = nil,
@@ -366,11 +316,9 @@ final class WMController {
             columnWidthPresets: columnWidthPresets
         )
     }
-
     func enableDwindleLayout() {
         dwindleLayoutHandler.enableDwindleLayout()
     }
-
     func updateDwindleConfig(
         smartSplit: Bool? = nil,
         defaultSplitRatio: CGFloat? = nil,
@@ -394,7 +342,6 @@ final class WMController {
             outerGapRight: outerGapRight
         )
     }
-
     func monitorForInteraction() -> Monitor? {
         if let focused = focusedHandle,
            let workspaceId = workspaceManager.workspace(for: focused),
@@ -404,7 +351,6 @@ final class WMController {
         }
         return workspaceManager.monitors.first
     }
-
     private func updateActiveMonitorFromFocusedHandle(_ handle: WindowHandle?) {
         guard !suppressActiveMonitorUpdate else { return }
         guard let handle,
@@ -413,7 +359,6 @@ final class WMController {
         else {
             return
         }
-
         if let currentId = activeMonitorId, currentId != monitorId {
             previousMonitorId = currentId
         }
@@ -421,12 +366,10 @@ final class WMController {
             activeMonitorId = monitorId
         }
     }
-
     func activeWorkspace() -> WorkspaceDescriptor? {
         guard let monitor = monitorForInteraction() else { return nil }
         return workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
     }
-
     func resolveWorkspaceForNewWindow(
         axRef: AXWindowRef,
         pid: pid_t,
@@ -439,13 +382,11 @@ final class WMController {
         {
             return wsId
         }
-
         if let monitor = monitorForInteraction(),
            let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
         {
             return workspace.id
         }
-
         if let frame = AXWindowService.framePreferFast(axRef) {
             let center = frame.center
             if let monitor = center.monitorApproximation(in: workspaceManager.monitors),
@@ -463,20 +404,17 @@ final class WMController {
         if let createdWorkspaceId = workspaceManager.workspaceId(for: "1", createIfMissing: true) {
             return createdWorkspaceId
         }
-        fatalError("resolveWorkspaceForNewWindow: no workspaces exist")
+        return workspaceManager.workspaceId(for: "1", createIfMissing: true)!
     }
-
     func workspaceAssignment(pid: pid_t, windowId: Int) -> WorkspaceDescriptor.ID? {
         workspaceManager.entry(forPid: pid, windowId: windowId)?.workspaceId
     }
-
     func openWindowFinder() { windowActionHandler.openWindowFinder() }
     func openMenuAnywhere() { windowActionHandler.openMenuAnywhere() }
     func openMenuPalette() { windowActionHandler.openMenuPalette() }
     func toggleOverview() { windowActionHandler.toggleOverview() }
     func raiseAllFloatingWindows() { windowActionHandler.raiseAllFloatingWindows() }
     func isOverviewOpen() -> Bool { windowActionHandler.isOverviewOpen() }
-
     @discardableResult
     func resolveAndSetWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
         focusManager.resolveAndSetWorkspaceFocus(
@@ -484,7 +422,6 @@ final class WMController {
             entries: workspaceManager.entries(in: workspaceId)
         )
     }
-
     func recoverSourceFocusAfterMove(
         in workspaceId: WorkspaceDescriptor.ID,
         preferredNodeId: NodeId?
@@ -497,7 +434,6 @@ final class WMController {
             entries: workspaceManager.entries(in: workspaceId)
         )
     }
-
     @discardableResult
     func syncZigNiriWorkspace(
         workspaceId: WorkspaceDescriptor.ID,
@@ -513,7 +449,6 @@ final class WMController {
         )
         return zigNiriEngine.workspaceView(for: workspaceId)
     }
-
     func zigNodeId(
         for handle: WindowHandle,
         workspaceId: WorkspaceDescriptor.ID? = nil
@@ -523,7 +458,6 @@ final class WMController {
         }
         return zigNiriEngine?.nodeId(for: handle)
     }
-
     func zigWindowHandle(
         for nodeId: NodeId,
         workspaceId: WorkspaceDescriptor.ID? = nil
@@ -533,7 +467,6 @@ final class WMController {
         }
         return zigNiriEngine?.windowHandle(for: nodeId)
     }
-
     func zigContainsNode(
         _ nodeId: NodeId,
         workspaceId: WorkspaceDescriptor.ID
@@ -548,34 +481,26 @@ final class WMController {
         }
         return false
     }
-
     func moveMouseToWindow(_ handle: WindowHandle) {
         guard let entry = workspaceManager.entry(for: handle) else { return }
         guard let frame = AXWindowService.framePreferFast(entry.axRef) else { return }
-
         let center = frame.center
-
         guard NSScreen.screens.contains(where: { $0.frame.contains(center) }) else { return }
-
         CGWarpMouseCursorPosition(center)
     }
-
     func runningAppsWithWindows() -> [RunningAppInfo] {
         windowActionHandler.runningAppsWithWindows()
     }
 }
-
 extension WMController {
     func withSuppressedMonitorUpdate(_ body: () -> Void) {
         suppressActiveMonitorUpdate = true
         defer { suppressActiveMonitorUpdate = false }
         body()
     }
-
     func isFrontmostAppLockScreen() -> Bool {
         lockScreenObserver.isFrontmostAppLockScreen()
     }
-
     func isPointInQuakeTerminal(_ point: CGPoint) -> Bool {
         guard settings.quakeTerminalEnabled,
               quakeTerminalController.visible,
@@ -584,7 +509,6 @@ extension WMController {
         }
         return window.frame.contains(point)
     }
-
     func isPointInOwnWindow(_ point: CGPoint) -> Bool {
         if isPointInQuakeTerminal(point) { return true }
         if windowActionHandler.isPointInOverview(point) { return true }
@@ -593,11 +517,9 @@ extension WMController {
         if SponsorsWindowController.shared.isPointInside(point) { return true }
         return false
     }
-
     func focusWindow(_ handle: WindowHandle) {
         guard let entry = workspaceManager.entry(for: handle) else { return }
         focusManager.setNonManagedFocus(active: false)
-
         let axRef = entry.axRef
         let pid = handle.pid
         let windowId = entry.windowId
@@ -606,21 +528,14 @@ extension WMController {
             handle,
             workspaceId: entry.workspaceId,
             performFocus: {
-                // 1. Activate app first (brings process to front, may pick wrong key window)
                 if let runningApp = NSRunningApplication(processIdentifier: pid) {
                     runningApp.activate(options: [])
                 }
-
-                // 2. Private API sets the SPECIFIC window as key (overrides activate's choice)
                 OmniWM.focusWindow(pid: pid, windowId: UInt32(windowId), windowRef: axRef.element)
-
-                // 3. AX raise ensures the window is visually on top and receives keyboard focus
                 AXUIElementPerformAction(axRef.element, kAXRaiseAction as CFString)
-
                 if moveMouseEnabled {
                     self.moveMouseToWindow(handle)
                 }
-
                 if let entry = self.workspaceManager.entry(for: handle) {
                     if let workspaceView = self.syncZigNiriWorkspace(workspaceId: entry.workspaceId),
                        let nodeId = self.zigNiriEngine?.nodeId(for: handle),
@@ -638,7 +553,6 @@ extension WMController {
             }
         )
     }
-
     var isDiscoveryInProgress: Bool {
         layoutRefreshController.isDiscoveryInProgress
     }

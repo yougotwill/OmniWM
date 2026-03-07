@@ -1,23 +1,17 @@
 import AppKit
 import Carbon
 import Foundation
-
 final class HotkeyCenter {
     var onCommand: ((HotkeyCommand) -> Void)?
-
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
     private var isRunning = false
     private var idToCommand: [UInt32: HotkeyCommand] = [:]
-
     private var bindings: [HotkeyBinding] = []
-
     private(set) var registrationFailures: Set<HotkeyCommand> = []
-
     func start() {
         guard !isRunning else { return }
         isRunning = true
-
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let callback: EventHandlerUPP = { _, event, userData in
             guard let userData, let event else { return noErr }
@@ -37,10 +31,8 @@ final class HotkeyCenter {
         }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventSpec, selfPtr, &handler)
-
         registerHotkeys()
     }
-
     func stop() {
         guard isRunning else { return }
         isRunning = false
@@ -50,7 +42,6 @@ final class HotkeyCenter {
             self.handler = nil
         }
     }
-
     func updateBindings(_ newBindings: [HotkeyBinding]) {
         bindings = newBindings
         if isRunning {
@@ -58,7 +49,6 @@ final class HotkeyCenter {
             registerHotkeys()
         }
     }
-
     private func unregisterAll() {
         for ref in refs {
             if let ref { UnregisterEventHotKey(ref) }
@@ -66,12 +56,10 @@ final class HotkeyCenter {
         refs.removeAll()
         idToCommand.removeAll()
     }
-
     private func registerHotkeys() {
         unregisterAll()
         registrationFailures.removeAll()
         var nextId: UInt32 = 1
-
         for binding in bindings {
             if binding.binding.isUnassigned {
                 continue
@@ -95,7 +83,6 @@ final class HotkeyCenter {
             nextId += 1
         }
     }
-
     private func dispatch(id: UInt32) {
         guard let command = idToCommand[id] else { return }
         onCommand?(command)

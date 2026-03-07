@@ -1,6 +1,5 @@
 const std = @import("std");
 const abi = @import("abi_types.zig");
-
 const MIN_RATIO: f64 = 0.1;
 const MAX_RATIO: f64 = 1.9;
 const MIN_FRACTION: f64 = 0.05;
@@ -12,38 +11,32 @@ const DEFAULT_MUTATION_INNER_GAP: f64 = 8.0;
 const DEFAULT_SPLIT_RATIO: f64 = 1.0;
 const DEFAULT_SPLIT_WIDTH_MULTIPLIER: f64 = 1.0;
 const CYCLE_PRESETS = [_]f64{ 0.3, 0.5, 0.7 };
-
 const Rect = struct {
     x: f64,
     y: f64,
     width: f64,
     height: f64,
 };
-
 const RuntimeSettings = struct {
     smart_split: bool,
     default_split_ratio: f64,
     split_width_multiplier: f64,
     inner_gap: f64,
 };
-
 const SplitPlan = struct {
     orientation: u8,
     new_first: bool,
 };
-
 const Size = struct {
     width: f64,
     height: f64,
 };
-
 const LayoutScratch = struct {
     frame_count: usize,
     frames: [abi.MAX_WINDOWS]abi.OmniDwindleWindowFrame,
     has_min_size: [abi.OMNI_DWINDLE_MAX_NODES]u8,
     min_sizes: [abi.OMNI_DWINDLE_MAX_NODES]Size,
 };
-
 pub const OmniDwindleLayoutContext = extern struct {
     node_count: usize,
     nodes: [abi.OMNI_DWINDLE_MAX_NODES]abi.OmniDwindleSeedNode,
@@ -57,43 +50,33 @@ pub const OmniDwindleLayoutContext = extern struct {
     cached_node_frame_height: [abi.OMNI_DWINDLE_MAX_NODES]f64,
     next_node_counter: u64,
 };
-
 fn zeroUuid() abi.OmniUuid128 {
     return .{ .bytes = [_]u8{0} ** 16 };
 }
-
 fn isZeroUuid(uuid: abi.OmniUuid128) bool {
     return std.mem.eql(u8, uuid.bytes[0..], zeroUuid().bytes[0..]);
 }
-
 fn uuidEqual(a: abi.OmniUuid128, b: abi.OmniUuid128) bool {
     return std.mem.eql(u8, a.bytes[0..], b.bytes[0..]);
 }
-
 fn isFlag(value: u8) bool {
     return value == 0 or value == 1;
 }
-
 fn isFiniteNonNegative(value: f64) bool {
     return std.math.isFinite(value) and value >= 0;
 }
-
 fn rectMinX(rect: Rect) f64 {
     return rect.x;
 }
-
 fn rectMaxX(rect: Rect) f64 {
     return rect.x + rect.width;
 }
-
 fn rectMinY(rect: Rect) f64 {
     return rect.y;
 }
-
 fn rectMaxY(rect: Rect) f64 {
     return rect.y + rect.height;
 }
-
 fn rectToFrame(window_id: abi.OmniUuid128, rect: Rect) abi.OmniDwindleWindowFrame {
     return .{
         .window_id = window_id,
@@ -103,7 +86,6 @@ fn rectToFrame(window_id: abi.OmniUuid128, rect: Rect) abi.OmniDwindleWindowFram
         .frame_height = rect.height,
     };
 }
-
 fn frameToRect(frame: abi.OmniDwindleWindowFrame) Rect {
     return .{
         .x = frame.frame_x,
@@ -112,7 +94,6 @@ fn frameToRect(frame: abi.OmniDwindleWindowFrame) Rect {
         .height = frame.frame_height,
     };
 }
-
 fn abiRectToRect(raw: abi.OmniDwindleRect) Rect {
     return .{
         .x = raw.x,
@@ -121,7 +102,6 @@ fn abiRectToRect(raw: abi.OmniDwindleRect) Rect {
         .height = raw.height,
     };
 }
-
 fn decodeRuntimeSettings(raw: abi.OmniDwindleRuntimeSettings) RuntimeSettings {
     return .{
         .smart_split = raw.smart_split != 0,
@@ -139,12 +119,10 @@ fn decodeRuntimeSettings(raw: abi.OmniDwindleRuntimeSettings) RuntimeSettings {
             DEFAULT_MUTATION_INNER_GAP,
     };
 }
-
 fn ratioToFraction(ratio: f64) f64 {
     const clamped_ratio = @min(@max(ratio, MIN_RATIO), MAX_RATIO);
     return @min(@max(clamped_ratio / 2.0, MIN_FRACTION), MAX_FRACTION);
 }
-
 fn applyOuterGapsOnly(rect: Rect, req: abi.OmniDwindleLayoutRequest) Rect {
     return .{
         .x = rect.x + req.outer_gap_left,
@@ -153,18 +131,15 @@ fn applyOuterGapsOnly(rect: Rect, req: abi.OmniDwindleLayoutRequest) Rect {
         .height = @max(1.0, rect.height - req.outer_gap_top - req.outer_gap_bottom),
     };
 }
-
 fn applyGaps(node_rect: Rect, tiling_area: Rect, req: abi.OmniDwindleLayoutRequest) Rect {
     const at_left = @abs(rectMinX(node_rect) - rectMinX(tiling_area)) < STICKS_TOLERANCE;
     const at_right = @abs(rectMaxX(node_rect) - rectMaxX(tiling_area)) < STICKS_TOLERANCE;
     const at_bottom = @abs(rectMinY(node_rect) - rectMinY(tiling_area)) < STICKS_TOLERANCE;
     const at_top = @abs(rectMaxY(node_rect) - rectMaxY(tiling_area)) < STICKS_TOLERANCE;
-
     const left_gap = if (at_left) req.outer_gap_left else req.inner_gap / 2.0;
     const right_gap = if (at_right) req.outer_gap_right else req.inner_gap / 2.0;
     const bottom_gap = if (at_bottom) req.outer_gap_bottom else req.inner_gap / 2.0;
     const top_gap = if (at_top) req.outer_gap_top else req.inner_gap / 2.0;
-
     return .{
         .x = node_rect.x + left_gap,
         .y = node_rect.y + bottom_gap,
@@ -172,31 +147,25 @@ fn applyGaps(node_rect: Rect, tiling_area: Rect, req: abi.OmniDwindleLayoutReque
         .height = @max(1.0, node_rect.height - top_gap - bottom_gap),
     };
 }
-
 fn singleWindowRect(screen: Rect, req: abi.OmniDwindleLayoutRequest) Rect {
     const target_ratio = if (@abs(req.single_window_aspect_height) < 0.001)
         std.math.inf(f64)
     else
         req.single_window_aspect_width / req.single_window_aspect_height;
-
     const current_ratio = if (@abs(screen.height) < 0.001)
         std.math.inf(f64)
     else
         screen.width / screen.height;
-
     if (@abs(target_ratio - current_ratio) < req.single_window_aspect_tolerance) {
         return screen;
     }
-
     var width = screen.width;
     var height = screen.height;
-
     if (current_ratio > target_ratio) {
         width = height * target_ratio;
     } else {
         height = width / target_ratio;
     }
-
     return .{
         .x = screen.x + (screen.width - width) / 2.0,
         .y = screen.y + (screen.height - height) / 2.0,
@@ -204,7 +173,6 @@ fn singleWindowRect(screen: Rect, req: abi.OmniDwindleLayoutRequest) Rect {
         .height = height,
     };
 }
-
 fn splitRect(
     rect: Rect,
     orientation: u8,
@@ -213,7 +181,6 @@ fn splitRect(
     second_min_size: Size,
 ) [2]Rect {
     var fraction = ratioToFraction(ratio);
-
     switch (orientation) {
         abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL => {
             const total_min = first_min_size.width + second_min_size.width;
@@ -225,7 +192,6 @@ fn splitRect(
                 const max_fraction = (rect.width - second_min_size.width) / rect.width;
                 fraction = @max(min_fraction, @min(max_fraction, fraction));
             }
-
             const first_w = rect.width * fraction;
             const second_w = rect.width - first_w;
             return .{
@@ -253,7 +219,6 @@ fn splitRect(
                 const max_fraction = (rect.height - second_min_size.height) / rect.height;
                 fraction = @max(min_fraction, @min(max_fraction, fraction));
             }
-
             const first_h = rect.height * fraction;
             const second_h = rect.height - first_h;
             return .{
@@ -274,7 +239,6 @@ fn splitRect(
         else => unreachable,
     }
 }
-
 fn isValidDirection(direction: u8) bool {
     return switch (direction) {
         abi.OMNI_DWINDLE_DIRECTION_LEFT,
@@ -285,21 +249,18 @@ fn isValidDirection(direction: u8) bool {
         else => false,
     };
 }
-
 fn isValidOrientation(orientation: u8) bool {
     return switch (orientation) {
         abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL, abi.OMNI_DWINDLE_ORIENTATION_VERTICAL => true,
         else => false,
     };
 }
-
 fn isValidNodeKind(kind: u8) bool {
     return switch (kind) {
         abi.OMNI_DWINDLE_NODE_SPLIT, abi.OMNI_DWINDLE_NODE_LEAF => true,
         else => false,
     };
 }
-
 fn isValidOp(op: u8) bool {
     return switch (op) {
         abi.OMNI_DWINDLE_OP_ADD_WINDOW,
@@ -321,7 +282,6 @@ fn isValidOp(op: u8) bool {
         else => false,
     };
 }
-
 fn parseOptionalIndex(raw: i64, count: usize, out_index: *?usize) i32 {
     if (raw == -1) {
         out_index.* = null;
@@ -333,7 +293,6 @@ fn parseOptionalIndex(raw: i64, count: usize, out_index: *?usize) i32 {
     out_index.* = index;
     return abi.OMNI_OK;
 }
-
 fn resetContext(ctx: *OmniDwindleLayoutContext) void {
     ctx.node_count = 0;
     ctx.seed_state = .{
@@ -350,19 +309,16 @@ fn resetContext(ctx: *OmniDwindleLayoutContext) void {
     ctx.cached_node_frame_height = [_]f64{0.0} ** abi.OMNI_DWINDLE_MAX_NODES;
     ctx.next_node_counter = 1;
 }
-
 fn asMutableContext(context: [*c]OmniDwindleLayoutContext) ?*OmniDwindleLayoutContext {
     if (context == null) return null;
     const ptr: *OmniDwindleLayoutContext = @ptrCast(&context[0]);
     return ptr;
 }
-
 fn asConstContext(context: [*c]const OmniDwindleLayoutContext) ?*const OmniDwindleLayoutContext {
     if (context == null) return null;
     const ptr: *const OmniDwindleLayoutContext = @ptrCast(&context[0]);
     return ptr;
 }
-
 fn initOpResult(out_result: [*c]abi.OmniDwindleOpResult) void {
     out_result[0] = .{
         .applied = 0,
@@ -375,7 +331,6 @@ fn initOpResult(out_result: [*c]abi.OmniDwindleOpResult) void {
         .removed_window_count = 0,
     };
 }
-
 fn validateNodeIdUniqueness(nodes: [*c]const abi.OmniDwindleSeedNode, node_count: usize) i32 {
     for (0..node_count) |idx| {
         const current = nodes[idx].node_id;
@@ -387,7 +342,6 @@ fn validateNodeIdUniqueness(nodes: [*c]const abi.OmniDwindleSeedNode, node_count
     }
     return abi.OMNI_OK;
 }
-
 fn validateWindowIdUniqueness(nodes: [*c]const abi.OmniDwindleSeedNode, node_count: usize) i32 {
     for (0..node_count) |idx| {
         if (nodes[idx].has_window_id == 0) continue;
@@ -401,28 +355,22 @@ fn validateWindowIdUniqueness(nodes: [*c]const abi.OmniDwindleSeedNode, node_cou
     }
     return abi.OMNI_OK;
 }
-
 fn validateAcyclicParentChain(nodes: [*c]const abi.OmniDwindleSeedNode, node_count: usize) i32 {
     for (0..node_count) |start_idx| {
         var current_idx = start_idx;
         var steps: usize = 0;
-
         while (true) {
             const parent_raw = nodes[current_idx].parent_index;
             if (parent_raw == -1) break;
-
             const parent = std.math.cast(usize, parent_raw) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (parent >= node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             steps += 1;
             if (steps > node_count) return abi.OMNI_ERR_INVALID_ARGS;
             current_idx = parent;
         }
     }
-
     return abi.OMNI_OK;
 }
-
 fn validateReachabilityFromRoot(
     nodes: [*c]const abi.OmniDwindleSeedNode,
     node_count: usize,
@@ -432,25 +380,20 @@ fn validateReachabilityFromRoot(
     var stack = [_]usize{0} ** abi.OMNI_DWINDLE_MAX_NODES;
     var stack_len: usize = 0;
     var visited_count: usize = 0;
-
     stack[0] = root_idx;
     stack_len = 1;
-
     while (stack_len > 0) {
         stack_len -= 1;
         const node_index = stack[stack_len];
         if (node_index >= node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
         if (visited[node_index] != 0) return abi.OMNI_ERR_INVALID_ARGS;
         visited[node_index] = 1;
         visited_count += 1;
-
         const node = nodes[node_index];
         if (node.kind == abi.OMNI_DWINDLE_NODE_SPLIT) {
             const first = std.math.cast(usize, node.first_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const second = std.math.cast(usize, node.second_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (first >= node_count or second >= node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             if (stack_len + 2 > node_count) return abi.OMNI_ERR_INVALID_ARGS;
             stack[stack_len] = first;
             stack_len += 1;
@@ -458,11 +401,9 @@ fn validateReachabilityFromRoot(
             stack_len += 1;
         }
     }
-
     if (visited_count != node_count) return abi.OMNI_ERR_INVALID_ARGS;
     return abi.OMNI_OK;
 }
-
 fn validateConstraints(
     constraints: [*c]const abi.OmniDwindleWindowConstraint,
     constraint_count: usize,
@@ -483,7 +424,6 @@ fn validateConstraints(
         {
             return abi.OMNI_ERR_INVALID_ARGS;
         }
-
         for ((idx + 1)..constraint_count) |other_idx| {
             if (uuidEqual(constraint.window_id, constraints[other_idx].window_id)) {
                 return abi.OMNI_ERR_INVALID_ARGS;
@@ -492,7 +432,6 @@ fn validateConstraints(
     }
     return abi.OMNI_OK;
 }
-
 fn constraintMinSize(
     window_id: abi.OmniUuid128,
     constraints: [*c]const abi.OmniDwindleWindowConstraint,
@@ -511,7 +450,6 @@ fn constraintMinSize(
         .height = 1.0,
     };
 }
-
 fn appendFrame(
     scratch: *LayoutScratch,
     window_id: abi.OmniUuid128,
@@ -522,7 +460,6 @@ fn appendFrame(
     scratch.frame_count += 1;
     return abi.OMNI_OK;
 }
-
 fn countWindowLeaves(
     ctx: *const OmniDwindleLayoutContext,
     node_index: usize,
@@ -530,49 +467,39 @@ fn countWindowLeaves(
 ) i32 {
     if (node_index >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     const node = ctx.nodes[node_index];
-
     if (node.kind == abi.OMNI_DWINDLE_NODE_LEAF) {
         if (node.has_window_id != 0) out_count.* += 1;
         return abi.OMNI_OK;
     }
-
     if (node.kind != abi.OMNI_DWINDLE_NODE_SPLIT) return abi.OMNI_ERR_INVALID_ARGS;
-
     const first_idx = std.math.cast(usize, node.first_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const second_idx = std.math.cast(usize, node.second_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     if (first_idx >= ctx.node_count or second_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var rc = countWindowLeaves(ctx, first_idx, out_count);
     if (rc != abi.OMNI_OK) return rc;
     rc = countWindowLeaves(ctx, second_idx, out_count);
     if (rc != abi.OMNI_OK) return rc;
     return abi.OMNI_OK;
 }
-
 fn findSingleWindowLeaf(
     ctx: *const OmniDwindleLayoutContext,
     node_index: usize,
 ) ?usize {
     if (node_index >= ctx.node_count) return null;
     const node = ctx.nodes[node_index];
-
     if (node.kind == abi.OMNI_DWINDLE_NODE_LEAF) {
         if (node.has_window_id != 0) return node_index;
         return null;
     }
-
     if (node.kind != abi.OMNI_DWINDLE_NODE_SPLIT) return null;
-
     const first_idx = std.math.cast(usize, node.first_child_index) orelse return null;
     const second_idx = std.math.cast(usize, node.second_child_index) orelse return null;
     if (first_idx >= ctx.node_count or second_idx >= ctx.node_count) return null;
-
     if (findSingleWindowLeaf(ctx, first_idx)) |candidate| {
         return candidate;
     }
     return findSingleWindowLeaf(ctx, second_idx);
 }
-
 fn computeMinSizeForSubtree(
     ctx: *const OmniDwindleLayoutContext,
     constraints: [*c]const abi.OmniDwindleWindowConstraint,
@@ -582,15 +509,12 @@ fn computeMinSizeForSubtree(
     out_min_size: *Size,
 ) i32 {
     if (node_index >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     if (scratch.has_min_size[node_index] != 0) {
         out_min_size.* = scratch.min_sizes[node_index];
         return abi.OMNI_OK;
     }
-
     const node = ctx.nodes[node_index];
     var result = Size{ .width = 1.0, .height = 1.0 };
-
     switch (node.kind) {
         abi.OMNI_DWINDLE_NODE_LEAF => {
             if (node.has_window_id != 0) {
@@ -601,10 +525,8 @@ fn computeMinSizeForSubtree(
             const first_idx = std.math.cast(usize, node.first_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const second_idx = std.math.cast(usize, node.second_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (first_idx >= ctx.node_count or second_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             var first_min = Size{ .width = 1.0, .height = 1.0 };
             var second_min = Size{ .width = 1.0, .height = 1.0 };
-
             var rc = computeMinSizeForSubtree(
                 ctx,
                 constraints,
@@ -614,7 +536,6 @@ fn computeMinSizeForSubtree(
                 &first_min,
             );
             if (rc != abi.OMNI_OK) return rc;
-
             rc = computeMinSizeForSubtree(
                 ctx,
                 constraints,
@@ -624,7 +545,6 @@ fn computeMinSizeForSubtree(
                 &second_min,
             );
             if (rc != abi.OMNI_OK) return rc;
-
             switch (node.orientation) {
                 abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL => {
                     result = .{
@@ -643,13 +563,11 @@ fn computeMinSizeForSubtree(
         },
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
-
     scratch.min_sizes[node_index] = result;
     scratch.has_min_size[node_index] = 1;
     out_min_size.* = result;
     return abi.OMNI_OK;
 }
-
 fn layoutRecursive(
     ctx: *OmniDwindleLayoutContext,
     constraints: [*c]const abi.OmniDwindleWindowConstraint,
@@ -662,11 +580,9 @@ fn layoutRecursive(
 ) i32 {
     if (node_index >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     const node = ctx.nodes[node_index];
-
     switch (node.kind) {
         abi.OMNI_DWINDLE_NODE_LEAF => {
             if (node.has_window_id == 0) return abi.OMNI_OK;
-
             const target = if (node.is_fullscreen != 0)
                 tiling_area
             else
@@ -679,10 +595,8 @@ fn layoutRecursive(
             const first_idx = std.math.cast(usize, node.first_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const second_idx = std.math.cast(usize, node.second_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (first_idx >= ctx.node_count or second_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
             var first_min = Size{ .width = 1.0, .height = 1.0 };
             var second_min = Size{ .width = 1.0, .height = 1.0 };
-
             var rc = computeMinSizeForSubtree(
                 ctx,
                 constraints,
@@ -692,7 +606,6 @@ fn layoutRecursive(
                 &first_min,
             );
             if (rc != abi.OMNI_OK) return rc;
-
             rc = computeMinSizeForSubtree(
                 ctx,
                 constraints,
@@ -702,7 +615,6 @@ fn layoutRecursive(
                 &second_min,
             );
             if (rc != abi.OMNI_OK) return rc;
-
             const split_rects = splitRect(
                 rect,
                 node.orientation,
@@ -710,7 +622,6 @@ fn layoutRecursive(
                 first_min,
                 second_min,
             );
-
             rc = layoutRecursive(
                 ctx,
                 constraints,
@@ -722,7 +633,6 @@ fn layoutRecursive(
                 tiling_area,
             );
             if (rc != abi.OMNI_OK) return rc;
-
             rc = layoutRecursive(
                 ctx,
                 constraints,
@@ -739,7 +649,6 @@ fn layoutRecursive(
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
 }
-
 fn calculateDirectionalOverlap(
     source: Rect,
     target: Rect,
@@ -748,12 +657,10 @@ fn calculateDirectionalOverlap(
 ) ?f64 {
     const edge_threshold = inner_gap + NEIGHBOR_EDGE_THRESHOLD_EXTRA;
     const min_overlap_ratio = NEIGHBOR_MIN_OVERLAP_RATIO;
-
     switch (direction) {
         abi.OMNI_DWINDLE_DIRECTION_UP => {
             const edges_touch = @abs(rectMaxY(source) - rectMinY(target)) < edge_threshold;
             if (!edges_touch) return null;
-
             const overlap_start = @max(rectMinX(source), rectMinX(target));
             const overlap_end = @min(rectMaxX(source), rectMaxX(target));
             const overlap = @max(0.0, overlap_end - overlap_start);
@@ -763,7 +670,6 @@ fn calculateDirectionalOverlap(
         abi.OMNI_DWINDLE_DIRECTION_DOWN => {
             const edges_touch = @abs(rectMinY(source) - rectMaxY(target)) < edge_threshold;
             if (!edges_touch) return null;
-
             const overlap_start = @max(rectMinX(source), rectMinX(target));
             const overlap_end = @min(rectMaxX(source), rectMaxX(target));
             const overlap = @max(0.0, overlap_end - overlap_start);
@@ -773,7 +679,6 @@ fn calculateDirectionalOverlap(
         abi.OMNI_DWINDLE_DIRECTION_LEFT => {
             const edges_touch = @abs(rectMinX(source) - rectMaxX(target)) < edge_threshold;
             if (!edges_touch) return null;
-
             const overlap_start = @max(rectMinY(source), rectMinY(target));
             const overlap_end = @min(rectMaxY(source), rectMaxY(target));
             const overlap = @max(0.0, overlap_end - overlap_start);
@@ -783,7 +688,6 @@ fn calculateDirectionalOverlap(
         abi.OMNI_DWINDLE_DIRECTION_RIGHT => {
             const edges_touch = @abs(rectMaxX(source) - rectMinX(target)) < edge_threshold;
             if (!edges_touch) return null;
-
             const overlap_start = @max(rectMinY(source), rectMinY(target));
             const overlap_end = @min(rectMaxY(source), rectMaxY(target));
             const overlap = @max(0.0, overlap_end - overlap_start);
@@ -793,33 +697,27 @@ fn calculateDirectionalOverlap(
         else => return null,
     }
 }
-
 fn i64FromUsize(value: usize) i64 {
     return std.math.cast(i64, value) orelse @panic("usize->i64 overflow");
 }
-
 fn isLeafNode(node: abi.OmniDwindleSeedNode) bool {
     return node.kind == abi.OMNI_DWINDLE_NODE_LEAF;
 }
-
 fn isSplitNode(node: abi.OmniDwindleSeedNode) bool {
     return node.kind == abi.OMNI_DWINDLE_NODE_SPLIT;
 }
-
 fn selectedIndex(ctx: *const OmniDwindleLayoutContext) ?usize {
     if (ctx.seed_state.selected_node_index < 0) return null;
     const idx = std.math.cast(usize, ctx.seed_state.selected_node_index) orelse return null;
     if (idx >= ctx.node_count) return null;
     return idx;
 }
-
 fn setSelectedIndex(ctx: *OmniDwindleLayoutContext, index: ?usize) void {
     ctx.seed_state.selected_node_index = if (index) |idx|
         i64FromUsize(idx)
     else
         -1;
 }
-
 fn rootIndex(ctx: *const OmniDwindleLayoutContext) ?usize {
     if (ctx.node_count == 0) return null;
     if (ctx.seed_state.root_node_index < 0) return null;
@@ -827,14 +725,12 @@ fn rootIndex(ctx: *const OmniDwindleLayoutContext) ?usize {
     if (idx >= ctx.node_count) return null;
     return idx;
 }
-
 fn childIndex(raw: i64, count: usize) ?usize {
     if (raw < 0) return null;
     const idx = std.math.cast(usize, raw) orelse return null;
     if (idx >= count) return null;
     return idx;
 }
-
 fn descendantFirstLeaf(ctx: *const OmniDwindleLayoutContext, start_idx: usize) ?usize {
     if (start_idx >= ctx.node_count) return null;
     var idx = start_idx;
@@ -845,15 +741,12 @@ fn descendantFirstLeaf(ctx: *const OmniDwindleLayoutContext, start_idx: usize) ?
         idx = childIndex(node.first_child_index, ctx.node_count) orelse return null;
     }
 }
-
 fn findFirstLeafWithWindow(ctx: *const OmniDwindleLayoutContext, start_idx: usize) ?usize {
     if (start_idx >= ctx.node_count) return null;
     var stack = [_]usize{0} ** abi.OMNI_DWINDLE_MAX_NODES;
     var stack_len: usize = 0;
-
     stack[0] = start_idx;
     stack_len = 1;
-
     while (stack_len > 0) {
         stack_len -= 1;
         const idx = stack[stack_len];
@@ -872,10 +765,8 @@ fn findFirstLeafWithWindow(ctx: *const OmniDwindleLayoutContext, start_idx: usiz
         stack[stack_len] = first;
         stack_len += 1;
     }
-
     return null;
 }
-
 fn findLeafByWindowId(ctx: *const OmniDwindleLayoutContext, window_id: abi.OmniUuid128) ?usize {
     for (0..ctx.node_count) |idx| {
         const node = ctx.nodes[idx];
@@ -885,14 +776,12 @@ fn findLeafByWindowId(ctx: *const OmniDwindleLayoutContext, window_id: abi.OmniU
     }
     return null;
 }
-
 fn uuidInSlice(values: *const [abi.MAX_WINDOWS]abi.OmniUuid128, value_count: usize, target: abi.OmniUuid128) bool {
     for (0..value_count) |idx| {
         if (uuidEqual(values[idx], target)) return true;
     }
     return false;
 }
-
 fn collectWindowIdsRecursive(
     ctx: *const OmniDwindleLayoutContext,
     node_idx: usize,
@@ -909,18 +798,15 @@ fn collectWindowIdsRecursive(
         }
         return abi.OMNI_OK;
     }
-
     if (!isSplitNode(node)) return abi.OMNI_ERR_INVALID_ARGS;
     const first = childIndex(node.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const second = childIndex(node.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var rc = collectWindowIdsRecursive(ctx, first, out_ids, out_count);
     if (rc != abi.OMNI_OK) return rc;
     rc = collectWindowIdsRecursive(ctx, second, out_ids, out_count);
     if (rc != abi.OMNI_OK) return rc;
     return abi.OMNI_OK;
 }
-
 fn collectWindowIdsInOrder(
     ctx: *const OmniDwindleLayoutContext,
     out_ids: *[abi.MAX_WINDOWS]abi.OmniUuid128,
@@ -931,7 +817,6 @@ fn collectWindowIdsInOrder(
     const root_idx = rootIndex(ctx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     return collectWindowIdsRecursive(ctx, root_idx, out_ids, out_count);
 }
-
 fn resolveNeighborWindowId(
     ctx: *const OmniDwindleLayoutContext,
     window_id: abi.OmniUuid128,
@@ -940,7 +825,6 @@ fn resolveNeighborWindowId(
 ) ?abi.OmniUuid128 {
     if (ctx.cached_frame_count == 0) return null;
     if (ctx.cached_frame_count > abi.MAX_WINDOWS) return null;
-
     var source_rect: ?Rect = null;
     for (0..ctx.cached_frame_count) |idx| {
         const frame = ctx.cached_frames[idx];
@@ -950,15 +834,12 @@ fn resolveNeighborWindowId(
         }
     }
     if (source_rect == null) return null;
-
     var best_overlap: f64 = 0.0;
     var best_window: abi.OmniUuid128 = zeroUuid();
     var found = false;
-
     for (0..ctx.cached_frame_count) |idx| {
         const candidate = ctx.cached_frames[idx];
         if (uuidEqual(candidate.window_id, window_id)) continue;
-
         if (calculateDirectionalOverlap(source_rect.?, frameToRect(candidate), direction, inner_gap)) |overlap| {
             if (!found or overlap > best_overlap) {
                 found = true;
@@ -967,11 +848,9 @@ fn resolveNeighborWindowId(
             }
         }
     }
-
     if (!found) return null;
     return best_window;
 }
-
 fn removeCachedFrame(ctx: *OmniDwindleLayoutContext, window_id: abi.OmniUuid128) void {
     if (ctx.cached_frame_count == 0) return;
     var idx: usize = 0;
@@ -985,11 +864,9 @@ fn removeCachedFrame(ctx: *OmniDwindleLayoutContext, window_id: abi.OmniUuid128)
         return;
     }
 }
-
 fn clearCachedNodeFrames(ctx: *OmniDwindleLayoutContext) void {
     ctx.cached_node_frame_valid = [_]u8{0} ** abi.OMNI_DWINDLE_MAX_NODES;
 }
-
 fn setCachedNodeFrame(
     ctx: *OmniDwindleLayoutContext,
     node_idx: usize,
@@ -1002,7 +879,6 @@ fn setCachedNodeFrame(
     ctx.cached_node_frame_width[node_idx] = rect.width;
     ctx.cached_node_frame_height[node_idx] = rect.height;
 }
-
 fn cachedNodeFrameRect(
     ctx: *const OmniDwindleLayoutContext,
     node_idx: usize,
@@ -1016,7 +892,6 @@ fn cachedNodeFrameRect(
         .height = ctx.cached_node_frame_height[node_idx],
     };
 }
-
 fn swapCachedNodeFrames(
     ctx: *OmniDwindleLayoutContext,
     lhs_idx: usize,
@@ -1024,27 +899,23 @@ fn swapCachedNodeFrames(
 ) void {
     if (lhs_idx >= abi.OMNI_DWINDLE_MAX_NODES or rhs_idx >= abi.OMNI_DWINDLE_MAX_NODES) return;
     if (lhs_idx == rhs_idx) return;
-
     const lhs_valid = ctx.cached_node_frame_valid[lhs_idx];
     const rhs_valid = ctx.cached_node_frame_valid[rhs_idx];
     const lhs_x = ctx.cached_node_frame_x[lhs_idx];
     const lhs_y = ctx.cached_node_frame_y[lhs_idx];
     const lhs_w = ctx.cached_node_frame_width[lhs_idx];
     const lhs_h = ctx.cached_node_frame_height[lhs_idx];
-
     ctx.cached_node_frame_valid[lhs_idx] = rhs_valid;
     ctx.cached_node_frame_x[lhs_idx] = ctx.cached_node_frame_x[rhs_idx];
     ctx.cached_node_frame_y[lhs_idx] = ctx.cached_node_frame_y[rhs_idx];
     ctx.cached_node_frame_width[lhs_idx] = ctx.cached_node_frame_width[rhs_idx];
     ctx.cached_node_frame_height[lhs_idx] = ctx.cached_node_frame_height[rhs_idx];
-
     ctx.cached_node_frame_valid[rhs_idx] = lhs_valid;
     ctx.cached_node_frame_x[rhs_idx] = lhs_x;
     ctx.cached_node_frame_y[rhs_idx] = lhs_y;
     ctx.cached_node_frame_width[rhs_idx] = lhs_w;
     ctx.cached_node_frame_height[rhs_idx] = lhs_h;
 }
-
 fn createNodeIdFromCounter(counter: u64) abi.OmniUuid128 {
     var result = zeroUuid();
     var temp = counter;
@@ -1052,24 +923,22 @@ fn createNodeIdFromCounter(counter: u64) abi.OmniUuid128 {
         result.bytes[idx] = @truncate(temp);
         temp >>= 8;
     }
-    result.bytes[8] = 0x4F; // O
-    result.bytes[9] = 0x4D; // M
-    result.bytes[10] = 0x4E; // N
-    result.bytes[11] = 0x49; // I
-    result.bytes[12] = 0x44; // D
-    result.bytes[13] = 0x57; // W
-    result.bytes[14] = 0x4E; // N
-    result.bytes[15] = 0x31; // 1
+    result.bytes[8] = 0x4F;
+    result.bytes[9] = 0x4D;
+    result.bytes[10] = 0x4E;
+    result.bytes[11] = 0x49;
+    result.bytes[12] = 0x44;
+    result.bytes[13] = 0x57;
+    result.bytes[14] = 0x4E;
+    result.bytes[15] = 0x31;
     return result;
 }
-
 fn nodeIdExists(ctx: *const OmniDwindleLayoutContext, node_id: abi.OmniUuid128) bool {
     for (0..ctx.node_count) |idx| {
         if (uuidEqual(ctx.nodes[idx].node_id, node_id)) return true;
     }
     return false;
 }
-
 fn nextGeneratedNodeId(ctx: *OmniDwindleLayoutContext) abi.OmniUuid128 {
     while (true) {
         const candidate = createNodeIdFromCounter(ctx.next_node_counter);
@@ -1077,7 +946,6 @@ fn nextGeneratedNodeId(ctx: *OmniDwindleLayoutContext) abi.OmniUuid128 {
         if (!isZeroUuid(candidate) and !nodeIdExists(ctx, candidate)) return candidate;
     }
 }
-
 fn makeLeafNode(
     node_id: abi.OmniUuid128,
     parent_index: i64,
@@ -1098,7 +966,6 @@ fn makeLeafNode(
         .is_fullscreen = if (is_fullscreen) 1 else 0,
     };
 }
-
 fn appendNode(
     ctx: *OmniDwindleLayoutContext,
     node: abi.OmniDwindleSeedNode,
@@ -1116,7 +983,6 @@ fn appendNode(
     ctx.node_count += 1;
     return abi.OMNI_OK;
 }
-
 fn aspectOrientationForRect(rect: ?Rect, split_width_multiplier: f64) u8 {
     if (rect == null) return abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL;
     if (rect.?.height * split_width_multiplier > rect.?.width) {
@@ -1124,7 +990,6 @@ fn aspectOrientationForRect(rect: ?Rect, split_width_multiplier: f64) u8 {
     }
     return abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL;
 }
-
 fn planSplitForAddWindow(
     target_rect: ?Rect,
     active_window_frame: ?Rect,
@@ -1136,17 +1001,14 @@ fn planSplitForAddWindow(
             .new_first = false,
         };
     }
-
     const target = target_rect.?;
     const active = active_window_frame.?;
     const target_center_x = target.x + target.width / 2.0;
     const target_center_y = target.y + target.height / 2.0;
     const active_center_x = active.x + active.width / 2.0;
     const active_center_y = active.y + active.height / 2.0;
-
     const delta_x = active_center_x - target_center_x;
     const delta_y = active_center_y - target_center_y;
-
     const slope = if (@abs(delta_x) < 0.001)
         std.math.inf(f64)
     else
@@ -1155,20 +1017,17 @@ fn planSplitForAddWindow(
         std.math.inf(f64)
     else
         target.height / target.width;
-
     if (@abs(slope) < aspect) {
         return .{
             .orientation = abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL,
             .new_first = delta_x < 0,
         };
     }
-
     return .{
         .orientation = abi.OMNI_DWINDLE_ORIENTATION_VERTICAL,
         .new_first = delta_y < 0,
     };
 }
-
 fn replaceNodeWithNode(
     ctx: *OmniDwindleLayoutContext,
     target_idx: usize,
@@ -1186,7 +1045,6 @@ fn replaceNodeWithNode(
     target.first_child_index = source.first_child_index;
     target.second_child_index = source.second_child_index;
     ctx.nodes[target_idx] = target;
-
     if (target.kind == abi.OMNI_DWINDLE_NODE_SPLIT) {
         const first = childIndex(target.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         const second = childIndex(target.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1195,12 +1053,10 @@ fn replaceNodeWithNode(
     }
     return abi.OMNI_OK;
 }
-
 fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
     if (ctx.node_count == 0) return abi.OMNI_OK;
     const old_root = rootIndex(ctx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const old_selected_raw = ctx.seed_state.selected_node_index;
-
     var old_to_new = [_]i64{-1} ** abi.OMNI_DWINDLE_MAX_NODES;
     var new_nodes: [abi.OMNI_DWINDLE_MAX_NODES]abi.OmniDwindleSeedNode = undefined;
     var new_cached_valid = [_]u8{0} ** abi.OMNI_DWINDLE_MAX_NODES;
@@ -1211,20 +1067,16 @@ fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
     var stack = [_]usize{0} ** abi.OMNI_DWINDLE_MAX_NODES;
     var stack_len: usize = 0;
     var new_count: usize = 0;
-
     stack[0] = old_root;
     stack_len = 1;
-
     while (stack_len > 0) {
         stack_len -= 1;
         const idx = stack[stack_len];
         if (idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
         if (old_to_new[idx] != -1) continue;
-
         old_to_new[idx] = i64FromUsize(new_count);
         new_nodes[new_count] = ctx.nodes[idx];
         new_count += 1;
-
         const node = ctx.nodes[idx];
         if (!isSplitNode(node)) continue;
         const first = childIndex(node.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1235,19 +1087,16 @@ fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
         stack[stack_len] = first;
         stack_len += 1;
     }
-
     for (0..ctx.node_count) |old_idx| {
         const maybe_new = old_to_new[old_idx];
         if (maybe_new < 0) continue;
         const new_idx = std.math.cast(usize, maybe_new) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         var node = new_nodes[new_idx];
-
         new_cached_valid[new_idx] = ctx.cached_node_frame_valid[old_idx];
         new_cached_x[new_idx] = ctx.cached_node_frame_x[old_idx];
         new_cached_y[new_idx] = ctx.cached_node_frame_y[old_idx];
         new_cached_width[new_idx] = ctx.cached_node_frame_width[old_idx];
         new_cached_height[new_idx] = ctx.cached_node_frame_height[old_idx];
-
         if (node.parent_index >= 0) {
             const old_parent = std.math.cast(usize, node.parent_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             if (old_parent >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1271,7 +1120,6 @@ fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
         }
         new_nodes[new_idx] = node;
     }
-
     for (0..new_count) |idx| {
         ctx.nodes[idx] = new_nodes[idx];
     }
@@ -1282,7 +1130,6 @@ fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
     ctx.cached_node_frame_height = new_cached_height;
     ctx.node_count = new_count;
     ctx.seed_state.root_node_index = old_to_new[old_root];
-
     if (old_selected_raw >= 0) {
         const old_selected = std.math.cast(usize, old_selected_raw) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
         if (old_selected >= abi.OMNI_DWINDLE_MAX_NODES) return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1295,17 +1142,14 @@ fn compactContext(ctx: *OmniDwindleLayoutContext) i32 {
     } else {
         ctx.seed_state.selected_node_index = -1;
     }
-
     return abi.OMNI_OK;
 }
-
 fn selectedWindowId(ctx: *const OmniDwindleLayoutContext) ?abi.OmniUuid128 {
     const selected_idx = selectedIndex(ctx) orelse return null;
     const node = ctx.nodes[selected_idx];
     if (!isLeafNode(node) or node.has_window_id == 0) return null;
     return node.window_id;
 }
-
 fn syncOpResultFromState(
     ctx: *const OmniDwindleLayoutContext,
     out_result: [*c]abi.OmniDwindleOpResult,
@@ -1314,46 +1158,37 @@ fn syncOpResultFromState(
 ) void {
     out_result[0].applied = if (applied) 1 else 0;
     out_result[0].removed_window_count = removed_count;
-
     if (selectedWindowId(ctx)) |selected_window| {
         out_result[0].has_selected_window_id = 1;
         out_result[0].selected_window_id = selected_window;
         out_result[0].has_focused_window_id = 1;
         out_result[0].focused_window_id = selected_window;
     }
-
     out_result[0].has_preselection = ctx.seed_state.has_preselection;
     out_result[0].preselection_direction = ctx.seed_state.preselection_direction;
 }
-
 fn removeLeafAtIndex(ctx: *OmniDwindleLayoutContext, leaf_idx: usize) i32 {
     if (leaf_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     const leaf = ctx.nodes[leaf_idx];
     if (!isLeafNode(leaf)) return abi.OMNI_ERR_INVALID_ARGS;
-
     const parent_idx = childIndex(leaf.parent_index, ctx.node_count);
-
     var cleared = leaf;
     cleared.has_window_id = 0;
     cleared.window_id = zeroUuid();
     cleared.is_fullscreen = 0;
     ctx.nodes[leaf_idx] = cleared;
-
     if (parent_idx == null) return abi.OMNI_OK;
-
     const parent = ctx.nodes[parent_idx.?];
     if (!isSplitNode(parent)) return abi.OMNI_ERR_INVALID_ARGS;
     const first = childIndex(parent.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const second = childIndex(parent.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const sibling_idx = if (first == leaf_idx) second else if (second == leaf_idx) first else return abi.OMNI_ERR_INVALID_ARGS;
-
     var rc = replaceNodeWithNode(ctx, parent_idx.?, sibling_idx);
     if (rc != abi.OMNI_OK) return rc;
     rc = compactContext(ctx);
     if (rc != abi.OMNI_OK) return rc;
     return abi.OMNI_OK;
 }
-
 fn addWindowInternal(
     ctx: *OmniDwindleLayoutContext,
     window_id: abi.OmniUuid128,
@@ -1363,7 +1198,6 @@ fn addWindowInternal(
 ) i32 {
     out_applied.* = false;
     if (findLeafByWindowId(ctx, window_id) != null) return abi.OMNI_OK;
-
     if (ctx.node_count == 0) {
         var root_leaf_index: usize = 0;
         const node = makeLeafNode(
@@ -1380,14 +1214,12 @@ fn addWindowInternal(
         out_applied.* = true;
         return abi.OMNI_OK;
     }
-
     const root_idx = rootIndex(ctx) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     var target_idx = selectedIndex(ctx);
     if (target_idx == null or !isLeafNode(ctx.nodes[target_idx.?])) {
         target_idx = descendantFirstLeaf(ctx, root_idx);
     }
     if (target_idx == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     if (ctx.nodes[target_idx.?].has_window_id == 0) {
         ctx.nodes[target_idx.?].window_id = window_id;
         ctx.nodes[target_idx.?].has_window_id = 1;
@@ -1396,7 +1228,6 @@ fn addWindowInternal(
         out_applied.* = true;
         return abi.OMNI_OK;
     }
-
     var orientation = abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL;
     var new_first = false;
     if (ctx.seed_state.has_preselection != 0) {
@@ -1413,11 +1244,9 @@ fn addWindowInternal(
         orientation = split_plan.orientation;
         new_first = split_plan.new_first;
     }
-
     const original = ctx.nodes[target_idx.?];
     var existing_leaf_idx: usize = 0;
     var new_leaf_idx: usize = 0;
-
     var rc = appendNode(
         ctx,
         makeLeafNode(
@@ -1430,7 +1259,6 @@ fn addWindowInternal(
         &existing_leaf_idx,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     rc = appendNode(
         ctx,
         makeLeafNode(
@@ -1443,7 +1271,6 @@ fn addWindowInternal(
         &new_leaf_idx,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     var split_node = ctx.nodes[target_idx.?];
     split_node.kind = abi.OMNI_DWINDLE_NODE_SPLIT;
     split_node.orientation = orientation;
@@ -1454,13 +1281,11 @@ fn addWindowInternal(
     split_node.first_child_index = i64FromUsize(if (new_first) new_leaf_idx else existing_leaf_idx);
     split_node.second_child_index = i64FromUsize(if (new_first) existing_leaf_idx else new_leaf_idx);
     ctx.nodes[target_idx.?] = split_node;
-
     setSelectedIndex(ctx, new_leaf_idx);
     ctx.seed_state.has_preselection = 0;
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn removeWindowInternal(ctx: *OmniDwindleLayoutContext, window_id: abi.OmniUuid128, out_applied: *bool) i32 {
     out_applied.* = false;
     const leaf_idx = findLeafByWindowId(ctx, window_id) orelse return abi.OMNI_OK;
@@ -1483,7 +1308,6 @@ fn removeWindowInternal(ctx: *OmniDwindleLayoutContext, window_id: abi.OmniUuid1
             }
         }
     }
-
     const rc = removeLeafAtIndex(ctx, leaf_idx);
     if (rc != abi.OMNI_OK) return rc;
     removeCachedFrame(ctx, window_id);
@@ -1501,7 +1325,6 @@ fn removeWindowInternal(ctx: *OmniDwindleLayoutContext, window_id: abi.OmniUuid1
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn computeSyncPlan(
     ctx: *const OmniDwindleLayoutContext,
     payload: abi.OmniDwindleSyncWindowsPayload,
@@ -1512,7 +1335,6 @@ fn computeSyncPlan(
 ) i32 {
     out_incoming_count.* = 0;
     out_removed_count.* = 0;
-
     for (0..payload.window_count) |idx| {
         const id = payload.window_ids[idx];
         if (isZeroUuid(id)) return abi.OMNI_ERR_INVALID_ARGS;
@@ -1520,12 +1342,10 @@ fn computeSyncPlan(
         out_incoming[out_incoming_count.*] = id;
         out_incoming_count.* += 1;
     }
-
     var current_ids = [_]abi.OmniUuid128{zeroUuid()} ** abi.MAX_WINDOWS;
     var current_count: usize = 0;
     const rc = collectWindowIdsInOrder(ctx, &current_ids, &current_count);
     if (rc != abi.OMNI_OK) return rc;
-
     for (0..current_count) |idx| {
         const id = current_ids[idx];
         if (!uuidInSlice(out_incoming, out_incoming_count.*, id)) {
@@ -1533,10 +1353,8 @@ fn computeSyncPlan(
             out_removed_count.* += 1;
         }
     }
-
     return abi.OMNI_OK;
 }
-
 fn balanceSplitRatiosRecursive(
     ctx: *OmniDwindleLayoutContext,
     node_idx: usize,
@@ -1545,23 +1363,19 @@ fn balanceSplitRatiosRecursive(
     if (node_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     var node = ctx.nodes[node_idx];
     if (!isSplitNode(node)) return abi.OMNI_OK;
-
     if (node.ratio != DEFAULT_SPLIT_RATIO) {
         node.ratio = DEFAULT_SPLIT_RATIO;
         ctx.nodes[node_idx] = node;
         out_changed.* = true;
     }
-
     const first = childIndex(node.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const second = childIndex(node.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var rc = balanceSplitRatiosRecursive(ctx, first, out_changed);
     if (rc != abi.OMNI_OK) return rc;
     rc = balanceSplitRatiosRecursive(ctx, second, out_changed);
     if (rc != abi.OMNI_OK) return rc;
     return abi.OMNI_OK;
 }
-
 fn nearestPresetIndex(ratio: f64) usize {
     var best_idx: usize = 0;
     var best_distance = @abs(CYCLE_PRESETS[0] - ratio);
@@ -1574,14 +1388,12 @@ fn nearestPresetIndex(ratio: f64) usize {
     }
     return best_idx;
 }
-
 fn normalizeSelection(ctx: *OmniDwindleLayoutContext) bool {
     const maybe_selected = selectedIndex(ctx);
     if (maybe_selected) |idx| {
         const node = ctx.nodes[idx];
         if (isLeafNode(node) and node.has_window_id != 0) return false;
     }
-
     const root_idx = rootIndex(ctx) orelse {
         setSelectedIndex(ctx, null);
         return maybe_selected != null;
@@ -1591,38 +1403,31 @@ fn normalizeSelection(ctx: *OmniDwindleLayoutContext) bool {
         setSelectedIndex(ctx, leaf_idx);
         return changed;
     }
-
     const fallback_leaf = descendantFirstLeaf(ctx, root_idx) orelse root_idx;
     const changed = maybe_selected == null or maybe_selected.? != fallback_leaf;
     setSelectedIndex(ctx, fallback_leaf);
     return changed;
 }
-
 fn moveFocusInternal(ctx: *OmniDwindleLayoutContext, direction: u8, inner_gap: f64) i32 {
     const root_idx = rootIndex(ctx) orelse return abi.OMNI_OK;
-
     var current_idx = selectedIndex(ctx);
     if (current_idx == null or !isLeafNode(ctx.nodes[current_idx.?]) or ctx.nodes[current_idx.?].has_window_id == 0) {
         const fallback_leaf = descendantFirstLeaf(ctx, root_idx) orelse return abi.OMNI_OK;
         setSelectedIndex(ctx, fallback_leaf);
         current_idx = fallback_leaf;
     }
-
     const current = ctx.nodes[current_idx.?];
     if (current.has_window_id == 0) return abi.OMNI_OK;
-
     const neighbor_id = resolveNeighborWindowId(
         ctx,
         current.window_id,
         direction,
         inner_gap,
     ) orelse return abi.OMNI_OK;
-
     const neighbor_leaf = findLeafByWindowId(ctx, neighbor_id) orelse return abi.OMNI_OK;
     setSelectedIndex(ctx, neighbor_leaf);
     return abi.OMNI_OK;
 }
-
 fn swapWindowsInternal(
     ctx: *OmniDwindleLayoutContext,
     direction: u8,
@@ -1634,7 +1439,6 @@ fn swapWindowsInternal(
     if (selected_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     const selected = ctx.nodes[selected_idx];
     if (!isLeafNode(selected) or selected.has_window_id == 0) return abi.OMNI_OK;
-
     const neighbor_id = resolveNeighborWindowId(
         ctx,
         selected.window_id,
@@ -1643,23 +1447,18 @@ fn swapWindowsInternal(
     ) orelse return abi.OMNI_OK;
     const neighbor_idx = findLeafByWindowId(ctx, neighbor_id) orelse return abi.OMNI_OK;
     if (neighbor_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var lhs = ctx.nodes[selected_idx];
     var rhs = ctx.nodes[neighbor_idx];
     if (!isLeafNode(rhs) or rhs.has_window_id == 0) return abi.OMNI_OK;
-
     const lhs_window = lhs.window_id;
     const lhs_has = lhs.has_window_id;
     const lhs_fullscreen = lhs.is_fullscreen;
-
     lhs.window_id = rhs.window_id;
     lhs.has_window_id = rhs.has_window_id;
     lhs.is_fullscreen = rhs.is_fullscreen;
-
     rhs.window_id = lhs_window;
     rhs.has_window_id = lhs_has;
     rhs.is_fullscreen = lhs_fullscreen;
-
     ctx.nodes[selected_idx] = lhs;
     ctx.nodes[neighbor_idx] = rhs;
     swapCachedNodeFrames(ctx, selected_idx, neighbor_idx);
@@ -1667,7 +1466,6 @@ fn swapWindowsInternal(
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn toggleFullscreenInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) i32 {
     out_applied.* = false;
     const selected_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
@@ -1679,7 +1477,6 @@ fn toggleFullscreenInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) 
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn toggleOrientationInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) i32 {
     out_applied.* = false;
     const selected_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
@@ -1695,7 +1492,6 @@ fn toggleOrientationInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool)
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn resizeSelectedInternal(
     ctx: *OmniDwindleLayoutContext,
     delta: f64,
@@ -1705,13 +1501,11 @@ fn resizeSelectedInternal(
     out_applied.* = false;
     var current_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
     if (current_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     const target_orientation = if (direction == abi.OMNI_DWINDLE_DIRECTION_LEFT or direction == abi.OMNI_DWINDLE_DIRECTION_RIGHT)
         abi.OMNI_DWINDLE_ORIENTATION_HORIZONTAL
     else
         abi.OMNI_DWINDLE_ORIENTATION_VERTICAL;
     const increase_first = !(direction == abi.OMNI_DWINDLE_DIRECTION_RIGHT or direction == abi.OMNI_DWINDLE_DIRECTION_UP);
-
     while (true) {
         const parent_idx = childIndex(ctx.nodes[current_idx].parent_index, ctx.node_count) orelse break;
         var parent = ctx.nodes[parent_idx];
@@ -1719,36 +1513,29 @@ fn resizeSelectedInternal(
             current_idx = parent_idx;
             continue;
         }
-
         if (parent.orientation == target_orientation) {
             const first = childIndex(parent.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const is_first = first == current_idx;
             var new_ratio = parent.ratio;
-
             if ((is_first and increase_first) or (!is_first and !increase_first)) {
                 new_ratio += delta;
             } else {
                 new_ratio -= delta;
             }
-
             parent.ratio = @min(@max(new_ratio, MIN_RATIO), MAX_RATIO);
             ctx.nodes[parent_idx] = parent;
             out_applied.* = true;
             return abi.OMNI_OK;
         }
-
         current_idx = parent_idx;
     }
-
     return abi.OMNI_OK;
 }
-
 fn balanceSizesInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) i32 {
     out_applied.* = false;
     const root_idx = rootIndex(ctx) orelse return abi.OMNI_OK;
     return balanceSplitRatiosRecursive(ctx, root_idx, out_applied);
 }
-
 fn cycleSplitRatioInternal(ctx: *OmniDwindleLayoutContext, forward: bool, out_applied: *bool) i32 {
     out_applied.* = false;
     const selected_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
@@ -1756,7 +1543,6 @@ fn cycleSplitRatioInternal(ctx: *OmniDwindleLayoutContext, forward: bool, out_ap
     const parent_idx = childIndex(ctx.nodes[selected_idx].parent_index, ctx.node_count) orelse return abi.OMNI_OK;
     var parent = ctx.nodes[parent_idx];
     if (!isSplitNode(parent)) return abi.OMNI_OK;
-
     const current_idx = nearestPresetIndex(parent.ratio);
     const next_idx = if (forward)
         (current_idx + 1) % CYCLE_PRESETS.len
@@ -1767,21 +1553,17 @@ fn cycleSplitRatioInternal(ctx: *OmniDwindleLayoutContext, forward: bool, out_ap
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn moveSelectionToRootInternal(ctx: *OmniDwindleLayoutContext, stable: bool, out_applied: *bool) i32 {
     out_applied.* = false;
     var selected_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
     if (selected_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     const root_idx = rootIndex(ctx) orelse return abi.OMNI_OK;
-
     if (!isLeafNode(ctx.nodes[selected_idx])) {
         selected_idx = descendantFirstLeaf(ctx, selected_idx) orelse return abi.OMNI_OK;
     }
     if (selected_idx == root_idx) return abi.OMNI_OK;
-
     const leaf_parent_idx = childIndex(ctx.nodes[selected_idx].parent_index, ctx.node_count) orelse return abi.OMNI_OK;
     if (leaf_parent_idx == root_idx) return abi.OMNI_OK;
-
     var ancestor_idx = leaf_parent_idx;
     while (true) {
         const parent_idx = childIndex(ctx.nodes[ancestor_idx].parent_index, ctx.node_count) orelse break;
@@ -1790,21 +1572,18 @@ fn moveSelectionToRootInternal(ctx: *OmniDwindleLayoutContext, stable: bool, out
     }
     const ancestor_parent_idx = childIndex(ctx.nodes[ancestor_idx].parent_index, ctx.node_count) orelse return abi.OMNI_OK;
     if (ancestor_parent_idx != root_idx) return abi.OMNI_OK;
-
     const root = ctx.nodes[root_idx];
     if (!isSplitNode(root)) return abi.OMNI_OK;
     const root_first = childIndex(root.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const root_second = childIndex(root.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const ancestor_is_first = root_first == ancestor_idx;
     const swap_node_idx = if (ancestor_is_first) root_second else root_first;
-
     const leaf_parent = ctx.nodes[leaf_parent_idx];
     if (!isSplitNode(leaf_parent)) return abi.OMNI_ERR_INVALID_ARGS;
     const leaf_parent_first = childIndex(leaf_parent.first_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const leaf_parent_second = childIndex(leaf_parent.second_child_index, ctx.node_count) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     const leaf_is_first = leaf_parent_first == selected_idx;
     const leaf_sibling_idx = if (leaf_is_first) leaf_parent_second else leaf_parent_first;
-
     var updated_leaf_parent = leaf_parent;
     if (leaf_is_first) {
         updated_leaf_parent.first_child_index = i64FromUsize(swap_node_idx);
@@ -1814,10 +1593,8 @@ fn moveSelectionToRootInternal(ctx: *OmniDwindleLayoutContext, stable: bool, out
         updated_leaf_parent.second_child_index = i64FromUsize(swap_node_idx);
     }
     ctx.nodes[leaf_parent_idx] = updated_leaf_parent;
-
     ctx.nodes[swap_node_idx].parent_index = i64FromUsize(leaf_parent_idx);
     ctx.nodes[selected_idx].parent_index = i64FromUsize(root_idx);
-
     var updated_root = root;
     if (ancestor_is_first) {
         updated_root.first_child_index = i64FromUsize(ancestor_idx);
@@ -1826,19 +1603,16 @@ fn moveSelectionToRootInternal(ctx: *OmniDwindleLayoutContext, stable: bool, out
         updated_root.first_child_index = i64FromUsize(selected_idx);
         updated_root.second_child_index = i64FromUsize(ancestor_idx);
     }
-
     if (stable) {
         const old_first = updated_root.first_child_index;
         updated_root.first_child_index = updated_root.second_child_index;
         updated_root.second_child_index = old_first;
     }
-
     ctx.nodes[root_idx] = updated_root;
     setSelectedIndex(ctx, selected_idx);
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
 fn swapSplitInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) i32 {
     out_applied.* = false;
     const selected_idx = selectedIndex(ctx) orelse return abi.OMNI_OK;
@@ -1853,20 +1627,16 @@ fn swapSplitInternal(ctx: *OmniDwindleLayoutContext, out_applied: *bool) i32 {
     out_applied.* = true;
     return abi.OMNI_OK;
 }
-
-
 pub fn omni_dwindle_layout_context_create_impl() [*c]OmniDwindleLayoutContext {
     const ctx = std.heap.c_allocator.create(OmniDwindleLayoutContext) catch return null;
     ctx.* = undefined;
     resetContext(ctx);
     return @ptrCast(ctx);
 }
-
 pub fn omni_dwindle_layout_context_destroy_impl(context: [*c]OmniDwindleLayoutContext) void {
     const ctx = asMutableContext(context) orelse return;
     std.heap.c_allocator.destroy(ctx);
 }
-
 pub fn omni_dwindle_ctx_seed_state_impl(
     context: [*c]OmniDwindleLayoutContext,
     nodes: [*c]const abi.OmniDwindleSeedNode,
@@ -1877,12 +1647,10 @@ pub fn omni_dwindle_ctx_seed_state_impl(
     if (seed_state == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (node_count > abi.OMNI_DWINDLE_MAX_NODES) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (node_count > 0 and nodes == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     if (!isFlag(seed_state[0].has_preselection)) return abi.OMNI_ERR_INVALID_ARGS;
     if (seed_state[0].has_preselection != 0 and !isValidDirection(seed_state[0].preselection_direction)) {
         return abi.OMNI_ERR_INVALID_ARGS;
     }
-
     if (node_count == 0) {
         if (seed_state[0].root_node_index != -1 or seed_state[0].selected_node_index != -1) {
             return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1892,7 +1660,6 @@ pub fn omni_dwindle_ctx_seed_state_impl(
         ctx.next_node_counter = 1;
         return abi.OMNI_OK;
     }
-
     var root_idx: ?usize = null;
     var selected_idx: ?usize = null;
     var rc = parseOptionalIndex(seed_state[0].root_node_index, node_count, &root_idx);
@@ -1900,7 +1667,6 @@ pub fn omni_dwindle_ctx_seed_state_impl(
     rc = parseOptionalIndex(seed_state[0].selected_node_index, node_count, &selected_idx);
     if (rc != abi.OMNI_OK) return rc;
     if (root_idx == null) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     for (0..node_count) |idx| {
         const node = nodes[idx];
         if (!isValidNodeKind(node.kind)) return abi.OMNI_ERR_INVALID_ARGS;
@@ -1908,22 +1674,18 @@ pub fn omni_dwindle_ctx_seed_state_impl(
         if (!isFlag(node.has_window_id) or !isFlag(node.is_fullscreen)) return abi.OMNI_ERR_INVALID_ARGS;
         if (!std.math.isFinite(node.ratio)) return abi.OMNI_ERR_INVALID_ARGS;
         if (node.ratio < MIN_RATIO or node.ratio > MAX_RATIO) return abi.OMNI_ERR_OUT_OF_RANGE;
-
         var parent_idx: ?usize = null;
         var first_child_idx: ?usize = null;
         var second_child_idx: ?usize = null;
-
         rc = parseOptionalIndex(node.parent_index, node_count, &parent_idx);
         if (rc != abi.OMNI_OK) return rc;
         rc = parseOptionalIndex(node.first_child_index, node_count, &first_child_idx);
         if (rc != abi.OMNI_OK) return rc;
         rc = parseOptionalIndex(node.second_child_index, node_count, &second_child_idx);
         if (rc != abi.OMNI_OK) return rc;
-
         if (parent_idx != null and parent_idx.? == idx) return abi.OMNI_ERR_INVALID_ARGS;
         if (first_child_idx != null and first_child_idx.? == idx) return abi.OMNI_ERR_INVALID_ARGS;
         if (second_child_idx != null and second_child_idx.? == idx) return abi.OMNI_ERR_INVALID_ARGS;
-
         switch (node.kind) {
             abi.OMNI_DWINDLE_NODE_SPLIT => {
                 if (first_child_idx == null or second_child_idx == null) return abi.OMNI_ERR_INVALID_ARGS;
@@ -1937,13 +1699,11 @@ pub fn omni_dwindle_ctx_seed_state_impl(
             else => return abi.OMNI_ERR_INVALID_ARGS,
         }
     }
-
     for (0..node_count) |idx| {
         const node = nodes[idx];
         var parent_idx: ?usize = null;
         rc = parseOptionalIndex(node.parent_index, node_count, &parent_idx);
         if (rc != abi.OMNI_OK) return rc;
-
         if (parent_idx) |parent| {
             const parent_node = nodes[parent];
             if (parent_node.kind != abi.OMNI_DWINDLE_NODE_SPLIT) return abi.OMNI_ERR_INVALID_ARGS;
@@ -1952,7 +1712,6 @@ pub fn omni_dwindle_ctx_seed_state_impl(
             const matches_second = parent_node.second_child_index == idx_i64;
             if (!matches_first and !matches_second) return abi.OMNI_ERR_INVALID_ARGS;
         }
-
         if (node.kind == abi.OMNI_DWINDLE_NODE_SPLIT) {
             const first = std.math.cast(usize, node.first_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
             const second = std.math.cast(usize, node.second_child_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
@@ -1965,10 +1724,8 @@ pub fn omni_dwindle_ctx_seed_state_impl(
             }
         }
     }
-
     const root = root_idx.?;
     if (nodes[root].parent_index != -1) return abi.OMNI_ERR_INVALID_ARGS;
-
     rc = validateNodeIdUniqueness(nodes, node_count);
     if (rc != abi.OMNI_OK) return rc;
     rc = validateWindowIdUniqueness(nodes, node_count);
@@ -1977,11 +1734,9 @@ pub fn omni_dwindle_ctx_seed_state_impl(
     if (rc != abi.OMNI_OK) return rc;
     rc = validateReachabilityFromRoot(nodes, node_count, root);
     if (rc != abi.OMNI_OK) return rc;
-
     if (selected_idx) |selected| {
         if (selected >= node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     ctx.node_count = node_count;
     for (0..node_count) |idx| {
         ctx.nodes[idx] = nodes[idx];
@@ -1990,10 +1745,8 @@ pub fn omni_dwindle_ctx_seed_state_impl(
     ctx.cached_frame_count = 0;
     clearCachedNodeFrames(ctx);
     ctx.next_node_counter = std.math.cast(u64, node_count + 1) orelse 1;
-
     return abi.OMNI_OK;
 }
-
 pub fn omni_dwindle_ctx_apply_op_impl(
     context: [*c]OmniDwindleLayoutContext,
     request: [*c]const abi.OmniDwindleOpRequest,
@@ -2004,9 +1757,7 @@ pub fn omni_dwindle_ctx_apply_op_impl(
     const ctx = asMutableContext(context) orelse return abi.OMNI_ERR_INVALID_ARGS;
     if (request == null or out_result == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (out_removed_window_capacity > 0 and out_removed_window_ids == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     initOpResult(out_result);
-
     const op = request[0].op;
     if (!isValidOp(op)) return abi.OMNI_ERR_INVALID_ARGS;
     const runtime_settings_raw = request[0].runtime_settings;
@@ -2018,7 +1769,6 @@ pub fn omni_dwindle_ctx_apply_op_impl(
         return abi.OMNI_ERR_INVALID_ARGS;
     }
     const runtime_settings = decodeRuntimeSettings(runtime_settings_raw);
-
     switch (op) {
         abi.OMNI_DWINDLE_OP_ADD_WINDOW => {
             const payload = request[0].payload.add_window;
@@ -2072,11 +1822,9 @@ pub fn omni_dwindle_ctx_apply_op_impl(
         => {},
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
-
     var removed_ids = [_]abi.OmniUuid128{zeroUuid()} ** abi.MAX_WINDOWS;
     var removed_count: usize = 0;
     var applied = false;
-
     if (op == abi.OMNI_DWINDLE_OP_REMOVE_WINDOW) {
         if (findLeafByWindowId(ctx, request[0].payload.remove_window.window_id) != null) {
             removed_ids[0] = request[0].payload.remove_window.window_id;
@@ -2084,7 +1832,6 @@ pub fn omni_dwindle_ctx_apply_op_impl(
         }
         if (removed_count > out_removed_window_capacity) return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     var sync_incoming = [_]abi.OmniUuid128{zeroUuid()} ** abi.MAX_WINDOWS;
     var sync_incoming_count: usize = 0;
     if (op == abi.OMNI_DWINDLE_OP_SYNC_WINDOWS) {
@@ -2100,7 +1847,6 @@ pub fn omni_dwindle_ctx_apply_op_impl(
         if (rc != abi.OMNI_OK) return rc;
         if (removed_count > out_removed_window_capacity) return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     switch (op) {
         abi.OMNI_DWINDLE_OP_ADD_WINDOW => {
             var did_apply = false;
@@ -2132,7 +1878,6 @@ pub fn omni_dwindle_ctx_apply_op_impl(
                 if (rc != abi.OMNI_OK) return rc;
                 if (did_remove) applied = true;
             }
-
             for (0..sync_incoming_count) |idx| {
                 var did_add = false;
                 const rc = addWindowInternal(
@@ -2222,17 +1967,14 @@ pub fn omni_dwindle_ctx_apply_op_impl(
         },
         else => return abi.OMNI_ERR_INVALID_ARGS,
     }
-
     if (out_removed_window_ids != null and removed_count > 0) {
         for (0..removed_count) |idx| {
             out_removed_window_ids[idx] = removed_ids[idx];
         }
     }
-
     syncOpResultFromState(ctx, out_result, applied, removed_count);
     return abi.OMNI_OK;
 }
-
 pub fn omni_dwindle_ctx_calculate_layout_impl(
     context: [*c]OmniDwindleLayoutContext,
     request: [*c]const abi.OmniDwindleLayoutRequest,
@@ -2248,7 +1990,6 @@ pub fn omni_dwindle_ctx_calculate_layout_impl(
     if (constraint_count > 0 and constraints == null) return abi.OMNI_ERR_INVALID_ARGS;
     if (out_frame_capacity > abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (out_frame_capacity > 0 and out_frames == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     const req = request[0];
     if (!std.math.isFinite(req.screen_x) or
         !std.math.isFinite(req.screen_y) or
@@ -2269,29 +2010,23 @@ pub fn omni_dwindle_ctx_calculate_layout_impl(
     {
         return abi.OMNI_ERR_INVALID_ARGS;
     }
-
     var rc = validateConstraints(constraints, constraint_count);
     if (rc != abi.OMNI_OK) return rc;
-
     out_frame_count[0] = 0;
-
     if (ctx.node_count == 0) {
         ctx.cached_frame_count = 0;
         clearCachedNodeFrames(ctx);
         return abi.OMNI_OK;
     }
-
     if (ctx.seed_state.root_node_index < 0) return abi.OMNI_ERR_OUT_OF_RANGE;
     const root_idx = std.math.cast(usize, ctx.seed_state.root_node_index) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
     if (root_idx >= ctx.node_count) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     var scratch = LayoutScratch{
         .frame_count = 0,
         .frames = undefined,
         .has_min_size = [_]u8{0} ** abi.OMNI_DWINDLE_MAX_NODES,
         .min_sizes = undefined,
     };
-
     const screen = Rect{
         .x = req.screen_x,
         .y = req.screen_y,
@@ -2299,18 +2034,14 @@ pub fn omni_dwindle_ctx_calculate_layout_impl(
         .height = req.screen_height,
     };
     const tiling_area = applyOuterGapsOnly(screen, req);
-
     var window_count: usize = 0;
     rc = countWindowLeaves(ctx, root_idx, &window_count);
     if (rc != abi.OMNI_OK) return rc;
-
     if (window_count == 0) {
         ctx.cached_frame_count = 0;
         return abi.OMNI_OK;
     }
-
     if (window_count > abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
-
     if (window_count == 1) {
         const leaf_idx = findSingleWindowLeaf(ctx, root_idx) orelse return abi.OMNI_ERR_INVALID_ARGS;
         const leaf = ctx.nodes[leaf_idx];
@@ -2334,27 +2065,22 @@ pub fn omni_dwindle_ctx_calculate_layout_impl(
         );
         if (rc != abi.OMNI_OK) return rc;
     }
-
     out_frame_count[0] = scratch.frame_count;
-
     if (out_frame_capacity < scratch.frame_count) {
         ctx.cached_frame_count = 0;
         return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     if (out_frames != null and scratch.frame_count > 0) {
         for (0..scratch.frame_count) |idx| {
             out_frames[idx] = scratch.frames[idx];
         }
     }
-
     ctx.cached_frame_count = scratch.frame_count;
     for (0..scratch.frame_count) |idx| {
         ctx.cached_frames[idx] = scratch.frames[idx];
     }
     return abi.OMNI_OK;
 }
-
 pub fn omni_dwindle_ctx_find_neighbor_impl(
     context: [*c]const OmniDwindleLayoutContext,
     window_id: abi.OmniUuid128,
@@ -2368,10 +2094,8 @@ pub fn omni_dwindle_ctx_find_neighbor_impl(
     if (!isValidDirection(direction)) return abi.OMNI_ERR_INVALID_ARGS;
     if (!isFiniteNonNegative(inner_gap)) return abi.OMNI_ERR_INVALID_ARGS;
     if (isZeroUuid(window_id)) return abi.OMNI_ERR_INVALID_ARGS;
-
     out_has_neighbor[0] = 0;
     out_neighbor_window_id[0] = zeroUuid();
-
     if (ctx.cached_frame_count > abi.MAX_WINDOWS) return abi.OMNI_ERR_OUT_OF_RANGE;
     if (resolveNeighborWindowId(ctx, window_id, direction, inner_gap)) |neighbor| {
         out_has_neighbor[0] = 1;

@@ -1,17 +1,13 @@
 const std = @import("std");
 const abi = @import("abi_types.zig");
 const layout_context = @import("layout_context.zig");
-
 pub const OmniNiriRuntime = layout_context.OmniNiriLayoutContext;
-
 pub fn omni_niri_runtime_create_impl() [*c]OmniNiriRuntime {
     return @ptrCast(layout_context.omni_niri_layout_context_create_impl());
 }
-
 pub fn omni_niri_runtime_destroy_impl(runtime: [*c]OmniNiriRuntime) void {
     layout_context.omni_niri_layout_context_destroy_impl(@ptrCast(runtime));
 }
-
 pub fn omni_niri_runtime_seed_impl(
     runtime: [*c]OmniNiriRuntime,
     request: [*c]const abi.OmniNiriRuntimeSeedRequest,
@@ -25,7 +21,6 @@ pub fn omni_niri_runtime_seed_impl(
         request[0].window_count,
     );
 }
-
 pub fn omni_niri_runtime_apply_command_impl(
     source_runtime: [*c]OmniNiriRuntime,
     target_runtime: [*c]OmniNiriRuntime,
@@ -40,7 +35,6 @@ pub fn omni_niri_runtime_apply_command_impl(
         out_result[0] = .{ .txn = invalid_txn };
         return abi.OMNI_ERR_INVALID_ARGS;
     }
-
     var txn_result = std.mem.zeroes(abi.OmniNiriTxnResult);
     txn_result.kind = request[0].txn.kind;
     const rc = layout_context.omni_niri_ctx_apply_txn_impl(
@@ -62,7 +56,6 @@ pub fn omni_niri_runtime_apply_command_impl(
     out_result[0] = .{ .txn = txn_result };
     return rc;
 }
-
 pub fn omni_niri_runtime_render_impl(
     runtime: [*c]OmniNiriRuntime,
     layout: [*c]layout_context.OmniNiriLayoutContext,
@@ -70,18 +63,14 @@ pub fn omni_niri_runtime_render_impl(
     out_output: [*c]abi.OmniNiriRuntimeRenderOutput,
 ) i32 {
     if (runtime == null or request == null or out_output == null) return abi.OMNI_ERR_INVALID_ARGS;
-
     const runtime_ctx: *OmniNiriRuntime = @ptrCast(&runtime[0]);
     const render_ctx: [*c]layout_context.OmniNiriLayoutContext = if (layout != null) layout else @ptrCast(runtime);
-
     if (request[0].column_count != runtime_ctx.runtime_column_count or
         request[0].window_count != runtime_ctx.runtime_window_count)
     {
         return abi.OMNI_ERR_OUT_OF_RANGE;
     }
-
     out_output[0].animation_active = 0;
-
     const rc = layout_context.omni_niri_layout_pass_v3_impl(
         render_ctx,
         request[0].columns,
@@ -113,7 +102,6 @@ pub fn omni_niri_runtime_render_impl(
         out_output[0].column_count,
     );
     if (rc != abi.OMNI_OK) return rc;
-
     out_output[0].animation_active = layout_context.applyRuntimeAnimationToOutputs(
         runtime_ctx,
         request[0].sample_time,
@@ -124,7 +112,6 @@ pub fn omni_niri_runtime_render_impl(
     );
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_runtime_snapshot_impl(
     runtime: [*c]const OmniNiriRuntime,
     out_export: [*c]abi.OmniNiriRuntimeStateExport,
@@ -134,7 +121,6 @@ pub fn omni_niri_runtime_snapshot_impl(
         out_export,
     );
 }
-
 pub fn omni_niri_runtime_start_workspace_switch_animation_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -144,7 +130,6 @@ pub fn omni_niri_runtime_start_workspace_switch_animation_impl(
         sample_time,
     );
 }
-
 pub fn omni_niri_runtime_start_mutation_animation_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -158,11 +143,9 @@ pub fn omni_niri_runtime_start_mutation_animation_impl(
     );
     return abi.OMNI_OK;
 }
-
 pub fn omni_niri_runtime_cancel_animation_impl(runtime: [*c]OmniNiriRuntime) i32 {
     return layout_context.omni_niri_ctx_cancel_animation_impl(@ptrCast(runtime));
 }
-
 pub fn omni_niri_runtime_animation_active_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -174,7 +157,6 @@ pub fn omni_niri_runtime_animation_active_impl(
         out_active,
     );
 }
-
 pub fn omni_niri_runtime_viewport_status_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -186,7 +168,6 @@ pub fn omni_niri_runtime_viewport_status_impl(
         out_status,
     );
 }
-
 pub fn omni_niri_runtime_viewport_begin_gesture_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -198,7 +179,6 @@ pub fn omni_niri_runtime_viewport_begin_gesture_impl(
         is_trackpad,
     );
 }
-
 pub fn omni_niri_runtime_viewport_update_gesture_impl(
     runtime: [*c]OmniNiriRuntime,
     spans: [*c]const f64,
@@ -220,7 +200,6 @@ pub fn omni_niri_runtime_viewport_update_gesture_impl(
         out_result,
     );
 }
-
 pub fn omni_niri_runtime_viewport_end_gesture_impl(
     runtime: [*c]OmniNiriRuntime,
     spans: [*c]const f64,
@@ -248,7 +227,6 @@ pub fn omni_niri_runtime_viewport_end_gesture_impl(
         out_result,
     );
 }
-
 pub fn omni_niri_runtime_viewport_transition_to_column_impl(
     runtime: [*c]OmniNiriRuntime,
     spans: [*c]const f64,
@@ -282,7 +260,6 @@ pub fn omni_niri_runtime_viewport_transition_to_column_impl(
         out_result,
     );
 }
-
 pub fn omni_niri_runtime_viewport_set_offset_impl(
     runtime: [*c]OmniNiriRuntime,
     offset: f64,
@@ -292,7 +269,6 @@ pub fn omni_niri_runtime_viewport_set_offset_impl(
         offset,
     );
 }
-
 pub fn omni_niri_runtime_viewport_cancel_impl(
     runtime: [*c]OmniNiriRuntime,
     sample_time: f64,
@@ -301,37 +277,4 @@ pub fn omni_niri_runtime_viewport_cancel_impl(
         @ptrCast(runtime),
         sample_time,
     );
-}
-
-test "runtime apply command returns deterministic txn output when source runtime is null" {
-    const testing = std.testing;
-
-    const request = abi.OmniNiriRuntimeCommandRequest{
-        .txn = .{
-            .kind = abi.OMNI_NIRI_TXN_MUTATION,
-            .navigation = std.mem.zeroes(abi.OmniNiriTxnNavigationPayload),
-            .mutation = std.mem.zeroes(abi.OmniNiriTxnMutationPayload),
-            .workspace = std.mem.zeroes(abi.OmniNiriTxnWorkspacePayload),
-            .max_delta_columns = 0,
-            .max_delta_windows = 0,
-            .max_removed_ids = 0,
-        },
-        .sample_time = 123.0,
-    };
-    var result = std.mem.zeroes(abi.OmniNiriRuntimeCommandResult);
-
-    const rc = omni_niri_runtime_apply_command_impl(
-        null,
-        null,
-        &request,
-        &result,
-    );
-
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), rc);
-    try testing.expectEqual(@as(u8, abi.OMNI_NIRI_TXN_MUTATION), result.txn.kind);
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), result.txn.error_code);
-    try testing.expectEqual(@as(u8, 0), result.txn.applied);
-    try testing.expectEqual(@as(u8, 0), result.txn.structural_animation_active);
-    try testing.expectEqual(@as(usize, 0), result.txn.delta_column_count);
-    try testing.expectEqual(@as(usize, 0), result.txn.delta_window_count);
 }

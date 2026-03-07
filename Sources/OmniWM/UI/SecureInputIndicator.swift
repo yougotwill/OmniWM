@@ -1,19 +1,14 @@
 import AppKit
 import SwiftUI
-
 private let iconSize = CGSize(width: 44, height: 44)
 private let expandedSize = CGSize(width: 380, height: 100)
-
 @MainActor
 final class SecureInputIndicatorController {
     static let shared = SecureInputIndicatorController()
-
     private var panel: NSPanel?
     private var hostingView: NSHostingView<SecureInputIndicatorView>?
     private var isExpanded = false
-
     private init() {}
-
     func show() {
         if panel == nil {
             createPanel()
@@ -21,12 +16,10 @@ final class SecureInputIndicatorController {
         updateFrame()
         panel?.orderFrontRegardless()
     }
-
     func hide() {
         panel?.orderOut(nil)
         isExpanded = false
     }
-
     func toggle() {
         isExpanded.toggle()
         updateFrame()
@@ -37,7 +30,6 @@ final class SecureInputIndicatorController {
             )
         }
     }
-
     private func createPanel() {
         let panel = NSPanel(
             contentRect: .zero,
@@ -45,7 +37,6 @@ final class SecureInputIndicatorController {
             backing: .buffered,
             defer: false
         )
-
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
@@ -54,36 +45,29 @@ final class SecureInputIndicatorController {
         panel.alphaValue = 1
         panel.hasShadow = true
         panel.backgroundColor = .clear
-
         let view = SecureInputIndicatorView(
             isExpanded: isExpanded,
             onTap: { [weak self] in self?.toggle() }
         )
         let hostingView = NSHostingView(rootView: view)
         panel.contentView = hostingView
-
         self.panel = panel
         self.hostingView = hostingView
     }
-
     private func updateFrame() {
         guard let panel,
               let screen = NSScreen.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main
         else { return }
-
         let size = isExpanded ? expandedSize : iconSize
         let x = screen.frame.maxX - size.width - 20
         let y: CGFloat = 20
-
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         hostingView?.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
     }
 }
-
 struct SecureInputIndicatorView: View {
     let isExpanded: Bool
     let onTap: () -> Void
-
     var body: some View {
         ZStack(alignment: .center) {
             if isExpanded {

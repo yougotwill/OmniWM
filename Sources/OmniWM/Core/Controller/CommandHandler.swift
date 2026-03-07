@@ -1,27 +1,21 @@
 import AppKit
 import Foundation
-
 @MainActor
 final class CommandHandler {
     weak var controller: WMController?
-
     init(controller: WMController) {
         self.controller = controller
     }
-
     func handleCommand(_ command: HotkeyCommand) {
         guard let controller else { return }
         guard controller.isEnabled else { return }
-
         let layoutType = currentLayoutType()
-
         switch (command.layoutCompatibility, layoutType) {
         case (.niri, .dwindle), (.dwindle, .niri), (.dwindle, .defaultLayout):
             return
         default:
             break
         }
-
         switch command {
         case let .focus(direction):
             layoutHandler(as: LayoutFocusable.self)?.focusNeighbor(direction: direction)
@@ -144,7 +138,6 @@ final class CommandHandler {
             controller.toggleOverview()
         }
     }
-
     private func layoutHandler<T>(as capability: T.Type) -> T? {
         guard let controller else { return nil }
         let layoutType = currentLayoutType()
@@ -156,84 +149,64 @@ final class CommandHandler {
         }
         return handler as? T
     }
-
     private func focusPreviousInNiri() {
         controller?.niriLayoutHandler.focusPrevious()
     }
-
     private func focusDownOrLeftInNiri() {
         controller?.niriLayoutHandler.focusDownOrLeft()
     }
-
     private func focusUpOrRightInNiri() {
         controller?.niriLayoutHandler.focusUpOrRight()
     }
-
     private func focusColumnFirstInNiri() {
         controller?.niriLayoutHandler.focusColumnFirst()
     }
-
     private func focusColumnLastInNiri() {
         controller?.niriLayoutHandler.focusColumnLast()
     }
-
     private func focusColumnInNiri(index: Int) {
         controller?.niriLayoutHandler.focusColumn(index: index)
     }
-
     private func focusWindowTopInNiri() {
         controller?.niriLayoutHandler.focusWindowTop()
     }
-
     private func focusWindowBottomInNiri() {
         controller?.niriLayoutHandler.focusWindowBottom()
     }
-
     private func toggleColumnFullWidthInNiri() {
         controller?.niriLayoutHandler.toggleColumnFullWidth()
     }
-
     private func moveWindowInNiri(direction: Direction) {
         controller?.niriLayoutHandler.moveWindow(direction: direction)
     }
-
     private func toggleNativeFullscreenForFocused() {
         guard let controller else { return }
         guard let handle = controller.focusedHandle else { return }
         guard let entry = controller.workspaceManager.entry(for: handle) else { return }
-
         let currentState = AXWindowService.isFullscreen(entry.axRef)
         let newState = !currentState
-
         _ = AXWindowService.setNativeFullscreen(entry.axRef, fullscreen: newState)
-
         if newState {
             controller.refreshBorderPresentation(forceHide: true)
         }
     }
-
     private func moveColumnInNiri(direction: Direction) {
         controller?.niriLayoutHandler.moveColumn(direction: direction)
     }
-
     private func consumeWindowInNiri(direction: Direction) {
         controller?.niriLayoutHandler.consumeWindow(direction: direction)
     }
-
     private func expelWindowInNiri(direction: Direction) {
         controller?.niriLayoutHandler.expelWindow(direction: direction)
     }
-
     private func toggleColumnTabbedInNiri() {
         controller?.niriLayoutHandler.toggleColumnTabbed()
     }
-
     private func currentLayoutType() -> LayoutType {
         guard let controller else { return .niri }
         guard let ws = controller.activeWorkspace() else { return .niri }
         return controller.settings.layoutType(for: ws.name)
     }
-
     private func moveToRootInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
@@ -242,7 +215,6 @@ final class CommandHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func toggleSplitInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
@@ -250,7 +222,6 @@ final class CommandHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func swapSplitInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
@@ -258,7 +229,6 @@ final class CommandHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func resizeInDirectionInDwindle(direction: Direction, grow: Bool) {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
@@ -267,33 +237,27 @@ final class CommandHandler {
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     private func preselectInDwindle(direction: Direction) {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
             engine.setPreselection(direction, in: wsId)
         }
     }
-
     private func clearPreselectInDwindle() {
         guard let controller else { return }
         controller.dwindleLayoutHandler.withDwindleContext { engine, wsId in
             engine.setPreselection(nil, in: wsId)
         }
     }
-
     private func toggleWorkspaceLayout() {
         guard let controller else { return }
         guard let workspace = controller.activeWorkspace() else { return }
         let workspaceName = workspace.name
-
         let currentLayout = controller.settings.layoutType(for: workspaceName)
-
         let newLayout: LayoutType = switch currentLayout {
         case .niri, .defaultLayout: .dwindle
         case .dwindle: .niri
         }
-
         var configs = controller.settings.workspaceConfigurations
         if let index = configs.firstIndex(where: { $0.name == workspaceName }) {
             configs[index] = configs[index].with(layoutType: newLayout)
@@ -303,7 +267,6 @@ final class CommandHandler {
                 layoutType: newLayout
             ))
         }
-
         controller.settings.workspaceConfigurations = configs
         controller.layoutRefreshController.refreshWindowsAndLayout()
     }

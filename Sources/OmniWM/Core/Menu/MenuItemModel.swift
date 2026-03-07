@@ -1,6 +1,5 @@
 import ApplicationServices
 import Foundation
-
 struct MenuItemModel: Identifiable {
     let id: UUID
     let title: String
@@ -8,7 +7,6 @@ struct MenuItemModel: Identifiable {
     let keyboardShortcut: String?
     let axElement: AXUIElement
     let parentTitles: [String]
-
     init(
         title: String,
         fullPath: String,
@@ -24,12 +22,10 @@ struct MenuItemModel: Identifiable {
         self.parentTitles = parentTitles
     }
 }
-
 enum MenuAnywherePosition: String, CaseIterable, Codable {
     case cursor
     case centered
     case menuBarLocation
-
     var displayName: String {
         switch self {
         case .cursor: "At Cursor"

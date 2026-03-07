@@ -1,18 +1,14 @@
 import AppKit
 import IOKit.pwr_mgt
-
 @MainActor
 final class SleepPreventionManager {
     static let shared = SleepPreventionManager()
-
     private var sleepAssertionID: IOPMAssertionID?
     private var assertionTimer: Timer?
     private var isUserSessionActive = true
-
     private init() {
         setupWorkspaceNotifications()
     }
-
     func preventSleep() {
         assertionTimer?.invalidate()
         assertionTimer = Timer.scheduledTimer(
@@ -25,20 +21,16 @@ final class SleepPreventionManager {
         }
         assertionTimer?.fire()
     }
-
     func allowSleep() {
         assertionTimer?.invalidate()
         assertionTimer = nil
         releaseSleepAssertion()
     }
-
     private func refreshSleepAssertion() {
         guard isUserSessionActive else { return }
-
         if let assertionID = sleepAssertionID {
             IOPMAssertionRelease(assertionID)
         }
-
         var assertionID: IOPMAssertionID = 0
         let reason = "OmniWM prevents sleep" as CFString
         let result = IOPMAssertionCreateWithDescription(
@@ -51,29 +43,24 @@ final class SleepPreventionManager {
             nil,
             &assertionID
         )
-
         if result == kIOReturnSuccess {
             sleepAssertionID = assertionID
         }
     }
-
     private func releaseSleepAssertion() {
         if let assertionID = sleepAssertionID {
             IOPMAssertionRelease(assertionID)
             sleepAssertionID = nil
         }
     }
-
     private func setupWorkspaceNotifications() {
         let notificationCenter = NSWorkspace.shared.notificationCenter
-
         notificationCenter.addObserver(
             self,
             selector: #selector(sessionDidResignActive),
             name: NSWorkspace.sessionDidResignActiveNotification,
             object: nil
         )
-
         notificationCenter.addObserver(
             self,
             selector: #selector(sessionDidBecomeActive),
@@ -81,11 +68,9 @@ final class SleepPreventionManager {
             object: nil
         )
     }
-
     @objc private func sessionDidResignActive() {
         isUserSessionActive = false
     }
-
     @objc private func sessionDidBecomeActive() {
         isUserSessionActive = true
     }

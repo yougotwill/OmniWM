@@ -1,43 +1,34 @@
 import AppKit
 import ScreenCaptureKit
-
 @MainActor
 final class DragGhostController {
     private var ghostWindow: DragGhostWindow?
     private var captureTask: Task<Void, Never>?
     private var isActive: Bool = false
     private var swapTargetOverlay: SwapTargetOverlay?
-
     func beginDrag(windowId: Int, originalFrame: CGRect, cursorLocation: CGPoint) {
         isActive = true
-
         captureTask?.cancel()
         captureTask = Task { [weak self] in
             guard let self else { return }
-
             let scaledSize = CGSize(
                 width: originalFrame.width * 0.5,
                 height: originalFrame.height * 0.5
             )
-
             if let thumbnail = await captureWindowThumbnail(windowId: windowId, targetSize: scaledSize) {
                 guard isActive, !Task.isCancelled else { return }
-
                 if ghostWindow == nil {
                     ghostWindow = DragGhostWindow()
                 }
-
                 ghostWindow?.setImage(thumbnail, size: scaledSize)
                 ghostWindow?.showAt(cursorLocation: cursorLocation)
             }
         }
     }
-
     func updatePosition(cursorLocation: CGPoint) {
         guard isActive else { return }
         ghostWindow?.moveTo(cursorLocation: cursorLocation)
     }
-
     func endDrag() {
         isActive = false
         captureTask?.cancel()
@@ -45,7 +36,6 @@ final class DragGhostController {
         ghostWindow?.hideGhost()
         hideSwapTarget()
     }
-
     func showSwapTarget(frame: CGRect) {
         guard isActive else { return }
         if swapTargetOverlay == nil {
@@ -53,18 +43,15 @@ final class DragGhostController {
         }
         swapTargetOverlay?.show(at: frame)
     }
-
     func hideSwapTarget() {
         swapTargetOverlay?.hide()
     }
-
     private func captureWindowThumbnail(windowId: Int, targetSize: CGSize) async -> CGImage? {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let scWindow = content.windows.first(where: { $0.windowID == CGWindowID(windowId) }) else {
                 return nil
             }
-
             let filter = SCContentFilter(desktopIndependentWindow: scWindow)
             let config = SCStreamConfiguration()
             config.width = Int(targetSize.width)
@@ -72,7 +59,6 @@ final class DragGhostController {
             config.showsCursor = false
             config.capturesAudio = false
             config.scalesToFit = true
-
             return try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config

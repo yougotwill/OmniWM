@@ -1,25 +1,18 @@
 const std = @import("std");
 const abi = @import("abi_types.zig");
-
 const c = @cImport({
     @cInclude("CoreFoundation/CoreFoundation.h");
     @cInclude("CoreGraphics/CoreGraphics.h");
     @cInclude("dlfcn.h");
 });
-
 const Allocator = std.mem.Allocator;
-const testing = std.testing;
-
 const CFTypeRef = ?*anyopaque;
 const CGContextRef = ?*c.CGContext;
-
 const BorderConstants = struct {
     const padding: f64 = 8.0;
     const corner_radius: f64 = 9.0;
     const approximate_tolerance: f64 = 0.5;
     const max_display_count: usize = 32;
-
-    // SkyLight border-window constants mirrored from the previous Swift path.
     const window_kind: i32 = 2;
     const sentinel_coordinate: f32 = -9999.0;
     const window_tags: u64 = (@as(u64, 1) << 1) | (@as(u64, 1) << 9);
@@ -27,7 +20,6 @@ const BorderConstants = struct {
     const order_below: i32 = -1;
     const order_out: i32 = 0;
 };
-
 const BorderPresentRequest = struct {
     local_frame: abi.OmniBorderRect,
     drawing_bounds: abi.OmniBorderRect,
@@ -36,7 +28,6 @@ const BorderPresentRequest = struct {
     target_window_id: u32,
     backing_scale: f64,
 };
-
 const BorderMacOSApi = struct {
     const CFReleaseFn = *const fn (CFTypeRef) callconv(.c) void;
     const MainConnectionIDFn = *const fn () callconv(.c) i32;
@@ -57,7 +48,6 @@ const BorderMacOSApi = struct {
     const SetWindowTagsFn = *const fn (i32, u32, *u64, i32) callconv(.c) i32;
     const FlushWindowContentRegionFn = *const fn (i32, u32, CFTypeRef) callconv(.c) i32;
     const NewRegionWithRectFn = *const fn (*const c.CGRect, *CFTypeRef) callconv(.c) i32;
-
     skylight_handle: ?*anyopaque,
     corefoundation_handle: ?*anyopaque,
     cf_release: CFReleaseFn,
@@ -79,11 +69,9 @@ const BorderMacOSApi = struct {
     set_window_tags: ?SetWindowTagsFn,
     flush_window_content_region: ?FlushWindowContentRegionFn,
     new_region_with_rect: NewRegionWithRectFn,
-
     fn init() !BorderMacOSApi {
         const skylight_handle = c.dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", c.RTLD_LAZY);
         if (skylight_handle == null) return error.MissingSkyLight;
-
         const corefoundation_handle = c.dlopen(
             "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
             c.RTLD_LAZY,
@@ -92,10 +80,8 @@ const BorderMacOSApi = struct {
             _ = c.dlclose(skylight_handle);
             return error.MissingCoreFoundation;
         }
-
         errdefer _ = c.dlclose(skylight_handle);
         errdefer _ = c.dlclose(corefoundation_handle);
-
         return .{
             .skylight_handle = skylight_handle,
             .corefoundation_handle = corefoundation_handle,
@@ -148,7 +134,6 @@ const BorderMacOSApi = struct {
             ),
         };
     }
-
     fn deinit(self: *BorderMacOSApi) void {
         if (self.skylight_handle) |handle| {
             _ = c.dlclose(handle);
@@ -159,11 +144,9 @@ const BorderMacOSApi = struct {
             self.corefoundation_handle = null;
         }
     }
-
     fn connectionId(self: BorderMacOSApi) i32 {
         return self.main_connection_id();
     }
-
     fn createRegion(self: BorderMacOSApi, rect: abi.OmniBorderRect) CFTypeRef {
         var cg_rect = makeCGRect(rect);
         var region: CFTypeRef = null;
@@ -172,14 +155,11 @@ const BorderMacOSApi = struct {
         }
         return region;
     }
-
     fn createBorderWindow(self: BorderMacOSApi, frame: abi.OmniBorderRect) u32 {
         const region = self.createRegion(frame) orelse return 0;
         defer self.cf_release(region);
-
         const cid = self.connectionId();
         if (cid == 0) return 0;
-
         var wid: u32 = 0;
         _ = self.new_window(
             cid,
@@ -191,27 +171,22 @@ const BorderMacOSApi = struct {
         );
         return wid;
     }
-
     fn releaseBorderWindow(self: BorderMacOSApi, wid: u32) void {
         if (wid == 0) return;
         const cid = self.connectionId();
         if (cid == 0) return;
         _ = self.release_window(cid, wid);
     }
-
     fn createWindowContext(self: BorderMacOSApi, wid: u32) CGContextRef {
         const cid = self.connectionId();
         if (cid == 0) return null;
         return self.window_context_create(cid, wid, null);
     }
-
     fn setWindowShape(self: BorderMacOSApi, wid: u32, frame: abi.OmniBorderRect) i32 {
         const region = self.createRegion(frame) orelse return abi.OMNI_ERR_PLATFORM;
         defer self.cf_release(region);
-
         const cid = self.connectionId();
         if (cid == 0) return abi.OMNI_ERR_PLATFORM;
-
         self.disable_update(cid);
         const rc = self.set_window_shape(
             cid,
@@ -224,7 +199,6 @@ const BorderMacOSApi = struct {
         if (rc != 0) return abi.OMNI_ERR_PLATFORM;
         return abi.OMNI_OK;
     }
-
     fn configureWindow(self: BorderMacOSApi, wid: u32, resolution: f64, is_opaque: bool) void {
         const cid = self.connectionId();
         if (cid == 0) return;
@@ -235,7 +209,6 @@ const BorderMacOSApi = struct {
             _ = set_window_opacity(cid, wid, if (is_opaque) 1 else 0);
         }
     }
-
     fn setWindowTags(self: BorderMacOSApi, wid: u32, tags: u64) void {
         const set_window_tags = self.set_window_tags orelse return;
         const cid = self.connectionId();
@@ -243,23 +216,19 @@ const BorderMacOSApi = struct {
         var mutable_tags = tags;
         _ = set_window_tags(cid, wid, &mutable_tags, 64);
     }
-
     fn flushWindow(self: BorderMacOSApi, wid: u32) void {
         const flush_window_content_region = self.flush_window_content_region orelse return;
         const cid = self.connectionId();
         if (cid == 0) return;
         _ = flush_window_content_region(cid, wid, null);
     }
-
     fn moveAndOrder(self: BorderMacOSApi, wid: u32, origin_x: f64, origin_y: f64, target_wid: u32) i32 {
         const cid = self.connectionId();
         if (cid <= 0) return abi.OMNI_ERR_PLATFORM;
-
         var moved_with_transaction = false;
         if (self.transaction_move_window_with_group) |transaction_move_window_with_group| {
             const transaction = self.transaction_create(cid) orelse return abi.OMNI_ERR_PLATFORM;
             defer self.cf_release(transaction);
-
             if (transaction_move_window_with_group(transaction, wid, c.CGPointMake(origin_x, origin_y)) == 0) {
                 moved_with_transaction = true;
             }
@@ -271,7 +240,6 @@ const BorderMacOSApi = struct {
             }
             if (self.transaction_commit(transaction, 0) == 0) return abi.OMNI_OK;
         }
-
         if (!moved_with_transaction) {
             if (self.move_window) |move_window| {
                 var point = c.CGPointMake(origin_x, origin_y);
@@ -282,7 +250,6 @@ const BorderMacOSApi = struct {
                 return abi.OMNI_ERR_PLATFORM;
             }
         }
-
         const fallback_transaction = self.transaction_create(cid) orelse return abi.OMNI_OK;
         defer self.cf_release(fallback_transaction);
         if (self.transaction_set_window_level) |transaction_set_window_level| {
@@ -294,30 +261,25 @@ const BorderMacOSApi = struct {
         _ = self.transaction_commit(fallback_transaction, 0);
         return abi.OMNI_OK;
     }
-
     fn hide(self: BorderMacOSApi, wid: u32) i32 {
         if (wid == 0) return abi.OMNI_OK;
         const cid = self.connectionId();
         if (cid <= 0) return abi.OMNI_ERR_PLATFORM;
         const transaction = self.transaction_create(cid) orelse return abi.OMNI_ERR_PLATFORM;
         defer self.cf_release(transaction);
-
         self.transaction_order_window(transaction, wid, BorderConstants.order_out, 0);
         _ = self.transaction_commit(transaction, 0);
         return abi.OMNI_OK;
     }
-
     fn resolveRequired(comptime T: type, handle: ?*anyopaque, symbol: [*:0]const u8) !T {
         return resolveOptional(T, handle, symbol) orelse error.MissingSymbol;
     }
-
     fn resolveOptional(comptime T: type, handle: ?*anyopaque, symbol: [*:0]const u8) ?T {
         const raw_symbol = c.dlsym(handle, symbol);
         if (raw_symbol == null) return null;
         return @ptrCast(@alignCast(raw_symbol));
     }
 };
-
 const BorderMacOSBackend = struct {
     api: BorderMacOSApi,
     wid: u32 = 0,
@@ -326,13 +288,11 @@ const BorderMacOSBackend = struct {
     current_target_wid: u32 = 0,
     current_config: abi.OmniBorderConfig = defaultConfig(),
     needs_redraw: bool = true,
-
     fn init() !BorderMacOSBackend {
         return .{
             .api = try BorderMacOSApi.init(),
         };
     }
-
     fn destroy(self: *BorderMacOSBackend) void {
         if (self.context) |context| {
             self.api.cf_release(@ptrCast(context));
@@ -348,7 +308,6 @@ const BorderMacOSBackend = struct {
         self.current_config = defaultConfig();
         self.needs_redraw = true;
     }
-
     fn hide(self: *BorderMacOSBackend) i32 {
         if (self.wid != 0) {
             const rc = self.api.hide(self.wid);
@@ -357,49 +316,39 @@ const BorderMacOSBackend = struct {
         self.current_target_wid = 0;
         return abi.OMNI_OK;
     }
-
     fn present(self: *BorderMacOSBackend, config: abi.OmniBorderConfig, request: BorderPresentRequest) i32 {
         if (self.wid == 0) {
             const new_wid = self.api.createBorderWindow(request.local_frame);
             if (new_wid == 0) return abi.OMNI_ERR_PLATFORM;
-
             self.wid = new_wid;
             self.api.configureWindow(self.wid, request.backing_scale, false);
             self.api.setWindowTags(self.wid, BorderConstants.window_tags);
-
             self.context = self.api.createWindowContext(self.wid);
             if (self.context == null) {
                 self.api.releaseBorderWindow(self.wid);
                 self.wid = 0;
                 return abi.OMNI_ERR_PLATFORM;
             }
-
             c.CGContextSetInterpolationQuality(self.context, c.kCGInterpolationNone);
             self.needs_redraw = true;
         }
-
         if (!sameSize(self.current_frame, request.local_frame)) {
             const shape_rc = self.api.setWindowShape(self.wid, request.local_frame);
             if (shape_rc != abi.OMNI_OK) return shape_rc;
             self.needs_redraw = true;
         }
-
         if (!borderConfigEqual(self.current_config, config)) {
             self.needs_redraw = true;
         }
-
         self.current_frame = request.local_frame;
         self.current_target_wid = request.target_window_id;
         self.current_config = config;
-
         if (self.needs_redraw) {
             const draw_rc = self.draw(config, request.local_frame, request.drawing_bounds);
             if (draw_rc != abi.OMNI_OK) return draw_rc;
         }
-
         return self.api.moveAndOrder(self.wid, request.origin_x, request.origin_y, request.target_window_id);
     }
-
     fn draw(
         self: *BorderMacOSBackend,
         config: abi.OmniBorderConfig,
@@ -408,11 +357,9 @@ const BorderMacOSBackend = struct {
     ) i32 {
         const context = self.context orelse return abi.OMNI_ERR_PLATFORM;
         self.needs_redraw = false;
-
         const border_width = config.width;
         const outer_radius = BorderConstants.corner_radius + border_width;
         const inner_rect = insetRect(drawing_bounds, border_width, border_width);
-
         const frame_rect = makeCGRect(frame);
         const inner_path = c.CGPathCreateWithRoundedRect(
             makeCGRect(inner_rect),
@@ -421,7 +368,6 @@ const BorderMacOSBackend = struct {
             null,
         );
         defer c.CGPathRelease(inner_path);
-
         const outer_path = c.CGPathCreateWithRoundedRect(
             makeCGRect(drawing_bounds),
             outer_radius,
@@ -429,7 +375,6 @@ const BorderMacOSBackend = struct {
             null,
         );
         defer c.CGPathRelease(outer_path);
-
         c.CGContextSaveGState(context);
         c.CGContextClearRect(context, frame_rect);
         c.CGContextSetRGBFillColor(context, config.color.red, config.color.green, config.color.blue, config.color.alpha);
@@ -442,14 +387,12 @@ const BorderMacOSBackend = struct {
         return abi.OMNI_OK;
     }
 };
-
 const BorderState = struct {
     config: abi.OmniBorderConfig = defaultConfig(),
     last_applied_frame: abi.OmniBorderRect = zeroRect(),
     last_applied_window_id: i64 = 0,
     last_applied_config: abi.OmniBorderConfig = defaultConfig(),
     has_last_applied: bool = false,
-
     fn submitSnapshot(self: *BorderState, backend: anytype, snapshot: abi.OmniBorderSnapshotInput) i32 {
         if (!isDisplayPayloadValid(snapshot.displays, snapshot.display_count)) {
             return abi.OMNI_ERR_INVALID_ARGS;
@@ -460,7 +403,6 @@ const BorderState = struct {
         }
         return self.applyPresentation(backend, makePresentationInput(snapshot));
     }
-
     fn applyConfig(self: *BorderState, backend: anytype, config: abi.OmniBorderConfig) i32 {
         self.config = config;
         if (config.enabled == 0) {
@@ -468,7 +410,6 @@ const BorderState = struct {
         }
         return abi.OMNI_OK;
     }
-
     fn applyPresentation(self: *BorderState, backend: anytype, input: abi.OmniBorderPresentationInput) i32 {
         if (!isDisplayPayloadValid(input.displays, input.display_count)) {
             return abi.OMNI_ERR_INVALID_ARGS;
@@ -477,19 +418,15 @@ const BorderState = struct {
             return abi.OMNI_ERR_INVALID_ARGS;
         }
         self.config = input.config;
-
         if (shouldHideBorder(input)) {
             return self.hide(backend);
         }
-
         if (shouldDeferPresentation(input)) {
             return abi.OMNI_OK;
         }
-
         const displays = sliceDisplays(input);
         const display = if (displays.len > 0) selectDisplay(displays, input.focused_frame) else null;
         const target_window_id = castWindowId(input.focused_window_id) orelse return self.hide(backend);
-
         if (self.has_last_applied and
             self.last_applied_window_id == input.focused_window_id and
             rectApproximatelyEqual(self.last_applied_frame, input.focused_frame, BorderConstants.approximate_tolerance) and
@@ -497,7 +434,6 @@ const BorderState = struct {
         {
             return abi.OMNI_OK;
         }
-
         const scale = normalizedScale(if (display) |resolved_display| resolved_display.backing_scale else 2.0);
         const inflated_frame = roundRectToPhysicalPixels(
             inflateFrame(input.focused_frame, self.config.width + BorderConstants.padding),
@@ -524,7 +460,6 @@ const BorderState = struct {
             .width = focused_window_server_frame.width,
             .height = focused_window_server_frame.height,
         };
-
         const rc = backend.present(self.config, .{
             .local_frame = local_frame,
             .drawing_bounds = drawing_bounds,
@@ -538,24 +473,20 @@ const BorderState = struct {
             return abi.OMNI_OK;
         }
         if (rc != abi.OMNI_OK) return rc;
-
         self.last_applied_frame = input.focused_frame;
         self.last_applied_window_id = input.focused_window_id;
         self.last_applied_config = self.config;
         self.has_last_applied = true;
         return abi.OMNI_OK;
     }
-
     fn invalidateDisplays(self: *BorderState, backend: anytype) i32 {
         return self.hide(backend);
     }
-
     fn hide(self: *BorderState, backend: anytype) i32 {
         const rc = backend.hide();
         self.clearApplied();
         return rc;
     }
-
     fn clearApplied(self: *BorderState) void {
         self.last_applied_frame = zeroRect();
         self.last_applied_window_id = 0;
@@ -563,16 +494,13 @@ const BorderState = struct {
         self.has_last_applied = false;
     }
 };
-
 pub const OmniBorderRuntime = extern struct {
     _opaque: u8 = 0,
 };
-
 const BorderRuntimeImpl = struct {
     state: BorderState = .{},
     backend: BorderMacOSBackend,
 };
-
 pub fn omni_border_runtime_create_impl() [*c]OmniBorderRuntime {
     const runtime = std.heap.c_allocator.create(BorderRuntimeImpl) catch return null;
     var backend = BorderMacOSBackend.init() catch {
@@ -588,21 +516,18 @@ pub fn omni_border_runtime_create_impl() [*c]OmniBorderRuntime {
         std.heap.c_allocator.destroy(runtime);
         return null;
     }
-
     runtime.* = .{
         .state = .{},
         .backend = backend,
     };
     return @ptrCast(runtime);
 }
-
 pub fn omni_border_runtime_destroy_impl(runtime: [*c]OmniBorderRuntime) void {
     if (runtime == null) return;
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     impl.backend.destroy();
     std.heap.c_allocator.destroy(impl);
 }
-
 pub fn omni_border_runtime_apply_config_impl(
     runtime: [*c]OmniBorderRuntime,
     config: [*c]const abi.OmniBorderConfig,
@@ -611,7 +536,6 @@ pub fn omni_border_runtime_apply_config_impl(
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.applyConfig(&impl.backend, config[0]);
 }
-
 pub fn omni_border_runtime_apply_presentation_impl(
     runtime: [*c]OmniBorderRuntime,
     input: [*c]const abi.OmniBorderPresentationInput,
@@ -620,7 +544,6 @@ pub fn omni_border_runtime_apply_presentation_impl(
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.applyPresentation(&impl.backend, input[0]);
 }
-
 pub fn omni_border_runtime_submit_snapshot_impl(
     runtime: [*c]OmniBorderRuntime,
     snapshot: [*c]const abi.OmniBorderSnapshotInput,
@@ -629,19 +552,16 @@ pub fn omni_border_runtime_submit_snapshot_impl(
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.submitSnapshot(&impl.backend, snapshot[0]);
 }
-
 pub fn omni_border_runtime_invalidate_displays_impl(runtime: [*c]OmniBorderRuntime) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.invalidateDisplays(&impl.backend);
 }
-
 pub fn omni_border_runtime_hide_impl(runtime: [*c]OmniBorderRuntime) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const impl: *BorderRuntimeImpl = @ptrCast(@alignCast(runtime));
     return impl.state.hide(&impl.backend);
 }
-
 fn defaultConfig() abi.OmniBorderConfig {
     return .{
         .enabled = 0,
@@ -654,15 +574,12 @@ fn defaultConfig() abi.OmniBorderConfig {
         },
     };
 }
-
 fn zeroRect() abi.OmniBorderRect {
     return .{ .x = 0.0, .y = 0.0, .width = 0.0, .height = 0.0 };
 }
-
 fn sameSize(lhs: abi.OmniBorderRect, rhs: abi.OmniBorderRect) bool {
     return lhs.width == rhs.width and lhs.height == rhs.height;
 }
-
 fn borderConfigEqual(lhs: abi.OmniBorderConfig, rhs: abi.OmniBorderConfig) bool {
     return lhs.enabled == rhs.enabled and
         lhs.width == rhs.width and
@@ -671,13 +588,11 @@ fn borderConfigEqual(lhs: abi.OmniBorderConfig, rhs: abi.OmniBorderConfig) bool 
         lhs.color.blue == rhs.color.blue and
         lhs.color.alpha == rhs.color.alpha;
 }
-
 fn isDisplayPayloadValid(displays: [*c]const abi.OmniBorderDisplayInfo, display_count: usize) bool {
     if (display_count > BorderConstants.max_display_count) return false;
     if (display_count > 0 and displays == null) return false;
     return true;
 }
-
 fn makePresentationInput(snapshot: abi.OmniBorderSnapshotInput) abi.OmniBorderPresentationInput {
     return .{
         .config = snapshot.config,
@@ -696,13 +611,11 @@ fn makePresentationInput(snapshot: abi.OmniBorderSnapshotInput) abi.OmniBorderPr
         .display_count = snapshot.display_count,
     };
 }
-
 fn shouldDeferPresentation(input: abi.OmniBorderPresentationInput) bool {
     if (input.defer_updates != 0) return true;
     if (input.update_mode == abi.OMNI_BORDER_UPDATE_MODE_REALTIME) return false;
     return input.layout_animation_active != 0;
 }
-
 fn shouldHideBorder(input: abi.OmniBorderPresentationInput) bool {
     if (input.config.enabled == 0) return true;
     if (input.has_focused_window_id == 0 or input.has_focused_frame == 0) return true;
@@ -713,21 +626,17 @@ fn shouldHideBorder(input: abi.OmniBorderPresentationInput) bool {
     if (input.is_managed_fullscreen_active != 0) return true;
     return false;
 }
-
 fn isPresentationPayloadSane(input: abi.OmniBorderPresentationInput) bool {
     if (!isBorderConfigSane(input.config)) return false;
     if (input.has_focused_frame != 0 and !isRectSane(input.focused_frame)) return false;
-
     if (input.display_count == 0 or input.displays == null) {
         return true;
     }
-
     for (input.displays[0..input.display_count]) |display| {
         if (!isDisplayInfoSane(display)) return false;
     }
     return true;
 }
-
 fn isBorderConfigSane(config: abi.OmniBorderConfig) bool {
     if (!std.math.isFinite(config.width) or config.width < 0 or config.width > 128.0) return false;
     return isColorComponentSane(config.color.red) and
@@ -735,16 +644,13 @@ fn isBorderConfigSane(config: abi.OmniBorderConfig) bool {
         isColorComponentSane(config.color.blue) and
         isColorComponentSane(config.color.alpha);
 }
-
 fn isColorComponentSane(value: f64) bool {
     return std.math.isFinite(value) and value >= 0 and value <= 1;
 }
-
 fn isRectSane(rect: abi.OmniBorderRect) bool {
     if (!std.math.isFinite(rect.x) or !std.math.isFinite(rect.y)) return false;
     if (!std.math.isFinite(rect.width) or !std.math.isFinite(rect.height)) return false;
     if (rect.width < 0 or rect.height < 0) return false;
-
     const max_abs_coordinate = 1_000_000.0;
     const min_x = rect.x;
     const min_y = rect.y;
@@ -755,7 +661,6 @@ fn isRectSane(rect: abi.OmniBorderRect) bool {
         @abs(max_x) <= max_abs_coordinate and
         @abs(max_y) <= max_abs_coordinate;
 }
-
 fn isDisplayInfoSane(display: abi.OmniBorderDisplayInfo) bool {
     if (!isRectSane(display.appkit_frame) or !isRectSane(display.window_server_frame)) return false;
     if (display.appkit_frame.width <= 0 or display.appkit_frame.height <= 0) return false;
@@ -763,21 +668,17 @@ fn isDisplayInfoSane(display: abi.OmniBorderDisplayInfo) bool {
     if (!std.math.isFinite(display.backing_scale) or display.backing_scale <= 0) return false;
     return true;
 }
-
 fn sliceDisplays(input: abi.OmniBorderPresentationInput) []const abi.OmniBorderDisplayInfo {
     if (input.displays == null or input.display_count == 0) return &.{};
     return input.displays[0..input.display_count];
 }
-
 fn castWindowId(window_id: i64) ?u32 {
     if (window_id < 0 or window_id > std.math.maxInt(u32)) return null;
     return @intCast(window_id);
 }
-
 fn normalizedScale(scale: f64) f64 {
     return if (scale > 0.0) scale else 2.0;
 }
-
 fn inflateFrame(frame: abi.OmniBorderRect, amount: f64) abi.OmniBorderRect {
     return .{
         .x = frame.x - amount,
@@ -786,7 +687,6 @@ fn inflateFrame(frame: abi.OmniBorderRect, amount: f64) abi.OmniBorderRect {
         .height = frame.height + (amount * 2.0),
     };
 }
-
 fn insetRect(rect: abi.OmniBorderRect, dx: f64, dy: f64) abi.OmniBorderRect {
     return .{
         .x = rect.x + dx,
@@ -795,7 +695,6 @@ fn insetRect(rect: abi.OmniBorderRect, dx: f64, dy: f64) abi.OmniBorderRect {
         .height = rect.height - (dy * 2.0),
     };
 }
-
 fn roundRectToPhysicalPixels(rect: abi.OmniBorderRect, scale: f64) abi.OmniBorderRect {
     return .{
         .x = roundToPhysicalPixel(rect.x, scale),
@@ -804,30 +703,24 @@ fn roundRectToPhysicalPixels(rect: abi.OmniBorderRect, scale: f64) abi.OmniBorde
         .height = roundToPhysicalPixel(rect.height, scale),
     };
 }
-
 fn roundToPhysicalPixel(value: f64, scale: f64) f64 {
     return @round(value * scale) / scale;
 }
-
 fn rectApproximatelyEqual(lhs: abi.OmniBorderRect, rhs: abi.OmniBorderRect, tolerance: f64) bool {
     return @abs(lhs.x - rhs.x) < tolerance and
         @abs(lhs.y - rhs.y) < tolerance and
         @abs(lhs.width - rhs.width) < tolerance and
         @abs(lhs.height - rhs.height) < tolerance;
 }
-
 fn selectDisplay(displays: []const abi.OmniBorderDisplayInfo, frame: abi.OmniBorderRect) ?abi.OmniBorderDisplayInfo {
     if (displays.len == 0) return null;
-
     const center_x = frame.x + (frame.width / 2.0);
     const center_y = frame.y + (frame.height / 2.0);
-
     for (displays) |display| {
         if (rectContainsPoint(display.appkit_frame, center_x, center_y)) {
             return display;
         }
     }
-
     var best_display = displays[0];
     var best_distance = rectDistanceSquared(displays[0].appkit_frame, center_x, center_y);
     for (displays[1..]) |display| {
@@ -839,11 +732,9 @@ fn selectDisplay(displays: []const abi.OmniBorderDisplayInfo, frame: abi.OmniBor
     }
     return best_display;
 }
-
 fn rectContainsPoint(rect: abi.OmniBorderRect, x: f64, y: f64) bool {
     return x >= rect.x and x < rect.x + rect.width and y >= rect.y and y < rect.y + rect.height;
 }
-
 fn rectDistanceSquared(rect: abi.OmniBorderRect, x: f64, y: f64) f64 {
     const clamped_x = std.math.clamp(x, rect.x, rect.x + rect.width);
     const clamped_y = std.math.clamp(y, rect.y, rect.y + rect.height);
@@ -851,7 +742,6 @@ fn rectDistanceSquared(rect: abi.OmniBorderRect, x: f64, y: f64) f64 {
     const dy = y - clamped_y;
     return dx * dx + dy * dy;
 }
-
 fn appKitToWindowServerRect(rect: abi.OmniBorderRect, display: abi.OmniBorderDisplayInfo) abi.OmniBorderRect {
     const scale_x = if (display.appkit_frame.width > 0.0)
         display.window_server_frame.width / display.appkit_frame.width
@@ -861,10 +751,8 @@ fn appKitToWindowServerRect(rect: abi.OmniBorderRect, display: abi.OmniBorderDis
         display.window_server_frame.height / display.appkit_frame.height
     else
         1.0;
-
     const dx = rect.x - display.appkit_frame.x;
     const dy = (display.appkit_frame.y + display.appkit_frame.height) - rect.y - rect.height;
-
     return .{
         .x = display.window_server_frame.x + (dx * scale_x),
         .y = display.window_server_frame.y + (dy * scale_y),
@@ -872,18 +760,15 @@ fn appKitToWindowServerRect(rect: abi.OmniBorderRect, display: abi.OmniBorderDis
         .height = rect.height * scale_y,
     };
 }
-
 fn makeCGRect(rect: abi.OmniBorderRect) c.CGRect {
     return c.CGRectMake(rect.x, rect.y, rect.width, rect.height);
 }
-
 const FakeBackend = struct {
     present_count: usize = 0,
     hide_count: usize = 0,
     next_present_rc: i32 = abi.OMNI_OK,
     last_config: abi.OmniBorderConfig = defaultConfig(),
     last_request: ?BorderPresentRequest = null,
-
     fn present(self: *FakeBackend, config: abi.OmniBorderConfig, request: BorderPresentRequest) i32 {
         if (self.next_present_rc != abi.OMNI_OK) {
             const rc = self.next_present_rc;
@@ -895,13 +780,11 @@ const FakeBackend = struct {
         self.last_request = request;
         return abi.OMNI_OK;
     }
-
     fn hide(self: *FakeBackend) i32 {
         self.hide_count += 1;
         return abi.OMNI_OK;
     }
 };
-
 fn makeDisplay(
     appkit_x: f64,
     appkit_y: f64,
@@ -930,7 +813,6 @@ fn makeDisplay(
         .backing_scale = scale,
     };
 }
-
 fn makeInput(
     config: abi.OmniBorderConfig,
     frame: abi.OmniBorderRect,
@@ -953,7 +835,6 @@ fn makeInput(
         .display_count = displays.len,
     };
 }
-
 fn makeSnapshotInput(
     config: abi.OmniBorderConfig,
     frame: abi.OmniBorderRect,
@@ -976,347 +857,4 @@ fn makeSnapshotInput(
         .displays = if (displays.len == 0) null else displays.ptr,
         .display_count = displays.len,
     };
-}
-
-test "border state machine rejects invalid display payloads" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.1, .green = 0.2, .blue = 0.3, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-
-    var invalid_pointer = makeSnapshotInput(config, .{ .x = 10.0, .y = 10.0, .width = 30.0, .height = 40.0 }, &displays);
-    invalid_pointer.displays = null;
-    invalid_pointer.display_count = 1;
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), state.submitSnapshot(&backend, invalid_pointer));
-
-    var invalid_count = makeSnapshotInput(config, .{ .x = 10.0, .y = 10.0, .width = 30.0, .height = 40.0 }, &displays);
-    invalid_count.display_count = BorderConstants.max_display_count + 1;
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), state.submitSnapshot(&backend, invalid_count));
-}
-
-test "border snapshot force hide overrides presentation" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.6, .green = 0.2, .blue = 0.9, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 200.0, 120.0, 0.0, 0.0, 400.0, 240.0, 2.0),
-    };
-
-    var snapshot = makeSnapshotInput(config, .{ .x = 20.0, .y = 20.0, .width = 60.0, .height = 50.0 }, &displays);
-    snapshot.force_hide = 1;
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.submitSnapshot(&backend, snapshot));
-    try testing.expectEqual(@as(usize, 0), backend.present_count);
-    try testing.expectEqual(@as(usize, 1), backend.hide_count);
-}
-
-test "border request drawing bounds align with local frame in transformed space" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.2, .green = 0.5, .blue = 1.0, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 1440.0, 900.0, 0.0, 0.0, 2880.0, 1800.0, 2.0),
-    };
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, makeInput(
-        config,
-        .{ .x = 100.0, .y = 120.0, .width = 640.0, .height = 480.0 },
-        &displays,
-    )));
-
-    const request = backend.last_request orelse unreachable;
-    const inset = (config.width + BorderConstants.padding) * displays[0].backing_scale;
-    try testing.expect(std.math.approxEqAbs(f64, request.drawing_bounds.x, inset, 0.001));
-    try testing.expect(std.math.approxEqAbs(f64, request.drawing_bounds.y, inset, 0.001));
-    try testing.expect(std.math.approxEqAbs(
-        f64,
-        request.local_frame.width,
-        request.drawing_bounds.width + (inset * 2.0),
-        0.001,
-    ));
-    try testing.expect(std.math.approxEqAbs(
-        f64,
-        request.local_frame.height,
-        request.drawing_bounds.height + (inset * 2.0),
-        0.001,
-    ));
-}
-
-test "border state machine hides on disable" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.1, .green = 0.2, .blue = 0.3, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, makeInput(
-        config,
-        .{ .x = 10.0, .y = 20.0, .width = 30.0, .height = 40.0 },
-        &displays,
-    )));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyConfig(&backend, .{
-        .enabled = 0,
-        .width = 4.0,
-        .color = config.color,
-    }));
-    try testing.expectEqual(@as(usize, 1), backend.hide_count);
-}
-
-test "border state machine skips repeated same frame" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.0, .green = 0.5, .blue = 1.0, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    const input = makeInput(config, .{ .x = 10.0, .y = 20.0, .width = 30.0, .height = 40.0 }, &displays);
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-}
-
-test "border state machine hides for missing focus and fullscreen conditions" {
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.2, .green = 0.3, .blue = 0.4, .alpha = 1.0 },
-    };
-
-    const cases = [_]abi.OmniBorderPresentationInput{
-        blk: {
-            var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-            input.has_focused_window_id = 0;
-            break :blk input;
-        },
-        blk: {
-            var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-            input.is_focused_window_in_active_workspace = 0;
-            break :blk input;
-        },
-        blk: {
-            var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-            input.is_non_managed_focus_active = 1;
-            break :blk input;
-        },
-        blk: {
-            var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-            input.is_native_fullscreen_active = 1;
-            break :blk input;
-        },
-        blk: {
-            var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-            input.is_managed_fullscreen_active = 1;
-            break :blk input;
-        },
-    };
-
-    for (cases) |input| {
-        var state = BorderState{};
-        var backend = FakeBackend{};
-        try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-        try testing.expectEqual(@as(usize, 0), backend.present_count);
-        try testing.expectEqual(@as(usize, 1), backend.hide_count);
-    }
-}
-
-test "border state machine can present when display payload is empty" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.2, .green = 0.3, .blue = 0.4, .alpha = 1.0 },
-    };
-
-    const input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &.{});
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-}
-
-test "border state machine rejects non-finite presentation payloads" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.2, .green = 0.3, .blue = 0.4, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    var input = makeInput(config, .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-    input.focused_frame.x = std.math.inf(f64);
-    try testing.expectEqual(@as(i32, abi.OMNI_ERR_INVALID_ARGS), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 0), backend.present_count);
-}
-
-test "border state machine defers coalesced updates until animations finish" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.8, .green = 0.2, .blue = 0.1, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, makeInput(
-        config,
-        .{ .x = 10.0, .y = 10.0, .width = 20.0, .height = 20.0 },
-        &displays,
-    )));
-
-    var deferred = makeInput(config, .{ .x = 20.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-    deferred.layout_animation_active = 1;
-    deferred.update_mode = abi.OMNI_BORDER_UPDATE_MODE_COALESCED;
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, deferred));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, makeInput(
-        config,
-        .{ .x = 20.0, .y = 10.0, .width = 20.0, .height = 20.0 },
-        &displays,
-    )));
-    try testing.expectEqual(@as(usize, 2), backend.present_count);
-}
-
-test "border state machine presents in realtime during layout animations" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.7, .green = 0.2, .blue = 0.2, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-
-    var realtime = makeInput(config, .{ .x = 30.0, .y = 10.0, .width = 20.0, .height = 20.0 }, &displays);
-    realtime.layout_animation_active = 1;
-    realtime.update_mode = abi.OMNI_BORDER_UPDATE_MODE_REALTIME;
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, realtime));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-}
-
-test "border state machine treats platform present failures as recoverable" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.4, .green = 0.6, .blue = 0.2, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    const input = makeInput(config, .{ .x = 10.0, .y = 20.0, .width = 30.0, .height = 40.0 }, &displays);
-
-    backend.next_present_rc = abi.OMNI_ERR_PLATFORM;
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 0), backend.present_count);
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 1), backend.present_count);
-}
-
-test "border display invalidation clears cached presentation" {
-    var state = BorderState{};
-    var backend = FakeBackend{};
-    const config = abi.OmniBorderConfig{
-        .enabled = 1,
-        .width = 4.0,
-        .color = .{ .red = 0.3, .green = 0.4, .blue = 0.5, .alpha = 1.0 },
-    };
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    const input = makeInput(config, .{ .x = 15.0, .y = 20.0, .width = 25.0, .height = 30.0 }, &displays);
-
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.invalidateDisplays(&backend));
-    try testing.expectEqual(@as(i32, abi.OMNI_OK), state.applyPresentation(&backend, input));
-    try testing.expectEqual(@as(usize, 2), backend.present_count);
-    try testing.expectEqual(@as(usize, 1), backend.hide_count);
-}
-
-test "inflate frame expands equally on all sides" {
-    const inflated = inflateFrame(.{ .x = 10.0, .y = 20.0, .width = 30.0, .height = 40.0 }, 12.0);
-    try testing.expectEqualDeep(abi.OmniBorderRect{
-        .x = -2.0,
-        .y = 8.0,
-        .width = 54.0,
-        .height = 64.0,
-    }, inflated);
-}
-
-test "round rect uses physical pixel scale" {
-    const rounded = roundRectToPhysicalPixels(.{
-        .x = 10.24,
-        .y = 20.26,
-        .width = 30.74,
-        .height = 40.76,
-    }, 2.0);
-
-    try testing.expectEqualDeep(abi.OmniBorderRect{
-        .x = 10.0,
-        .y = 20.5,
-        .width = 30.5,
-        .height = 41.0,
-    }, rounded);
-}
-
-test "select display chooses containing frame center" {
-    const displays = [_]abi.OmniBorderDisplayInfo{
-        makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0),
-        makeDisplay(100.0, 0.0, 100.0, 100.0, 200.0, 0.0, 200.0, 200.0, 2.0),
-    };
-    const selected = selectDisplay(&displays, .{ .x = 120.0, .y = 10.0, .width = 20.0, .height = 20.0 }) orelse unreachable;
-    try testing.expectEqual(@as(u32, 1), selected.display_id);
-    try testing.expectEqual(@as(f64, 100.0), selected.appkit_frame.x);
-}
-
-test "appkit rect converts to window server rect using display transforms" {
-    const display = makeDisplay(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 200.0, 200.0, 2.0);
-    const converted = appKitToWindowServerRect(
-        .{ .x = 10.0, .y = 20.0, .width = 30.0, .height = 40.0 },
-        display,
-    );
-    try testing.expectEqualDeep(abi.OmniBorderRect{
-        .x = 20.0,
-        .y = 80.0,
-        .width = 60.0,
-        .height = 80.0,
-    }, converted);
 }

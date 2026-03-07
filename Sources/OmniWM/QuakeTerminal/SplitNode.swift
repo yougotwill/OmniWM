@@ -1,29 +1,24 @@
 import Foundation
 import GhosttyKit
-
 enum SplitDirection {
     case horizontal
     case vertical
 }
-
 indirect enum SplitNode {
     case leaf(GhosttySurfaceView)
     case split(SplitDirection, Double, SplitNode, SplitNode)
-
     var ratio: Double {
         switch self {
         case .leaf: return 0.5
         case let .split(_, r, _, _): return r
         }
     }
-
     func surfaceView() -> GhosttySurfaceView? {
         switch self {
         case let .leaf(view): return view
         case .split: return nil
         }
     }
-
     func allSurfaceViews() -> [GhosttySurfaceView] {
         switch self {
         case let .leaf(view):
@@ -32,14 +27,12 @@ indirect enum SplitNode {
             return left.allSurfaceViews() + right.allSurfaceViews()
         }
     }
-
     func leafCount() -> Int {
         switch self {
         case .leaf: return 1
         case let .split(_, _, left, right): return left.leafCount() + right.leafCount()
         }
     }
-
     func inserting(at targetView: GhosttySurfaceView, direction: SplitDirection, newView: GhosttySurfaceView) -> SplitNode {
         switch self {
         case let .leaf(view):
@@ -47,7 +40,6 @@ indirect enum SplitNode {
                 return .split(direction, 0.5, .leaf(view), .leaf(newView))
             }
             return self
-
         case let .split(dir, ratio, left, right):
             let newLeft = left.inserting(at: targetView, direction: direction, newView: newView)
             if !areIdentical(newLeft, left) {
@@ -57,23 +49,19 @@ indirect enum SplitNode {
             return .split(dir, ratio, left, newRight)
         }
     }
-
     func removing(_ targetView: GhosttySurfaceView) -> SplitNode? {
         switch self {
         case let .leaf(view):
             return view === targetView ? nil : self
-
         case let .split(dir, ratio, left, right):
             let newLeft = left.removing(targetView)
             let newRight = right.removing(targetView)
-
             if newLeft == nil && newRight == nil { return nil }
             if newLeft == nil { return newRight }
             if newRight == nil { return newLeft }
             return .split(dir, ratio, newLeft!, newRight!)
         }
     }
-
     func withRatio(_ newRatio: Double, at targetLeft: GhosttySurfaceView) -> SplitNode {
         switch self {
         case .leaf:
@@ -94,34 +82,28 @@ indirect enum SplitNode {
             return .split(dir, ratio, left, right.withRatio(newRatio, at: targetLeft))
         }
     }
-
     func contains(_ view: GhosttySurfaceView) -> Bool {
         switch self {
         case let .leaf(v): return v === view
         case let .split(_, _, left, right): return left.contains(view) || right.contains(view)
         }
     }
-
     struct LeafBounds {
         let view: GhosttySurfaceView
         let rect: NSRect
     }
-
     func calculateBounds(in rect: NSRect) -> [LeafBounds] {
         switch self {
         case let .leaf(view):
             return [LeafBounds(view: view, rect: rect)]
-
         case let .split(direction, ratio, left, right):
             let clampedRatio = min(max(ratio, 0.1), 0.9)
-
             switch direction {
             case .horizontal:
                 let leftWidth = rect.width * clampedRatio
                 let leftRect = NSRect(x: rect.minX, y: rect.minY, width: leftWidth, height: rect.height)
                 let rightRect = NSRect(x: rect.minX + leftWidth, y: rect.minY, width: rect.width - leftWidth, height: rect.height)
                 return left.calculateBounds(in: leftRect) + right.calculateBounds(in: rightRect)
-
             case .vertical:
                 let topHeight = rect.height * clampedRatio
                 let topRect = NSRect(x: rect.minX, y: rect.minY + rect.height - topHeight, width: rect.width, height: topHeight)
@@ -130,7 +112,6 @@ indirect enum SplitNode {
             }
         }
     }
-
     struct DividerInfo {
         let direction: SplitDirection
         let rect: NSRect
@@ -138,16 +119,13 @@ indirect enum SplitNode {
         let rightViews: [GhosttySurfaceView]
         let currentRatio: Double
     }
-
     func calculateDividers(in rect: NSRect, thickness: CGFloat) -> [DividerInfo] {
         switch self {
         case .leaf:
             return []
-
         case let .split(direction, ratio, left, right):
             let clampedRatio = min(max(ratio, 0.1), 0.9)
             var result: [DividerInfo] = []
-
             switch direction {
             case .horizontal:
                 let leftWidth = rect.width * clampedRatio
@@ -168,7 +146,6 @@ indirect enum SplitNode {
                 let rightRect = NSRect(x: rect.minX + leftWidth, y: rect.minY, width: rect.width - leftWidth, height: rect.height)
                 result += left.calculateDividers(in: leftRect, thickness: thickness)
                 result += right.calculateDividers(in: rightRect, thickness: thickness)
-
             case .vertical:
                 let topHeight = rect.height * clampedRatio
                 let dividerY = rect.minY + rect.height - topHeight - thickness / 2
@@ -190,21 +167,16 @@ indirect enum SplitNode {
                 result += left.calculateDividers(in: topRect, thickness: thickness)
                 result += right.calculateDividers(in: bottomRect, thickness: thickness)
             }
-
             return result
         }
     }
-
     func findNeighbor(of view: GhosttySurfaceView, direction: NavigationDirection, in rect: NSRect) -> GhosttySurfaceView? {
         let bounds = calculateBounds(in: rect)
         guard let current = bounds.first(where: { $0.view === view }) else { return nil }
-
         let candidates = bounds.filter { $0.view !== view }
         let center = NSPoint(x: current.rect.midX, y: current.rect.midY)
-
         var best: LeafBounds?
         var bestDistance: CGFloat = .greatestFiniteMagnitude
-
         for candidate in candidates {
             let cCenter = NSPoint(x: candidate.rect.midX, y: candidate.rect.midY)
             let matches: Bool
@@ -215,17 +187,14 @@ indirect enum SplitNode {
             case .down:  matches = cCenter.y < center.y
             }
             guard matches else { continue }
-
             let dist = hypot(cCenter.x - center.x, cCenter.y - center.y)
             if dist < bestDistance {
                 bestDistance = dist
                 best = candidate
             }
         }
-
         return best?.view
     }
-
     func equalized() -> SplitNode {
         switch self {
         case .leaf:
@@ -234,7 +203,6 @@ indirect enum SplitNode {
             return .split(dir, 0.5, left.equalized(), right.equalized())
         }
     }
-
     func findParentSplit(containing view: GhosttySurfaceView) -> (SplitDirection, Double)? {
         switch self {
         case .leaf: return nil
@@ -245,7 +213,6 @@ indirect enum SplitNode {
             return left.findParentSplit(containing: view) ?? right.findParentSplit(containing: view)
         }
     }
-
     func updatingRatioForSplit(containing view: GhosttySurfaceView, newRatio: Double) -> SplitNode {
         switch self {
         case .leaf: return self
@@ -261,11 +228,9 @@ indirect enum SplitNode {
         }
     }
 }
-
 enum NavigationDirection {
     case left, right, up, down
 }
-
 private func areIdentical(_ a: SplitNode, _ b: SplitNode) -> Bool {
     switch (a, b) {
     case let (.leaf(v1), .leaf(v2)):

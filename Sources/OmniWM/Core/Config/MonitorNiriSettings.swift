@@ -1,18 +1,15 @@
 import CoreGraphics
 import Foundation
-
 struct MonitorNiriSettings: MonitorSettingsType {
     let id: UUID
     var monitorName: String
     var monitorDisplayId: CGDirectDisplayID?
-
     var maxVisibleColumns: Int?
     var maxWindowsPerColumn: Int?
     var centerFocusedColumn: CenterFocusedColumn?
     var alwaysCenterSingleColumn: Bool?
     var singleWindowAspectRatio: SingleWindowAspectRatio?
     var infiniteLoop: Bool?
-
     init(
         id: UUID = UUID(),
         monitorName: String,
@@ -34,12 +31,10 @@ struct MonitorNiriSettings: MonitorSettingsType {
         self.singleWindowAspectRatio = singleWindowAspectRatio
         self.infiniteLoop = infiniteLoop
     }
-
     private enum CodingKeys: String, CodingKey {
         case id, monitorName, monitorDisplayId, maxVisibleColumns, maxWindowsPerColumn
         case centerFocusedColumn, alwaysCenterSingleColumn, singleWindowAspectRatio, infiniteLoop
     }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -54,7 +49,6 @@ struct MonitorNiriSettings: MonitorSettingsType {
             .flatMap { SingleWindowAspectRatio(rawValue: $0) }
         infiniteLoop = try container.decodeIfPresent(Bool.self, forKey: .infiniteLoop)
     }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -68,7 +62,6 @@ struct MonitorNiriSettings: MonitorSettingsType {
         try container.encodeIfPresent(infiniteLoop, forKey: .infiniteLoop)
     }
 }
-
 struct ResolvedNiriSettings: Equatable {
     let maxVisibleColumns: Int
     let maxWindowsPerColumn: Int

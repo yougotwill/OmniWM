@@ -1,19 +1,15 @@
 import AppKit
 import Foundation
 import QuartzCore
-
 @MainActor final class DwindleLayoutHandler {
     weak var controller: WMController?
     static let activeAnimationBorderUpdateMode: BorderPresentationUpdateMode = .coalesced
     private let borderTickInterval: CFTimeInterval = 1.0 / 60.0
-
     var dwindleAnimationByDisplay: [CGDirectDisplayID: (WorkspaceDescriptor.ID, Monitor)] = [:]
     private var lastBorderTickTimeByDisplay: [CGDirectDisplayID: CFTimeInterval] = [:]
-
     init(controller: WMController?) {
         self.controller = controller
     }
-
     func registerDwindleAnimation(_ workspaceId: WorkspaceDescriptor.ID, monitor: Monitor, on displayId: CGDirectDisplayID) -> Bool {
         if dwindleAnimationByDisplay[displayId]?.0 == workspaceId {
             return false
@@ -21,20 +17,16 @@ import QuartzCore
         dwindleAnimationByDisplay[displayId] = (workspaceId, monitor)
         return true
     }
-
     func hasDwindleAnimationRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         dwindleAnimationByDisplay.values.contains { $0.0 == workspaceId }
     }
-
     func tickDwindleAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
         guard let (wsId, monitor) = dwindleAnimationByDisplay[displayId] else { return }
         guard let controller, let engine = controller.dwindleEngine else {
             controller?.layoutRefreshController.stopDwindleAnimation(for: displayId)
             return
         }
-
         engine.tickAnimations(at: targetTime, in: wsId)
-
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let baseFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
         let animatedFrames = engine.calculateAnimatedFrames(
@@ -42,15 +34,12 @@ import QuartzCore
             in: wsId,
             at: targetTime
         )
-
         var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
-
         for (handle, frame) in animatedFrames {
             if let entry = controller.workspaceManager.entry(for: handle) {
                 frameUpdates.append((handle.pid, entry.windowId, frame))
             }
         }
-
         controller.axManager.applyFramesParallel(frameUpdates)
         refreshFocusedBorderDuringTick(
             controller: controller,
@@ -58,7 +47,6 @@ import QuartzCore
             targetTime: targetTime,
             animatedFrames: animatedFrames
         )
-
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
             lastBorderTickTimeByDisplay.removeValue(forKey: displayId)
             if let focusedHandle = controller.focusedHandle,
@@ -73,7 +61,6 @@ import QuartzCore
             controller.layoutRefreshController.stopDwindleAnimation(for: displayId)
         }
     }
-
     private func refreshFocusedBorderDuringTick(
         controller: WMController,
         displayId: CGDirectDisplayID,
@@ -87,14 +74,12 @@ import QuartzCore
         else {
             return
         }
-
         controller.refreshBorderPresentation(
             focusedFrame: frame,
             windowId: entry.windowId,
             updateMode: .realtime
         )
     }
-
     private func shouldRefreshFocusedBorderTick(displayId: CGDirectDisplayID, targetTime: CFTimeInterval) -> Bool {
         guard let lastTick = lastBorderTickTimeByDisplay[displayId] else {
             lastBorderTickTimeByDisplay[displayId] = targetTime
@@ -106,40 +91,28 @@ import QuartzCore
         lastBorderTickTimeByDisplay[displayId] = targetTime
         return true
     }
-
     func layoutWithDwindleEngine(activeWorkspaces: Set<WorkspaceDescriptor.ID>) async {
         guard let controller, let engine = controller.dwindleEngine else { return }
         let lrc = controller.layoutRefreshController
-
         for monitor in controller.workspaceManager.monitors {
             guard let workspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) else { continue }
             let wsId = workspace.id
-
             guard activeWorkspaces.contains(wsId) else { continue }
-
             let wsName = workspace.name
             let layoutType = controller.settings.layoutType(for: wsName)
             guard layoutType == .dwindle else { continue }
-
             let oldFrames = engine.currentFrames(in: wsId)
-
             let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
             let currentFocusedHandle = controller.focusedHandle
-
             _ = engine.syncWindows(windowHandles, in: wsId, focusedHandle: currentFocusedHandle)
-
             lrc.updateWindowConstraints(in: wsId) { engine.updateWindowConstraints(for: $0, constraints: $1) }
-
             let insetFrame = controller.insetWorkingFrame(for: monitor)
-
             let newFrames = engine.calculateLayout(for: wsId, screen: insetFrame)
-
             for entry in controller.workspaceManager.entries(in: wsId) {
                 if newFrames[entry.handle] != nil {
                     lrc.unhideWindow(entry, monitor: monitor)
                 }
             }
-
             if let handle = engine.selectedWindowHandle(in: wsId) {
                 controller.focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
                 if let currentFocused = controller.focusedHandle {
@@ -150,13 +123,10 @@ import QuartzCore
                     controller.focusManager.setFocus(handle, in: wsId)
                 }
             }
-
             engine.animateWindowMovements(oldFrames: oldFrames, newFrames: newFrames)
-
             let now = CACurrentMediaTime()
             if engine.hasActiveAnimations(in: wsId, at: now) {
                 lrc.startDwindleAnimation(for: wsId, monitor: monitor)
-
                 if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
@@ -168,30 +138,22 @@ import QuartzCore
                 }
             } else {
                 var frameUpdates: [(pid: pid_t, windowId: Int, frame: CGRect)] = []
-
                 for (handle, frame) in newFrames {
                     if let entry = controller.workspaceManager.entry(for: handle) {
                         frameUpdates.append((handle.pid, entry.windowId, frame))
                     }
                 }
-
                 controller.axManager.applyFramesParallel(frameUpdates)
-
                 if let focusedHandle = controller.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
                     controller.refreshBorderPresentation(focusedFrame: frame, windowId: entry.windowId)
                 }
             }
-
             await Task.yield()
         }
-
         controller.updateWorkspaceBar()
     }
-
-    // MARK: - Layout Capability Commands
-
     func focusNeighbor(direction: Direction) {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
@@ -203,7 +165,6 @@ import QuartzCore
             }
         }
     }
-
     func swapWindow(direction: Direction) {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
@@ -212,7 +173,6 @@ import QuartzCore
             }
         }
     }
-
     func toggleFullscreen() {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
@@ -222,7 +182,6 @@ import QuartzCore
             }
         }
     }
-
     func cycleSize(forward: Bool) {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
@@ -230,7 +189,6 @@ import QuartzCore
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
     func balanceSizes() {
         guard let controller else { return }
         withDwindleContext { engine, wsId in
@@ -238,9 +196,6 @@ import QuartzCore
             controller.layoutRefreshController.executeLayoutRefreshImmediate()
         }
     }
-
-    // MARK: - Layout Engine Configuration
-
     func enableDwindleLayout() {
         guard let controller else { return }
         let engine = DwindleLayoutEngine()
@@ -248,7 +203,6 @@ import QuartzCore
         controller.dwindleEngine = engine
         controller.layoutRefreshController.refreshWindowsAndLayout()
     }
-
     func updateDwindleConfig(
         smartSplit: Bool? = nil,
         defaultSplitRatio: CGFloat? = nil,
@@ -272,7 +226,6 @@ import QuartzCore
         if let v = outerGapRight { engine.settings.outerGapRight = v }
         controller.layoutRefreshController.refreshWindowsAndLayout()
     }
-
     func withDwindleContext(
         perform: (DwindleLayoutEngine, WorkspaceDescriptor.ID) -> Void
     ) {
@@ -283,5 +236,4 @@ import QuartzCore
         perform(engine, wsId)
     }
 }
-
 extension DwindleLayoutHandler: LayoutFocusable, LayoutSwappable, LayoutSizable {}

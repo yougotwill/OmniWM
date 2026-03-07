@@ -1,10 +1,8 @@
 import SwiftUI
-
 struct SettingsDetailView: View {
     let section: SettingsSection
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     var body: some View {
         ScrollView {
             contentView
@@ -14,7 +12,6 @@ struct SettingsDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .omniBackgroundExtensionEffect()
     }
-
     @ViewBuilder
     private var contentView: some View {
         switch section {

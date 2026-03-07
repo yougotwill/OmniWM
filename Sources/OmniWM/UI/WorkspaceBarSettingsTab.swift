@@ -1,16 +1,12 @@
 import SwiftUI
-
 struct WorkspaceBarSettingsTab: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     @State private var selectedMonitor: Monitor.ID?
     @State private var connectedMonitors: [Monitor] = Monitor.current()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Configuration Scope")
-
                 VStack(alignment: .leading, spacing: 8) {
                     Picker("Configure settings for:", selection: $selectedMonitor) {
                         Text("Global Defaults").tag(nil as Monitor.ID?)
@@ -28,7 +24,6 @@ struct WorkspaceBarSettingsTab: View {
                             }
                         }
                     }
-
                     if let monitorId = selectedMonitor,
                        let monitor = connectedMonitors.first(where: { $0.id == monitorId })
                     {
@@ -51,9 +46,7 @@ struct WorkspaceBarSettingsTab: View {
                         }
                     }
                 }
-
                 Divider()
-
                 if let monitorId = selectedMonitor,
                    let monitor = connectedMonitors.first(where: { $0.id == monitorId })
                 {
@@ -74,11 +67,9 @@ struct WorkspaceBarSettingsTab: View {
         }
     }
 }
-
 private struct GlobalBarSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Workspace Bar")
@@ -87,24 +78,20 @@ private struct GlobalBarSettingsSection: View {
                     .onChange(of: settings.workspaceBarEnabled) { _, newValue in
                         controller.setWorkspaceBarEnabled(newValue)
                     }
-
                 if settings.workspaceBarEnabled {
                     Toggle("Show Workspace Labels", isOn: $settings.workspaceBarShowLabels)
                         .onChange(of: settings.workspaceBarShowLabels) { _, _ in
                             controller.updateWorkspaceBarSettings()
                         }
-
                     Toggle("Deduplicate App Icons", isOn: $settings.workspaceBarDeduplicateAppIcons)
                         .onChange(of: settings.workspaceBarDeduplicateAppIcons) { _, _ in
                             controller.updateWorkspaceBarSettings()
                         }
                         .help("Group windows by app with badge count")
-
                     Toggle("Hide Empty Workspaces", isOn: $settings.workspaceBarHideEmptyWorkspaces)
                         .onChange(of: settings.workspaceBarHideEmptyWorkspaces) { _, _ in
                             controller.updateWorkspaceBarSettings()
                         }
-
                     Toggle("Notch-Aware Positioning", isOn: $settings.workspaceBarNotchAware)
                         .onChange(of: settings.workspaceBarNotchAware) { _, _ in
                             controller.updateWorkspaceBarSettings()
@@ -112,10 +99,8 @@ private struct GlobalBarSettingsSection: View {
                         .help("Shift bar to the right of the notch on MacBook Pro")
                 }
             }
-
             if settings.workspaceBarEnabled {
                 Divider()
-
                 SectionHeader("Position & Level")
                 VStack(alignment: .leading, spacing: 8) {
                     Picker("Position", selection: $settings.workspaceBarPosition) {
@@ -126,7 +111,6 @@ private struct GlobalBarSettingsSection: View {
                     .onChange(of: settings.workspaceBarPosition) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
-
                     Picker("Window Level", selection: $settings.workspaceBarWindowLevel) {
                         ForEach(WorkspaceBarWindowLevel.allCases) { level in
                             Text(level.displayName).tag(level)
@@ -136,9 +120,7 @@ private struct GlobalBarSettingsSection: View {
                         controller.updateWorkspaceBarSettings()
                     }
                 }
-
                 Divider()
-
                 SectionHeader("Position Offset")
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -151,12 +133,10 @@ private struct GlobalBarSettingsSection: View {
                                 Image(systemName: "minus")
                             }
                             .buttonStyle(.bordered)
-
                             TextField("", value: $settings.workspaceBarXOffset, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 60)
                                 .multilineTextAlignment(.center)
-
                             Button {
                                 settings.workspaceBarXOffset = min(500, settings.workspaceBarXOffset + 10)
                             } label: {
@@ -171,7 +151,6 @@ private struct GlobalBarSettingsSection: View {
                     .onChange(of: settings.workspaceBarXOffset) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
-
                     HStack {
                         Text("Y Offset")
                         Spacer()
@@ -182,12 +161,10 @@ private struct GlobalBarSettingsSection: View {
                                 Image(systemName: "minus")
                             }
                             .buttonStyle(.bordered)
-
                             TextField("", value: $settings.workspaceBarYOffset, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 60)
                                 .multilineTextAlignment(.center)
-
                             Button {
                                 settings.workspaceBarYOffset = min(500, settings.workspaceBarYOffset + 10)
                             } label: {
@@ -203,9 +180,7 @@ private struct GlobalBarSettingsSection: View {
                         controller.updateWorkspaceBarSettings()
                     }
                 }
-
                 Divider()
-
                 SectionHeader("Appearance")
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -218,7 +193,6 @@ private struct GlobalBarSettingsSection: View {
                     .onChange(of: settings.workspaceBarHeight) { _, _ in
                         controller.updateWorkspaceBarSettings()
                     }
-
                     HStack {
                         Text("Background Opacity")
                         Slider(value: $settings.workspaceBarBackgroundOpacity, in: 0 ... 0.5, step: 0.05)
@@ -233,21 +207,17 @@ private struct GlobalBarSettingsSection: View {
             }
         }
     }
-
 }
-
 private struct MonitorBarSettingsSection: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
     let monitor: Monitor
-
     private var monitorSettings: MonitorBarSettings {
         settings.barSettings(for: monitor) ?? MonitorBarSettings(
             monitorName: monitor.name,
             monitorDisplayId: monitor.displayId
         )
     }
-
     private func updateSetting(_ update: (inout MonitorBarSettings) -> Void) {
         var ms = monitorSettings
         ms.monitorName = monitor.name
@@ -256,10 +226,8 @@ private struct MonitorBarSettingsSection: View {
         settings.updateBarSettings(ms)
         controller.updateWorkspaceBarSettings()
     }
-
     var body: some View {
         let ms = monitorSettings
-
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Workspace Bar")
             VStack(alignment: .leading, spacing: 8) {
@@ -270,7 +238,6 @@ private struct MonitorBarSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.enabled = newValue } },
                     onReset: { updateSetting { $0.enabled = nil } }
                 )
-
                 OverridableToggle(
                     label: "Show Workspace Labels",
                     value: ms.showLabels,
@@ -278,7 +245,6 @@ private struct MonitorBarSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.showLabels = newValue } },
                     onReset: { updateSetting { $0.showLabels = nil } }
                 )
-
                 OverridableToggle(
                     label: "Deduplicate App Icons",
                     value: ms.deduplicateAppIcons,
@@ -287,7 +253,6 @@ private struct MonitorBarSettingsSection: View {
                     onReset: { updateSetting { $0.deduplicateAppIcons = nil } }
                 )
                 .help("Group windows by app with badge count")
-
                 OverridableToggle(
                     label: "Hide Empty Workspaces",
                     value: ms.hideEmptyWorkspaces,
@@ -295,7 +260,6 @@ private struct MonitorBarSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.hideEmptyWorkspaces = newValue } },
                     onReset: { updateSetting { $0.hideEmptyWorkspaces = nil } }
                 )
-
                 OverridableToggle(
                     label: "Notch-Aware Positioning",
                     value: ms.notchAware,
@@ -305,9 +269,7 @@ private struct MonitorBarSettingsSection: View {
                 )
                 .help("Shift bar to the right of the notch on MacBook Pro")
             }
-
             Divider()
-
             SectionHeader("Position & Level")
             VStack(alignment: .leading, spacing: 8) {
                 OverridablePicker(
@@ -319,7 +281,6 @@ private struct MonitorBarSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.position = newValue } },
                     onReset: { updateSetting { $0.position = nil } }
                 )
-
                 OverridablePicker(
                     label: "Window Level",
                     value: ms.windowLevel,
@@ -330,9 +291,7 @@ private struct MonitorBarSettingsSection: View {
                     onReset: { updateSetting { $0.windowLevel = nil } }
                 )
             }
-
             Divider()
-
             SectionHeader("Position Offset")
             VStack(alignment: .leading, spacing: 8) {
                 OverridableStepper(
@@ -346,7 +305,6 @@ private struct MonitorBarSettingsSection: View {
                     onReset: { updateSetting { $0.xOffset = nil } }
                 )
                 .help("Horizontal offset (negative = left, positive = right)")
-
                 OverridableStepper(
                     label: "Y Offset",
                     value: ms.yOffset,
@@ -359,9 +317,7 @@ private struct MonitorBarSettingsSection: View {
                 )
                 .help("Vertical offset (negative = down, positive = up)")
             }
-
             Divider()
-
             SectionHeader("Appearance")
             VStack(alignment: .leading, spacing: 8) {
                 OverridableSlider(
@@ -374,7 +330,6 @@ private struct MonitorBarSettingsSection: View {
                     onChange: { newValue in updateSetting { $0.height = newValue } },
                     onReset: { updateSetting { $0.height = nil } }
                 )
-
                 OverridableSlider(
                     label: "Background Opacity",
                     value: ms.backgroundOpacity,

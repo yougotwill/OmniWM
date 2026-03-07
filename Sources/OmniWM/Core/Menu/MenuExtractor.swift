@@ -1,17 +1,14 @@
 import AppKit
 import ApplicationServices
 import ObjectiveC
-
 final class MenuExtractor: @unchecked Sendable {
     private static let itemAttributeKeys = [
         "AXTitle", "AXRole", "AXRoleDescription", "AXEnabled",
         "AXMenuItemMarkChar", "AXMenuItemCmdChar", "AXMenuItemCmdModifiers", "AXChildren"
     ]
-
     private let boldFont = NSFontManager.shared.convert(
         NSFont.menuFont(ofSize: NSFont.systemFontSize), toHaveTrait: .boldFontMask
     )
-
     func getMenuBar(for pid: pid_t) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         var menuBarValue: AnyObject?
@@ -19,19 +16,16 @@ final class MenuExtractor: @unchecked Sendable {
         guard result == .success, let menuBar = menuBarValue else { return nil }
         return (menuBar as! AXUIElement)
     }
-
     func buildMenu(from element: AXUIElement, target: AnyObject?, action: Selector?) -> [NSMenuItem] {
         autoreleasepool {
             buildMenuItems(from: element, target: target, action: action, isSubmenu: false)
         }
     }
-
     func buildSubmenu(from element: AXUIElement, target: AnyObject?, action: Selector?) -> [NSMenuItem] {
         autoreleasepool {
             buildMenuItems(from: element, target: target, action: action, isSubmenu: true)
         }
     }
-
     func buildSubmenu(
         fromChildren children: [AXUIElement],
         itemsData: [[String: Any]],
@@ -46,7 +40,6 @@ final class MenuExtractor: @unchecked Sendable {
             isSubmenu: true
         )
     }
-
     func flattenMenuItems(
         from menuBar: AXUIElement,
         appName _: String? = nil,
@@ -62,7 +55,6 @@ final class MenuExtractor: @unchecked Sendable {
         )
         return items
     }
-
     private func flattenMenuItemsRecursive(
         from element: AXUIElement,
         parentPath: [String],
@@ -71,24 +63,18 @@ final class MenuExtractor: @unchecked Sendable {
         into items: inout [MenuItemModel]
     ) {
         guard let children = element.getChildren() else { return }
-
         for child in children {
             autoreleasepool {
                 guard let itemData = child.getMultipleAttributes(Self.itemAttributeKeys) else { return }
-
                 let title = itemData["AXTitle"] as? String ?? ""
                 let role = itemData["AXRole"] as? String ?? ""
-
                 if title.isEmpty || role == "AXSeparator" { return }
-
                 let isEnabled = itemData["AXEnabled"] as? Bool ?? true
-
                 var shortcut: String?
                 if let cmd = itemData["AXMenuItemCmdChar"] as? String, !cmd.isEmpty {
                     let flags = NSEvent.ModifierFlags.fromAXModifiers(itemData["AXMenuItemCmdModifiers"] as? Int)
                     shortcut = formatKeyboardShortcut(cmd, modifiers: flags)
                 }
-
                 if let subChildren = itemData["AXChildren"] as? [AXUIElement],
                    !subChildren.isEmpty,
                    let firstSub = subChildren.first,
@@ -120,7 +106,6 @@ final class MenuExtractor: @unchecked Sendable {
             }
         }
     }
-
     private func formatKeyboardShortcut(_ key: String, modifiers: NSEvent.ModifierFlags) -> String {
         var parts: [String] = []
         if modifiers.contains(.control) { parts.append("⌃") }
@@ -130,16 +115,13 @@ final class MenuExtractor: @unchecked Sendable {
         parts.append(key.uppercased())
         return parts.joined()
     }
-
     private func buildMenuItems(
         from element: AXUIElement, target: AnyObject?, action: Selector?, isSubmenu: Bool
     ) -> [NSMenuItem] {
         guard let children = element.getChildren() else { return [] }
-
         let itemsData = autoreleasepool {
             var results: [[String: Any]] = []
             results.reserveCapacity(children.count)
-
             for child in children {
                 if let values = child.getMultipleAttributes(Self.itemAttributeKeys) {
                     results.append(values)
@@ -147,15 +129,12 @@ final class MenuExtractor: @unchecked Sendable {
                     results.append([:])
                 }
             }
-
             return results
         }
-
         return buildMenuItems(
             children: children, itemsData: itemsData, target: target, action: action, isSubmenu: isSubmenu
         )
     }
-
     private func buildMenuItems(
         children: [AXUIElement],
         itemsData: [[String: Any]],
@@ -165,11 +144,9 @@ final class MenuExtractor: @unchecked Sendable {
     ) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         items.reserveCapacity(children.count)
-
         var appleItem: NSMenuItem?
         var isFirst = true
         var needsSeparator = false
-
         for (index, child) in children.enumerated() {
             autoreleasepool {
                 let itemData = itemsData[index]
@@ -189,12 +166,10 @@ final class MenuExtractor: @unchecked Sendable {
                         needsSeparator = true
                         return
                     }
-
                     if needsSeparator, !items.isEmpty {
                         items.append(.separator())
                         needsSeparator = false
                     }
-
                     if isApple {
                         appleItem = item
                     } else {
@@ -203,17 +178,14 @@ final class MenuExtractor: @unchecked Sendable {
                 }
             }
         }
-
         if let apple = appleItem {
             if !items.isEmpty, !(items.last?.isSeparatorItem ?? true) {
                 items.append(.separator())
             }
             items.append(apple)
         }
-
         return items
     }
-
     private func buildSingleMenuItem(
         from child: AXUIElement,
         itemData: [String: Any],
@@ -225,29 +197,21 @@ final class MenuExtractor: @unchecked Sendable {
     ) -> NSMenuItem? {
         let title = itemData["AXTitle"] as? String ?? ""
         let role = itemData["AXRole"] as? String ?? ""
-
         if title.isEmpty || role == "AXSeparator" {
             return .separator()
         }
-
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.representedObject = child
-
         item.isEnabled = itemData["AXEnabled"] as? Bool ?? true
-
         if let mark = itemData["AXMenuItemMarkChar"] as? String, !mark.isEmpty {
             item.state = mark == "✓" ? .on : (mark == "•" ? .mixed : .off)
         }
-
         setKeyboardShortcut(for: item, from: itemData)
-
         let hasSubmenu = handleSubmenu(for: item, from: itemData, target: target, action: action)
-
         if !hasSubmenu && item.isEnabled {
             item.target = target
             item.action = action
         }
-
         if !isSubmenu, isFirst || isApple {
             item.attributedTitle = NSAttributedString(
                 string: item.title,
@@ -257,18 +221,14 @@ final class MenuExtractor: @unchecked Sendable {
                 isFirst = false
             }
         }
-
         return item
     }
-
     private func setKeyboardShortcut(for item: NSMenuItem, from values: [String: Any]) {
         guard let cmd = values["AXMenuItemCmdChar"] as? String, !cmd.isEmpty else { return }
-
         item.keyEquivalent = cmd.lowercased()
         let flags = NSEvent.ModifierFlags.fromAXModifiers(values["AXMenuItemCmdModifiers"] as? Int)
         item.keyEquivalentModifierMask = flags
     }
-
     private func handleSubmenu(
         for item: NSMenuItem,
         from values: [String: Any],
@@ -283,24 +243,18 @@ final class MenuExtractor: @unchecked Sendable {
         else {
             return false
         }
-
         let submenu = NSMenu(title: item.title)
-
         submenu.delegate = target as? NSMenuDelegate
         submenu.axRootElement = firstSub
         item.submenu = submenu
-
         return true
     }
-
     private func isAppleMenuItem(title: String?, itemData: [String: Any]) -> Bool {
         title == "Apple" || (itemData["AXRoleDescription"] as? String) == "Apple menu"
     }
 }
-
 nonisolated(unsafe) private var kAXRootElementAssociatedKey: UInt8 = 0
 nonisolated(unsafe) private var kIsPopulatingAssociatedKey: UInt8 = 0
-
 extension NSMenu {
     var axRootElement: AXUIElement? {
         get {
@@ -315,7 +269,6 @@ extension NSMenu {
             )
         }
     }
-
     var isPopulatingAsynchronously: Bool {
         get {
             (objc_getAssociatedObject(self, &kIsPopulatingAssociatedKey) as? NSNumber)?
@@ -329,7 +282,6 @@ extension NSMenu {
         }
     }
 }
-
 extension AXUIElement {
     func getAttribute(_ name: String) -> Any? {
         autoreleasepool {
@@ -338,7 +290,6 @@ extension AXUIElement {
                 ? value : nil
         }
     }
-
     func getChildren() -> [AXUIElement]? {
         autoreleasepool {
             var value: AnyObject?
@@ -350,20 +301,16 @@ extension AXUIElement {
             return children
         }
     }
-
     func getMultipleAttributes(_ names: [String]) -> [String: Any]? {
         autoreleasepool {
             let attrs = names as CFArray
             var values: CFArray?
             let options = AXCopyMultipleAttributeOptions(rawValue: 0)
-
             guard AXUIElementCopyMultipleAttributeValues(self, attrs, options, &values) == .success,
                   let results = values as? [Any], results.count == names.count
             else { return nil }
-
             var dict: [String: Any] = [:]
             dict.reserveCapacity(names.count)
-
             for i in 0 ..< names.count {
                 let value = results[i]
                 if !(value is NSNull) {
@@ -374,7 +321,6 @@ extension AXUIElement {
         }
     }
 }
-
 extension NSEvent.ModifierFlags {
     static func fromAXModifiers(_ maybeMods: Int?) -> NSEvent.ModifierFlags {
         guard let mods = maybeMods else { return [.command] }

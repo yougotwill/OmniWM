@@ -1,11 +1,9 @@
 import Foundation
-
 enum MonitorDescription: Equatable {
     case sequenceNumber(Int)
     case main
     case secondary
     case pattern(String)
-
     func resolveMonitor(sortedMonitors: [Monitor]) -> Monitor? {
         switch self {
         case let .sequenceNumber(number):
@@ -31,10 +29,8 @@ enum MonitorDescription: Equatable {
         }
     }
 }
-
 func parseMonitorDescription(_ raw: String) -> Result<MonitorDescription, ParseError> {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
     if let number = Int(trimmed) {
         if number >= 1 {
             return .success(.sequenceNumber(number))
@@ -51,7 +47,6 @@ func parseMonitorDescription(_ raw: String) -> Result<MonitorDescription, ParseE
     if trimmed.isEmpty {
         return .failure(ParseError("Empty string is an illegal monitor description"))
     }
-
     if (try? NSRegularExpression(pattern: trimmed, options: [.caseInsensitive])) == nil {
         return .failure(ParseError("Can't parse '\(trimmed)' regex"))
     }

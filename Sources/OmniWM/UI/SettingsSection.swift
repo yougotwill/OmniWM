@@ -1,5 +1,4 @@
 import SwiftUI
-
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case niri
@@ -12,9 +11,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case menu
     case hotkeys
     case quakeTerminal
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .general: "General"
@@ -30,7 +27,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .quakeTerminal: "Quake Terminal"
         }
     }
-
     var icon: String {
         switch self {
         case .general: "gearshape"

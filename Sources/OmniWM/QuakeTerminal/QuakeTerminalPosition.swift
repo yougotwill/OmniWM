@@ -1,16 +1,13 @@
 import Cocoa
-
 enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
     case top
     case bottom
     case left
     case right
     case center
-
     var displayName: String {
         rawValue.capitalized
     }
-
     @MainActor
     func setInitial(
         in window: NSWindow,
@@ -25,7 +22,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             size: closedFrame?.size ?? configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
         ), display: false)
     }
-
     @MainActor
     func setFinal(
         in window: NSWindow,
@@ -40,7 +36,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             size: closedFrame?.size ?? configuredFrameSize(on: screen, widthPercent: widthPercent, heightPercent: heightPercent)
         ), display: true)
     }
-
     func configuredFrameSize(on screen: NSScreen, widthPercent: Double, heightPercent: Double) -> NSSize {
         let visibleFrame = screen.visibleFrame
         switch self {
@@ -61,7 +56,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             )
         }
     }
-
     @MainActor
     func initialOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         let visibleFrame = screen.visibleFrame
@@ -93,7 +87,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             )
         }
     }
-
     @MainActor
     func finalOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         let visibleFrame = screen.visibleFrame
@@ -125,7 +118,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             )
         }
     }
-
     @MainActor
     func centeredOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         let visibleFrame = screen.visibleFrame
@@ -144,7 +136,6 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
             return window.frame.origin
         }
     }
-
     @MainActor
     func verticallyCenteredOrigin(for window: NSWindow, on screen: NSScreen) -> CGPoint {
         let visibleFrame = screen.visibleFrame
