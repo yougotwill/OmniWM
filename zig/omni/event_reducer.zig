@@ -28,14 +28,11 @@ fn shouldSuppressRefresh(state: *const types.RuntimeState, reason: u8) bool {
         return true;
     }
     return switch (reason) {
-        abi.OMNI_CONTROLLER_REFRESH_REASON_WINDOW_CHANGED =>
-            state.layout_incremental_in_progress or
+        abi.OMNI_CONTROLLER_REFRESH_REASON_WINDOW_CHANGED => state.layout_incremental_in_progress or
             state.layout_immediate_in_progress or
             state.layout_animation_active,
-        abi.OMNI_CONTROLLER_REFRESH_REASON_WINDOW_CREATED =>
-            state.layout_incremental_in_progress or state.layout_immediate_in_progress,
-        abi.OMNI_CONTROLLER_REFRESH_REASON_TIMER =>
-            state.layout_incremental_in_progress or state.layout_immediate_in_progress,
+        abi.OMNI_CONTROLLER_REFRESH_REASON_WINDOW_CREATED => state.layout_incremental_in_progress or state.layout_immediate_in_progress,
+        abi.OMNI_CONTROLLER_REFRESH_REASON_TIMER => state.layout_incremental_in_progress or state.layout_immediate_in_progress,
         else => false,
     };
 }
@@ -211,11 +208,7 @@ pub fn handleEvent(state: *types.RuntimeState, event: abi.OmniControllerEvent) !
             const workspace_id = types.optionalUuid(event.has_workspace_id, event.workspace_id) orelse return abi.OMNI_OK;
             try recoverFocusForWorkspace(state, workspace_id);
         },
-        abi.OMNI_CONTROLLER_EVENT_APP_ACTIVATED => {
-            if (state.focused_window) |focused_window_id| {
-                try focus.exportFocus(state, null, null, focused_window_id);
-            }
-        },
+        abi.OMNI_CONTROLLER_EVENT_APP_ACTIVATED => {},
         abi.OMNI_CONTROLLER_EVENT_APP_HIDDEN,
         abi.OMNI_CONTROLLER_EVENT_APP_UNHIDDEN,
         abi.OMNI_CONTROLLER_EVENT_MONITOR_RECONFIGURED,
@@ -453,4 +446,28 @@ test "recover focus event selects first managed window in workspace" {
     try std.testing.expectEqual(@as(usize, 1), state.effects.focus_exports.items.len);
     try std.testing.expectEqual(handle_id, state.effects.focus_exports.items[0].focused_window_id.bytes);
     try std.testing.expectEqual(node_id, state.effects.focus_exports.items[0].selected_node_id.bytes);
+}
+
+test "app activated event does not replay managed focus" {
+    var state = types.RuntimeState.init(std.testing.allocator);
+    defer state.deinit();
+
+    state.focused_window = [_]u8{8} ++ [_]u8{0} ** 15;
+
+    const rc = try handleEvent(&state, .{
+        .kind = abi.OMNI_CONTROLLER_EVENT_APP_ACTIVATED,
+        .enabled = 0,
+        .refresh_reason = 0,
+        .has_display_id = 0,
+        .display_id = 0,
+        .pid = 123,
+        .has_window_handle_id = 0,
+        .window_handle_id = .{ .bytes = [_]u8{0} ** 16 },
+        .has_workspace_id = 0,
+        .workspace_id = .{ .bytes = [_]u8{0} ** 16 },
+    });
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
+    try std.testing.expectEqual(@as(usize, 0), state.effects.focus_exports.items.len);
+    try std.testing.expectEqual(@as(usize, 0), state.effects.refresh_plans.items.len);
 }

@@ -60,16 +60,44 @@ pub const WorkspaceManager = struct {
         return std.mem.eql(u8, lhs.bytes[0..], rhs.bytes[0..]);
     }
 
+    fn normalizedNameLen(name: abi.OmniWorkspaceRuntimeName) usize {
+        const clamped = @min(@as(usize, name.length), abi.OMNI_WORKSPACE_RUNTIME_NAME_CAP);
+        var len: usize = 0;
+        while (len < clamped and name.bytes[len] != 0) : (len += 1) {}
+        return len;
+    }
+
     pub fn nameSlice(name: abi.OmniWorkspaceRuntimeName) []const u8 {
-        return monitor.nameSlice(name);
+        return name.bytes[0..normalizedNameLen(name)];
     }
 
     fn nameEquals(lhs: abi.OmniWorkspaceRuntimeName, rhs: []const u8) bool {
-        return std.mem.eql(u8, nameSlice(lhs), rhs);
+        const lhs_len = normalizedNameLen(lhs);
+        if (lhs_len != rhs.len) {
+            return false;
+        }
+        var idx: usize = 0;
+        while (idx < lhs_len) : (idx += 1) {
+            if (lhs.bytes[idx] != rhs[idx]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     fn workspaceNameEquals(lhs: abi.OmniWorkspaceRuntimeName, rhs: abi.OmniWorkspaceRuntimeName) bool {
-        return std.mem.eql(u8, nameSlice(lhs), nameSlice(rhs));
+        const lhs_len = normalizedNameLen(lhs);
+        const rhs_len = normalizedNameLen(rhs);
+        if (lhs_len != rhs_len) {
+            return false;
+        }
+        var idx: usize = 0;
+        while (idx < lhs_len) : (idx += 1) {
+            if (lhs.bytes[idx] != rhs.bytes[idx]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     fn asciiLower(byte: u8) u8 {
@@ -810,6 +838,22 @@ pub const WorkspaceManager = struct {
         return self.setActiveWorkspaceInternal(workspace_id, target_monitor.display_id, monitor.anchorPoint(target_monitor));
     }
 
+    pub fn switchWorkspaceByName(self: *WorkspaceManager, workspace_name: []const u8) !?abi.OmniUuid128 {
+        const workspace_id = try self.workspaceIdByName(workspace_name, true) orelse return null;
+        return self.focusWorkspaceAnywhere(workspace_id);
+    }
+
+    pub fn focusWorkspaceAnywhere(self: *WorkspaceManager, workspace_id: abi.OmniUuid128) ?abi.OmniUuid128 {
+        if (!self.workspaceExists(workspace_id)) {
+            return null;
+        }
+        const target_monitor_id = self.workspaceMonitorId(workspace_id) orelse return null;
+        if (!self.setActiveWorkspace(workspace_id, target_monitor_id)) {
+            return null;
+        }
+        return workspace_id;
+    }
+
     pub fn summonWorkspaceByName(
         self: *WorkspaceManager,
         workspace_name: []const u8,
@@ -1058,4 +1102,150 @@ test "workspace visibility transitions keep previous mapping" {
     try std.testing.expect(std.mem.eql(u8, previous.bytes[0..], one.bytes[0..]));
 
     try std.testing.expect(manager.visibleMonitorForWorkspace(one) == null);
+}
+
+test "importing a second monitor creates a distinct numeric stub instead of duplicating workspace 1" {
+    var windows = window_model.WindowModel.init(std.testing.allocator);
+    defer windows.deinit();
+
+    var manager = try WorkspaceManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try manager.importMonitors(snapshots[0..], &windows);
+
+    var ones: usize = 0;
+    var twos: usize = 0;
+    for (manager.workspaces.items) |workspace| {
+        const workspace_name = monitor.nameSlice(workspace.name);
+        if (workspace_name.len == 1 and workspace_name[0] == '1') {
+            ones += 1;
+        }
+        if (workspace_name.len == 1 and workspace_name[0] == '2') {
+            twos += 1;
+        }
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), ones);
+    try std.testing.expectEqual(@as(usize, 1), twos);
+    try std.testing.expectEqual(@as(usize, 2), manager.workspaces.items.len);
+}
+
+test "setActiveWorkspace rehomes a shared numeric workspace without duplicating it" {
+    var windows = window_model.WindowModel.init(std.testing.allocator);
+    defer windows.deinit();
+
+    var manager = try WorkspaceManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try manager.importMonitors(snapshots[0..], &windows);
+
+    const one = (try manager.workspaceIdByName("1", false)).?;
+    const two = (try manager.workspaceIdByName("2", false)).?;
+
+    try std.testing.expect(manager.setActiveWorkspace(two, 22));
+    const looked_up_one = (try manager.workspaceIdByName("1", true)).?;
+    try std.testing.expectEqual(one, looked_up_one);
+    try std.testing.expect(manager.setActiveWorkspace(looked_up_one, 22));
+    try std.testing.expectEqual(one, manager.visibleWorkspaceOnMonitor(22).?);
+
+    if (manager.visibleWorkspaceOnMonitor(11)) |visible_on_main| {
+        try std.testing.expect(!WorkspaceManager.uuidEqual(visible_on_main, one));
+    }
+
+    var visible_one_count: usize = 0;
+    for (snapshots) |snapshot| {
+        if (manager.visibleWorkspaceOnMonitor(snapshot.display_id)) |workspace_id| {
+            if (WorkspaceManager.uuidEqual(workspace_id, one)) {
+                visible_one_count += 1;
+            }
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), visible_one_count);
+}
+
+test "switchWorkspaceByName follows an existing workspace to its current monitor" {
+    var windows = window_model.WindowModel.init(std.testing.allocator);
+    defer windows.deinit();
+
+    var manager = try WorkspaceManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try manager.importMonitors(snapshots[0..], &windows);
+
+    const one = (try manager.workspaceIdByName("1", true)).?;
+    const two = (try manager.workspaceIdByName("2", true)).?;
+
+    try std.testing.expect(manager.setActiveWorkspace(one, 11));
+    try std.testing.expect(manager.setActiveWorkspace(two, 22));
+    try std.testing.expect(manager.setActiveWorkspace(one, 11));
+
+    const resolved = (try manager.switchWorkspaceByName("2")).?;
+    try std.testing.expectEqual(two, resolved);
+    try std.testing.expectEqual(@as(?u32, 22), manager.active_monitor);
+    try std.testing.expectEqual(@as(?u32, 11), manager.previous_monitor);
+    try std.testing.expectEqual(two, manager.visibleWorkspaceOnMonitor(22).?);
+}
+
+test "switchWorkspaceByName creates a missing numeric workspace on the main monitor" {
+    var windows = window_model.WindowModel.init(std.testing.allocator);
+    defer windows.deinit();
+
+    var manager = try WorkspaceManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try manager.importMonitors(snapshots[0..], &windows);
+
+    const two = (try manager.workspaceIdByName("2", true)).?;
+    try std.testing.expect(manager.setActiveWorkspace(two, 22));
+
+    const created = (try manager.switchWorkspaceByName("3")).?;
+    const expected = (try manager.workspaceIdByName("3", false)).?;
+
+    try std.testing.expectEqual(expected, created);
+    try std.testing.expectEqual(@as(?u32, 11), manager.active_monitor);
+    try std.testing.expectEqual(@as(?u32, 22), manager.previous_monitor);
+    try std.testing.expectEqual(@as(?u32, 11), manager.workspaceMonitorId(created));
+    try std.testing.expectEqual(created, manager.visibleWorkspaceOnMonitor(11).?);
+}
+
+test "focusWorkspaceAnywhere updates active and previous monitor state" {
+    var windows = window_model.WindowModel.init(std.testing.allocator);
+    defer windows.deinit();
+
+    var manager = try WorkspaceManager.init(std.testing.allocator);
+    defer manager.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try manager.importMonitors(snapshots[0..], &windows);
+
+    const one = (try manager.workspaceIdByName("1", true)).?;
+    const two = (try manager.workspaceIdByName("2", true)).?;
+
+    try std.testing.expect(manager.setActiveWorkspace(one, 11));
+    try std.testing.expect(manager.setActiveWorkspace(two, 22));
+
+    const resolved = manager.focusWorkspaceAnywhere(one).?;
+    try std.testing.expectEqual(one, resolved);
+    try std.testing.expectEqual(@as(?u32, 11), manager.active_monitor);
+    try std.testing.expectEqual(@as(?u32, 22), manager.previous_monitor);
+    try std.testing.expectEqual(one, manager.visibleWorkspaceOnMonitor(11).?);
 }

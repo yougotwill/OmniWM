@@ -1,10 +1,13 @@
 import AppKit
 import SwiftUI
 struct WorkspaceBarItem: Identifiable {
-    let id: WorkspaceDescriptor.ID
-    let name: String
+    let workspaceId: WorkspaceDescriptor.ID
+    let rawName: String
+    let displayName: String
     let isFocused: Bool
     let windows: [WorkspaceBarWindowItem]
+
+    var id: WorkspaceDescriptor.ID { workspaceId }
 }
 struct WorkspaceBarWindowItem: Identifiable {
     let id: UUID
@@ -50,7 +53,7 @@ struct WorkspaceBarView: View {
                     cornerRadius: cornerRadius,
                     showLabels: resolvedSettings.showLabels,
                     onFocusWorkspace: { focusWorkspace(item) },
-                    onFocusWindow: { windowId in focusWindow(windowId) }
+                    onFocusWindow: { handleId in focusWindow(handleId) }
                 )
             }
         }
@@ -71,10 +74,10 @@ struct WorkspaceBarView: View {
         )
     }
     private func focusWorkspace(_ item: WorkspaceBarItem) {
-        controller.focusWorkspaceFromBar(named: item.name)
+        controller.focusWorkspaceFromBar(workspaceId: item.workspaceId)
     }
-    private func focusWindow(_ windowId: Int) {
-        controller.focusWindowFromBar(windowId: windowId)
+    private func focusWindow(_ handleId: UUID) {
+        controller.focusWindowFromBar(handleId: handleId)
     }
 }
 @MainActor
@@ -86,12 +89,12 @@ private struct WorkspaceItemView: View {
     let cornerRadius: CGFloat
     let showLabels: Bool
     let onFocusWorkspace: () -> Void
-    let onFocusWindow: (Int) -> Void
+    let onFocusWindow: (UUID) -> Void
     @State private var isHovered = false
     var body: some View {
         HStack(spacing: windowSpacing) {
             if showLabels {
-                Text(item.name)
+                Text(item.displayName)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(item.isFocused ? .accentColor : .secondary)
                     .frame(minWidth: 16)
@@ -140,7 +143,7 @@ private struct WindowIconView: View {
     let iconSize: CGFloat
     let isFocused: Bool
     let isInFocusedWorkspace: Bool
-    let onFocusWindow: (Int) -> Void
+    let onFocusWindow: (UUID) -> Void
     @State private var isHovered = false
     @State private var showingWindowList = false
     var body: some View {
@@ -181,15 +184,15 @@ private struct WindowIconView: View {
             if window.windowCount > 1 {
                 showingWindowList = true
             } else {
-                onFocusWindow(window.windowId)
+                onFocusWindow(window.id)
             }
         }
         .sheet(isPresented: $showingWindowList) {
             WindowListSheet(
                 windows: window.allWindows,
                 appName: window.appName,
-                onFocusWindow: { windowId in
-                    onFocusWindow(windowId)
+                onFocusWindow: { handleId in
+                    onFocusWindow(handleId)
                     showingWindowList = false
                 }
             )
@@ -225,7 +228,7 @@ private struct WindowIconView: View {
 private struct WindowListSheet: View {
     let windows: [WorkspaceBarWindowInfo]
     let appName: String
-    let onFocusWindow: (Int) -> Void
+    let onFocusWindow: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 0) {
@@ -244,7 +247,7 @@ private struct WindowListSheet: View {
             Divider()
             List(windows) { windowInfo in
                 Button {
-                    onFocusWindow(windowInfo.windowId)
+                    onFocusWindow(windowInfo.id)
                 } label: {
                     HStack {
                         Text(windowInfo.title)

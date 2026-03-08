@@ -28,6 +28,15 @@ const BorderPresentRequest = struct {
     target_window_id: u32,
     backing_scale: f64,
 };
+pub const BorderRuntimeCreateStatus = enum(u8) {
+    success = 0,
+    out_of_memory,
+    missing_skylight,
+    missing_symbol,
+    connection_unavailable,
+    missing_move_primitive,
+};
+var last_create_status: BorderRuntimeCreateStatus = .success;
 const BorderMacOSApi = struct {
     const CFReleaseFn = *const fn (CFTypeRef) callconv(.c) void;
     const MainConnectionIDFn = *const fn () callconv(.c) i32;
@@ -111,7 +120,7 @@ const BorderMacOSApi = struct {
         const region = self.createRegion(frame) orelse return 0;
         defer self.cf_release(region);
         const cid = self.connectionId();
-        if (cid == 0) return 0;
+        if (cid <= 0) return 0;
         var wid: u32 = 0;
         _ = self.new_window(
             cid,
@@ -126,19 +135,19 @@ const BorderMacOSApi = struct {
     fn releaseBorderWindow(self: BorderMacOSApi, wid: u32) void {
         if (wid == 0) return;
         const cid = self.connectionId();
-        if (cid == 0) return;
+        if (cid <= 0) return;
         _ = self.release_window(cid, wid);
     }
     fn createWindowContext(self: BorderMacOSApi, wid: u32) CGContextRef {
         const cid = self.connectionId();
-        if (cid == 0) return null;
+        if (cid <= 0) return null;
         return self.window_context_create(cid, wid, null);
     }
     fn setWindowShape(self: BorderMacOSApi, wid: u32, frame: abi.OmniBorderRect) i32 {
         const region = self.createRegion(frame) orelse return abi.OMNI_ERR_PLATFORM;
         defer self.cf_release(region);
         const cid = self.connectionId();
-        if (cid == 0) return abi.OMNI_ERR_PLATFORM;
+        if (cid <= 0) return abi.OMNI_ERR_PLATFORM;
         self.disable_update(cid);
         const rc = self.set_window_shape(
             cid,
@@ -153,7 +162,7 @@ const BorderMacOSApi = struct {
     }
     fn configureWindow(self: BorderMacOSApi, wid: u32, resolution: f64, is_opaque: bool) void {
         const cid = self.connectionId();
-        if (cid == 0) return;
+        if (cid <= 0) return;
         if (self.set_window_resolution) |set_window_resolution| {
             _ = set_window_resolution(cid, wid, @floatCast(resolution));
         }
@@ -164,14 +173,14 @@ const BorderMacOSApi = struct {
     fn setWindowTags(self: BorderMacOSApi, wid: u32, tags: u64) void {
         const set_window_tags = self.set_window_tags orelse return;
         const cid = self.connectionId();
-        if (cid == 0) return;
+        if (cid <= 0) return;
         var mutable_tags = tags;
         _ = set_window_tags(cid, wid, &mutable_tags, 64);
     }
     fn flushWindow(self: BorderMacOSApi, wid: u32) void {
         const flush_window_content_region = self.flush_window_content_region orelse return;
         const cid = self.connectionId();
-        if (cid == 0) return;
+        if (cid <= 0) return;
         _ = flush_window_content_region(cid, wid, null);
     }
     fn moveAndOrder(self: BorderMacOSApi, wid: u32, origin_x: f64, origin_y: f64, target_wid: u32) i32 {
@@ -485,25 +494,38 @@ const BorderRuntimeImpl = struct {
     backend: BorderMacOSBackend,
 };
 pub fn omni_border_runtime_create_impl() [*c]OmniBorderRuntime {
-    const runtime = std.heap.c_allocator.create(BorderRuntimeImpl) catch return null;
-    var backend = BorderMacOSBackend.init() catch {
+    const runtime = std.heap.c_allocator.create(BorderRuntimeImpl) catch {
+        last_create_status = .out_of_memory;
+        return null;
+    };
+    var backend = BorderMacOSBackend.init() catch |err| {
+        last_create_status = switch (err) {
+            error.MissingSkyLight => .missing_skylight,
+            error.MissingSymbol => .missing_symbol,
+        };
         std.heap.c_allocator.destroy(runtime);
         return null;
     };
     errdefer backend.destroy();
     if (backend.api.connectionId() <= 0) {
+        last_create_status = .connection_unavailable;
         std.heap.c_allocator.destroy(runtime);
         return null;
     }
     if (backend.api.transaction_move_window_with_group == null and backend.api.move_window == null) {
+        last_create_status = .missing_move_primitive;
         std.heap.c_allocator.destroy(runtime);
         return null;
     }
+    last_create_status = .success;
     runtime.* = .{
         .state = .{},
         .backend = backend,
     };
     return @ptrCast(runtime);
+}
+pub fn omni_border_runtime_last_create_status_impl() BorderRuntimeCreateStatus {
+    return last_create_status;
 }
 pub fn omni_border_runtime_destroy_impl(runtime: [*c]OmniBorderRuntime) void {
     if (runtime == null) return;

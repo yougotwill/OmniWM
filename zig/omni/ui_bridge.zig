@@ -28,3 +28,24 @@ pub fn omni_ui_bridge_export_workspace_state_impl(
 ) i32 {
     return wm_controller.omni_wm_controller_export_workspace_state_impl(controller, out_export);
 }
+
+pub fn omni_ui_bridge_query_workspace_projection_counts_impl(
+    controller: [*c]const wm_controller.OmniWMController,
+    out_counts: ?*abi.OmniControllerWorkspaceProjectionCounts,
+) i32 {
+    return wm_controller.omni_wm_controller_query_workspace_projection_counts_impl(controller, out_counts);
+}
+
+pub fn omni_ui_bridge_copy_workspace_projections_impl(
+    controller: [*c]wm_controller.OmniWMController,
+    out_records: [*c]abi.OmniControllerWorkspaceProjectionRecord,
+    record_capacity: usize,
+    out_record_count: [*c]usize,
+) i32 {
+    return wm_controller.omni_wm_controller_copy_workspace_projections_impl(
+        controller,
+        out_records,
+        record_capacity,
+        out_record_count,
+    );
+}

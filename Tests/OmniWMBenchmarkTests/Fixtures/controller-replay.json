@@ -1,0 +1,54 @@
+{
+  "name": "controller-boundary-replay",
+  "warmupIterations": 1,
+  "measuredIterations": 2,
+  "seed": {
+    "maxWindowsPerColumn": 2,
+    "maxVisibleColumns": 3,
+    "gap": 8,
+    "scale": 2,
+    "monitor": {
+      "displayId": 424242,
+      "width": 1440,
+      "height": 900,
+      "visibleInsets": {
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "bottom": 0
+      }
+    },
+    "workspaces": [
+      {
+        "name": "bench-primary-controller",
+        "windowCount": 3
+      },
+      {
+        "name": "bench-secondary-controller",
+        "windowCount": 2
+      }
+    ]
+  },
+  "events": [
+    {
+      "kind": "submitHotkey",
+      "count": 1
+    },
+    {
+      "kind": "submitOsEvent",
+      "count": 1
+    },
+    {
+      "kind": "tick",
+      "count": 1
+    },
+    {
+      "kind": "workspaceSnapshotCopy",
+      "count": 1
+    },
+    {
+      "kind": "projectionRefresh",
+      "count": 1
+    }
+  ]
+}

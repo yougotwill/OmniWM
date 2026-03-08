@@ -441,6 +441,33 @@ export fn omni_workspace_runtime_export_state(
 ) i32 {
     return workspace_runtime.omni_workspace_runtime_export_state_impl(runtime_owner, out_export);
 }
+export fn omni_workspace_runtime_query_state_counts(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    out_counts: ?*abi.OmniWorkspaceRuntimeStateCounts,
+) i32 {
+    return workspace_runtime.omni_workspace_runtime_query_state_counts_impl(runtime_owner, out_counts);
+}
+export fn omni_workspace_runtime_copy_state(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    out_export: ?*abi.OmniWorkspaceRuntimeStateExport,
+    out_monitors: [*c]abi.OmniWorkspaceRuntimeMonitorRecord,
+    monitor_capacity: usize,
+    out_workspaces: [*c]abi.OmniWorkspaceRuntimeWorkspaceRecord,
+    workspace_capacity: usize,
+    out_windows: [*c]abi.OmniWorkspaceRuntimeWindowRecord,
+    window_capacity: usize,
+) i32 {
+    return workspace_runtime.omni_workspace_runtime_copy_state_impl(
+        runtime_owner,
+        out_export,
+        out_monitors,
+        monitor_capacity,
+        out_workspaces,
+        workspace_capacity,
+        out_windows,
+        window_capacity,
+    );
+}
 export fn omni_workspace_runtime_workspace_id_by_name(
     runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
     name: abi.OmniWorkspaceRuntimeName,
@@ -451,6 +478,22 @@ export fn omni_workspace_runtime_workspace_id_by_name(
     return workspace_runtime.omni_workspace_runtime_workspace_id_by_name_impl(
         runtime_owner,
         name,
+        create_if_missing,
+        out_has_workspace_id,
+        out_workspace_id,
+    );
+}
+export fn omni_workspace_runtime_workspace_id_by_name_ptr(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    name: ?*const abi.OmniWorkspaceRuntimeName,
+    create_if_missing: u8,
+    out_has_workspace_id: [*c]u8,
+    out_workspace_id: [*c]abi.OmniUuid128,
+) i32 {
+    const resolved_name = name orelse return abi.OMNI_ERR_INVALID_ARGS;
+    return workspace_runtime.omni_workspace_runtime_workspace_id_by_name_impl(
+        runtime_owner,
+        resolved_name.*,
         create_if_missing,
         out_has_workspace_id,
         out_workspace_id,
@@ -467,6 +510,46 @@ export fn omni_workspace_runtime_set_active_workspace(
         monitor_display_id,
     );
 }
+export fn omni_workspace_runtime_switch_workspace_by_name(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    name: abi.OmniWorkspaceRuntimeName,
+    out_has_workspace_id: [*c]u8,
+    out_workspace_id: [*c]abi.OmniUuid128,
+) i32 {
+    return workspace_runtime.omni_workspace_runtime_switch_workspace_by_name_impl(
+        runtime_owner,
+        name,
+        out_has_workspace_id,
+        out_workspace_id,
+    );
+}
+export fn omni_workspace_runtime_switch_workspace_by_name_ptr(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    name: ?*const abi.OmniWorkspaceRuntimeName,
+    out_has_workspace_id: [*c]u8,
+    out_workspace_id: [*c]abi.OmniUuid128,
+) i32 {
+    const resolved_name = name orelse return abi.OMNI_ERR_INVALID_ARGS;
+    return workspace_runtime.omni_workspace_runtime_switch_workspace_by_name_impl(
+        runtime_owner,
+        resolved_name.*,
+        out_has_workspace_id,
+        out_workspace_id,
+    );
+}
+export fn omni_workspace_runtime_focus_workspace_anywhere(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    workspace_id: abi.OmniUuid128,
+    out_has_workspace_id: [*c]u8,
+    out_workspace_id: [*c]abi.OmniUuid128,
+) i32 {
+    return workspace_runtime.omni_workspace_runtime_focus_workspace_anywhere_impl(
+        runtime_owner,
+        workspace_id,
+        out_has_workspace_id,
+        out_workspace_id,
+    );
+}
 export fn omni_workspace_runtime_summon_workspace_by_name(
     runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
     name: abi.OmniWorkspaceRuntimeName,
@@ -477,6 +560,22 @@ export fn omni_workspace_runtime_summon_workspace_by_name(
     return workspace_runtime.omni_workspace_runtime_summon_workspace_by_name_impl(
         runtime_owner,
         name,
+        monitor_display_id,
+        out_has_workspace_id,
+        out_workspace_id,
+    );
+}
+export fn omni_workspace_runtime_summon_workspace_by_name_ptr(
+    runtime_owner: [*c]workspace_runtime.OmniWorkspaceRuntime,
+    name: ?*const abi.OmniWorkspaceRuntimeName,
+    monitor_display_id: u32,
+    out_has_workspace_id: [*c]u8,
+    out_workspace_id: [*c]abi.OmniUuid128,
+) i32 {
+    const resolved_name = name orelse return abi.OMNI_ERR_INVALID_ARGS;
+    return workspace_runtime.omni_workspace_runtime_summon_workspace_by_name_impl(
+        runtime_owner,
+        resolved_name.*,
         monitor_display_id,
         out_has_workspace_id,
         out_workspace_id,
@@ -1135,6 +1234,12 @@ export fn omni_wm_controller_start(runtime_owner: [*c]wm_controller.OmniWMContro
 export fn omni_wm_controller_stop(runtime_owner: [*c]wm_controller.OmniWMController) i32 {
     return wm_controller.omni_wm_controller_stop_impl(runtime_owner);
 }
+export fn omni_wm_controller_set_ax_runtime(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    ax_runtime_owner: [*c]ax_manager.OmniAXRuntime,
+) i32 {
+    return wm_controller.omni_wm_controller_set_ax_runtime_impl(runtime_owner, ax_runtime_owner);
+}
 export fn omni_wm_controller_submit_hotkey(
     runtime_owner: [*c]wm_controller.OmniWMController,
     command: [*c]const abi.OmniControllerCommand,
@@ -1146,6 +1251,18 @@ export fn omni_wm_controller_submit_os_event(
     event: [*c]const abi.OmniControllerEvent,
 ) i32 {
     return wm_controller.omni_wm_controller_submit_os_event_impl(runtime_owner, event);
+}
+export fn omni_wm_controller_handle_focused_window_changed(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    pid: i32,
+) i32 {
+    return wm_controller.omni_wm_controller_handle_focused_window_changed_impl(runtime_owner, pid);
+}
+export fn omni_wm_controller_submit_input_effect_batch(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    effects: [*c]const abi.OmniInputEffectExport,
+) i32 {
+    return wm_controller.omni_wm_controller_submit_input_effect_batch_impl(runtime_owner, effects);
 }
 export fn omni_wm_controller_apply_settings(
     runtime_owner: [*c]wm_controller.OmniWMController,
@@ -1159,17 +1276,143 @@ export fn omni_wm_controller_tick(
 ) i32 {
     return wm_controller.omni_wm_controller_tick_impl(runtime_owner, sample_time);
 }
+export fn omni_wm_controller_flush(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+) i32 {
+    return wm_controller.omni_wm_controller_flush_impl(runtime_owner);
+}
 export fn omni_wm_controller_query_ui_state(
     runtime_owner: [*c]const wm_controller.OmniWMController,
     out_state: [*c]abi.OmniControllerUiState,
 ) i32 {
     return wm_controller.omni_wm_controller_query_ui_state_impl(runtime_owner, out_state);
 }
+export fn omni_wm_controller_snapshot_create(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+) [*c]wm_controller.OmniWMControllerSnapshot {
+    return wm_controller.omni_wm_controller_snapshot_create_impl(runtime_owner);
+}
+export fn omni_wm_controller_snapshot_destroy(
+    snapshot: [*c]wm_controller.OmniWMControllerSnapshot,
+) void {
+    wm_controller.omni_wm_controller_snapshot_destroy_impl(snapshot);
+}
+export fn omni_wm_controller_snapshot_query_counts(
+    snapshot: [*c]const wm_controller.OmniWMControllerSnapshot,
+    out_counts: [*c]abi.OmniWMControllerSnapshotCounts,
+) i32 {
+    return wm_controller.omni_wm_controller_snapshot_query_counts_impl(snapshot, out_counts);
+}
+export fn omni_wm_controller_snapshot_query_ui_state(
+    snapshot: [*c]const wm_controller.OmniWMControllerSnapshot,
+    out_state: [*c]abi.OmniControllerUiState,
+) i32 {
+    return wm_controller.omni_wm_controller_snapshot_query_ui_state_impl(snapshot, out_state);
+}
+export fn omni_wm_controller_snapshot_copy_controller_state(
+    snapshot: [*c]const wm_controller.OmniWMControllerSnapshot,
+    out_snapshot: [*c]abi.OmniControllerSnapshot,
+    out_monitors: [*c]abi.OmniControllerMonitorSnapshot,
+    monitor_capacity: usize,
+    out_workspaces: [*c]abi.OmniControllerWorkspaceSnapshot,
+    workspace_capacity: usize,
+    out_windows: [*c]abi.OmniControllerWindowSnapshot,
+    window_capacity: usize,
+) i32 {
+    return wm_controller.omni_wm_controller_snapshot_copy_controller_state_impl(
+        snapshot,
+        out_snapshot,
+        out_monitors,
+        monitor_capacity,
+        out_workspaces,
+        workspace_capacity,
+        out_windows,
+        window_capacity,
+    );
+}
+export fn omni_wm_controller_snapshot_copy_workspace_state(
+    snapshot: [*c]const wm_controller.OmniWMControllerSnapshot,
+    out_export: [*c]abi.OmniWorkspaceRuntimeStateExport,
+    out_monitors: [*c]abi.OmniWorkspaceRuntimeMonitorRecord,
+    monitor_capacity: usize,
+    out_workspaces: [*c]abi.OmniWorkspaceRuntimeWorkspaceRecord,
+    workspace_capacity: usize,
+    out_windows: [*c]abi.OmniWorkspaceRuntimeWindowRecord,
+    window_capacity: usize,
+) i32 {
+    return wm_controller.omni_wm_controller_snapshot_copy_workspace_state_impl(
+        snapshot,
+        out_export,
+        out_monitors,
+        monitor_capacity,
+        out_workspaces,
+        workspace_capacity,
+        out_windows,
+        window_capacity,
+    );
+}
+export fn omni_wm_controller_snapshot_copy_changed_workspaces(
+    snapshot: [*c]const wm_controller.OmniWMControllerSnapshot,
+    out_workspace_ids: [*c]abi.OmniUuid128,
+    workspace_capacity: usize,
+    out_workspace_count: [*c]usize,
+) i32 {
+    return wm_controller.omni_wm_controller_snapshot_copy_changed_workspaces_impl(
+        snapshot,
+        out_workspace_ids,
+        workspace_capacity,
+        out_workspace_count,
+    );
+}
 export fn omni_wm_controller_export_workspace_state(
     runtime_owner: [*c]wm_controller.OmniWMController,
     out_export: [*c]abi.OmniWorkspaceRuntimeStateExport,
 ) i32 {
     return wm_controller.omni_wm_controller_export_workspace_state_impl(runtime_owner, out_export);
+}
+export fn omni_wm_controller_query_workspace_projection_counts(
+    runtime_owner: [*c]const wm_controller.OmniWMController,
+    out_counts: [*c]abi.OmniControllerWorkspaceProjectionCounts,
+) i32 {
+    return wm_controller.omni_wm_controller_query_workspace_projection_counts_impl(
+        runtime_owner,
+        out_counts,
+    );
+}
+export fn omni_wm_controller_copy_workspace_projections(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    out_records: [*c]abi.OmniControllerWorkspaceProjectionRecord,
+    record_capacity: usize,
+    out_record_count: [*c]usize,
+) i32 {
+    return wm_controller.omni_wm_controller_copy_workspace_projections_impl(
+        runtime_owner,
+        out_records,
+        record_capacity,
+        out_record_count,
+    );
+}
+export fn omni_wm_controller_query_workspace_layout_settings_count(
+    runtime_owner: [*c]const wm_controller.OmniWMController,
+    out_setting_count: [*c]usize,
+) i32 {
+    return wm_controller.omni_wm_controller_query_workspace_layout_settings_count_impl(
+        runtime_owner,
+        out_setting_count,
+    );
+}
+export fn omni_wm_controller_copy_workspace_layout_settings(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    out_settings: [*c]abi.OmniControllerWorkspaceLayoutSetting,
+    setting_capacity: usize,
+    out_setting_count: [*c]usize,
+) i32 {
+    return wm_controller.omni_wm_controller_copy_workspace_layout_settings_impl(
+        runtime_owner,
+        out_settings,
+        setting_capacity,
+        out_setting_count,
+    );
 }
 export fn omni_ui_bridge_submit_hotkey(
     runtime_owner: [*c]wm_controller.OmniWMController,
@@ -1195,6 +1438,25 @@ export fn omni_ui_bridge_export_workspace_state(
 ) i32 {
     return ui_bridge.omni_ui_bridge_export_workspace_state_impl(runtime_owner, out_export);
 }
+export fn omni_ui_bridge_query_workspace_projection_counts(
+    runtime_owner: [*c]const wm_controller.OmniWMController,
+    out_counts: [*c]abi.OmniControllerWorkspaceProjectionCounts,
+) i32 {
+    return ui_bridge.omni_ui_bridge_query_workspace_projection_counts_impl(runtime_owner, out_counts);
+}
+export fn omni_ui_bridge_copy_workspace_projections(
+    runtime_owner: [*c]wm_controller.OmniWMController,
+    out_records: [*c]abi.OmniControllerWorkspaceProjectionRecord,
+    record_capacity: usize,
+    out_record_count: [*c]usize,
+) i32 {
+    return ui_bridge.omni_ui_bridge_copy_workspace_projections_impl(
+        runtime_owner,
+        out_records,
+        record_capacity,
+        out_record_count,
+    );
+}
 export fn omni_service_lifecycle_create(
     config: [*c]const abi.OmniServiceLifecycleConfig,
     handles: [*c]const abi.OmniServiceLifecycleHandles,
@@ -1216,6 +1478,36 @@ export fn omni_service_lifecycle_query_state(
     out_state: [*c]u8,
 ) i32 {
     return service_lifecycle.omni_service_lifecycle_query_state_impl(runtime_owner, out_state);
+}
+export fn omni_service_lifecycle_set_bindings(
+    runtime_owner: [*c]service_lifecycle.OmniServiceLifecycle,
+    bindings: [*c]const abi.OmniInputBinding,
+    binding_count: usize,
+) i32 {
+    return service_lifecycle.omni_service_lifecycle_set_bindings_impl(
+        runtime_owner,
+        bindings,
+        binding_count,
+    );
+}
+export fn omni_service_lifecycle_set_input_options(
+    runtime_owner: [*c]service_lifecycle.OmniServiceLifecycle,
+    options: [*c]const abi.OmniInputOptions,
+) i32 {
+    return service_lifecycle.omni_service_lifecycle_set_input_options_impl(runtime_owner, options);
+}
+export fn omni_service_lifecycle_query_registration_failures(
+    runtime_owner: [*c]service_lifecycle.OmniServiceLifecycle,
+    out_failures: [*c]abi.OmniInputRegistrationFailure,
+    out_capacity: usize,
+    out_written: [*c]usize,
+) i32 {
+    return service_lifecycle.omni_service_lifecycle_query_registration_failures_impl(
+        runtime_owner,
+        out_failures,
+        out_capacity,
+        out_written,
+    );
 }
 export fn omni_focus_activate_application(pid: i32) i32 {
     return focus_manager.activateApplication(pid);

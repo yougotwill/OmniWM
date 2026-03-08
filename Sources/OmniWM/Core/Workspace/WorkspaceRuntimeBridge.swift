@@ -4,7 +4,8 @@ import Foundation
 final class WorkspaceRuntimeBridge {
     @MainActor
     private protocol Backend: AnyObject {
-        func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle
+        func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle?
+        func syncFromRuntimeState(_ state: OmniWorkspaceRuntimeAdapter.StateExport)
         func windows(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry]
         func workspace(for handle: WindowHandle) -> WorkspaceDescriptor.ID?
         func entry(for handle: WindowHandle) -> WindowModel.Entry?
@@ -32,8 +33,12 @@ final class WorkspaceRuntimeBridge {
         backend = RuntimeBackend(runtime: runtimeAdapter)
     }
 
-    func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle {
+    func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle? {
         backend.upsert(window: window, pid: pid, windowId: windowId, workspace: workspace)
+    }
+
+    func syncFromRuntimeState(_ state: OmniWorkspaceRuntimeAdapter.StateExport) {
+        backend.syncFromRuntimeState(state)
     }
 
     func windows(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
@@ -131,10 +136,9 @@ private extension WorkspaceRuntimeBridge {
 
         init(runtime: OmniWorkspaceRuntimeAdapter) {
             self.runtime = runtime
-            refreshFromRuntimeState()
         }
 
-        func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle {
+        func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowHandle? {
             let key = WindowKey(pid: pid, windowId: windowId)
             let preferredHandleId = keyToHandle[key]?.id
 
@@ -156,21 +160,17 @@ private extension WorkspaceRuntimeBridge {
                 entries[existing]?.axRef = window
                 return existing
             }
+            refreshFromRuntimeState()
+            if let recovered = keyToHandle[key] {
+                entries[recovered]?.axRef = window
+                return recovered
+            }
+            assertionFailure("Workspace runtime rejected window upsert for pid \(pid) window \(windowId)")
+            return nil
+        }
 
-            let fallback = WindowHandle(id: UUID(), pid: pid)
-            let fallbackEntry = WindowModel.Entry(
-                handle: fallback,
-                axRef: window,
-                workspaceId: workspace,
-                windowId: windowId,
-                hiddenProportionalPosition: nil
-            )
-            entries[fallback] = fallbackEntry
-            keyToHandle[key] = fallback
-            windowIdToHandle[windowId] = fallback
-            appendHandle(fallback, to: workspace)
-            handleById[fallback.id] = fallback
-            return fallback
+        func syncFromRuntimeState(_ state: OmniWorkspaceRuntimeAdapter.StateExport) {
+            applyRuntimeState(state)
         }
 
         func windows(in workspace: WorkspaceDescriptor.ID) -> [WindowModel.Entry] {
@@ -320,7 +320,10 @@ private extension WorkspaceRuntimeBridge {
 
         private func refreshFromRuntimeState() {
             guard let state = runtime.exportState() else { return }
+            applyRuntimeState(state)
+        }
 
+        private func applyRuntimeState(_ state: OmniWorkspaceRuntimeAdapter.StateExport) {
             let previousEntriesById = Dictionary(uniqueKeysWithValues: entries.values.map { ($0.handle.id, $0) })
 
             entries.removeAll(keepingCapacity: true)

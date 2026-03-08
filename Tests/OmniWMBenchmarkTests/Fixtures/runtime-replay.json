@@ -1,0 +1,66 @@
+{
+  "name": "runtime-default",
+  "warmupIterations": 40,
+  "measuredIterations": 160,
+  "seed": {
+    "maxWindowsPerColumn": 3,
+    "maxVisibleColumns": 3,
+    "gap": 8,
+    "scale": 2,
+    "monitor": {
+      "displayId": 525252,
+      "width": 3440,
+      "height": 1440,
+      "visibleInsets": {
+        "left": 0,
+        "right": 0,
+        "top": 0,
+        "bottom": 0
+      }
+    },
+    "workspaces": [
+      {
+        "name": "runtime-primary",
+        "windowCount": 6
+      },
+      {
+        "name": "runtime-secondary",
+        "windowCount": 4
+      }
+    ]
+  },
+  "events": [
+    {
+      "kind": "seedRuntimeState",
+      "count": 1
+    },
+    {
+      "kind": "navigationTxn",
+      "count": 1
+    },
+    {
+      "kind": "windowMutationTxn",
+      "count": 1
+    },
+    {
+      "kind": "workspaceTxn",
+      "count": 1
+    },
+    {
+      "kind": "lifecycleAddWindow",
+      "count": 1
+    },
+    {
+      "kind": "lifecycleRemoveWindow",
+      "count": 1
+    },
+    {
+      "kind": "runtimeSnapshot",
+      "count": 1
+    },
+    {
+      "kind": "runtimeRender",
+      "count": 1
+    }
+  ]
+}

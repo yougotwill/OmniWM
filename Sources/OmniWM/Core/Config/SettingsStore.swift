@@ -427,11 +427,12 @@ final class SettingsStore {
         }
         return result
     }
-    func workspaceToMonitorAssignments() -> [String: [MonitorDescription]] {
+    func workspaceToMonitorAssignments(sortedMonitors: [Monitor]? = nil) -> [String: [MonitorDescription]] {
         if !workspaceConfigurations.isEmpty {
             var result: [String: [MonitorDescription]] = [:]
+            let resolvedMonitors = Monitor.sortedByPosition(sortedMonitors ?? Monitor.current())
             for config in workspaceConfigurations {
-                if let desc = config.monitorAssignment.toMonitorDescription() {
+                if let desc = config.monitorAssignment.toMonitorDescription(sortedMonitors: resolvedMonitors) {
                     result[config.name] = [desc]
                 }
             }

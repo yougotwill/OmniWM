@@ -183,13 +183,29 @@ pub fn writeOptionalDisplayId(has_field: *u8, out_field: *u32, value: ?u32) void
     }
 }
 
-pub fn nameSlice(name: abi.OmniControllerName) []const u8 {
+fn normalizedNameLen(name: abi.OmniControllerName) usize {
     const clamped_len = @min(@as(usize, name.length), abi.OMNI_CONTROLLER_NAME_CAP);
-    return name.bytes[0..clamped_len];
+    var len: usize = 0;
+    while (len < clamped_len and name.bytes[len] != 0) : (len += 1) {}
+    return len;
+}
+
+pub fn nameSlice(name: abi.OmniControllerName) []const u8 {
+    return name.bytes[0..normalizedNameLen(name)];
 }
 
 pub fn nameEquals(name: abi.OmniControllerName, value: []const u8) bool {
-    return std.mem.eql(u8, nameSlice(name), value);
+    const lhs_len = normalizedNameLen(name);
+    if (lhs_len != value.len) {
+        return false;
+    }
+    var idx: usize = 0;
+    while (idx < lhs_len) : (idx += 1) {
+        if (name.bytes[idx] != value[idx]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 pub fn parseWorkspaceOrdinal(name: abi.OmniControllerName) ?usize {

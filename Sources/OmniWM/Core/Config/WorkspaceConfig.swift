@@ -1,9 +1,18 @@
+import CoreGraphics
 import Foundation
 enum LayoutType: String, Codable, CaseIterable, Identifiable {
     case defaultLayout = "default"
     case niri
     case dwindle
     var id: String { rawValue }
+    static var productionCases: [LayoutType] {
+        allCases
+    }
+
+    var productionNormalized: LayoutType {
+        self
+    }
+
     var displayName: String {
         switch self {
         case .defaultLayout: "Default"
@@ -17,6 +26,7 @@ enum MonitorAssignment: Equatable, Hashable {
     case main
     case secondary
     case numbered(Int)
+    case exact(MonitorRestoreKey)
     case pattern(String)
     var displayName: String {
         switch self {
@@ -24,15 +34,23 @@ enum MonitorAssignment: Equatable, Hashable {
         case .main: "Main"
         case .secondary: "Secondary"
         case let .numbered(n): "Monitor \(n)"
+        case let .exact(key): key.name
         case let .pattern(p): "Pattern: \(p)"
         }
     }
-    func toMonitorDescription() -> MonitorDescription? {
+    func toMonitorDescription(sortedMonitors: [Monitor]) -> MonitorDescription? {
         switch self {
         case .any: return nil
         case .main: return .main
         case .secondary: return .secondary
         case let .numbered(n): return .sequenceNumber(n)
+        case let .exact(key):
+            guard let resolved = key.resolveExactMonitor(in: sortedMonitors),
+                  let index = sortedMonitors.firstIndex(where: { $0.id == resolved.id })
+            else {
+                return nil
+            }
+            return .sequenceNumber(index + 1)
         case let .pattern(p):
             if case let .success(desc) = parseMonitorDescription(p) {
                 return desc
@@ -58,7 +76,7 @@ extension MonitorAssignment: Codable {
         case type, value
     }
     private enum AssignmentType: String, Codable {
-        case any, main, secondary, numbered, pattern
+        case any, main, secondary, numbered, exact, pattern
     }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -70,6 +88,9 @@ extension MonitorAssignment: Codable {
         case .numbered:
             let value = try container.decode(Int.self, forKey: .value)
             self = .numbered(value)
+        case .exact:
+            let value = try container.decode(MonitorRestoreKey.self, forKey: .value)
+            self = .exact(value)
         case .pattern:
             let value = try container.decode(String.self, forKey: .value)
             self = .pattern(value)
@@ -87,6 +108,9 @@ extension MonitorAssignment: Codable {
         case let .numbered(n):
             try container.encode(AssignmentType.numbered, forKey: .type)
             try container.encode(n, forKey: .value)
+        case let .exact(key):
+            try container.encode(AssignmentType.exact, forKey: .type)
+            try container.encode(key, forKey: .value)
         case let .pattern(p):
             try container.encode(AssignmentType.pattern, forKey: .type)
             try container.encode(p, forKey: .value)

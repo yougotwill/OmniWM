@@ -8,6 +8,7 @@ typedef struct OmniBorderRuntime OmniBorderRuntime;
 typedef struct OmniDwindleLayoutContext OmniDwindleLayoutContext;
 typedef struct OmniController OmniController;
 typedef struct OmniWMController OmniWMController;
+typedef struct OmniWMControllerSnapshot OmniWMControllerSnapshot;
 typedef struct OmniMonitorRuntime OmniMonitorRuntime;
 typedef struct OmniPlatformRuntime OmniPlatformRuntime;
 typedef struct OmniWorkspaceObserverRuntime OmniWorkspaceObserverRuntime;
@@ -582,6 +583,12 @@ typedef struct {
 } OmniWorkspaceRuntimeStateExport;
 
 typedef struct {
+    size_t monitor_count;
+    size_t workspace_count;
+    size_t window_count;
+} OmniWorkspaceRuntimeStateCounts;
+
+typedef struct {
     OmniUuid128 window_id;
     double frame_x;
     double frame_y;
@@ -701,7 +708,8 @@ enum {
     OMNI_OK = 0,
     OMNI_ERR_INVALID_ARGS = -1,
     OMNI_ERR_OUT_OF_RANGE = -2,
-    OMNI_ERR_PLATFORM = -3
+    OMNI_ERR_PLATFORM = -3,
+    OMNI_ERR_UNSUPPORTED = -4
 };
 
 enum {
@@ -733,7 +741,7 @@ enum {
 };
 
 enum {
-    OMNI_WM_CONTROLLER_ABI_VERSION = 1
+    OMNI_WM_CONTROLLER_ABI_VERSION = 2
 };
 
 enum {
@@ -1822,9 +1830,30 @@ int32_t omni_workspace_runtime_export_state(
     OmniWorkspaceRuntime *runtime,
     OmniWorkspaceRuntimeStateExport *out_export);
 
+int32_t omni_workspace_runtime_query_state_counts(
+    OmniWorkspaceRuntime *runtime,
+    OmniWorkspaceRuntimeStateCounts *out_counts);
+
+int32_t omni_workspace_runtime_copy_state(
+    OmniWorkspaceRuntime *runtime,
+    OmniWorkspaceRuntimeStateExport *out_export,
+    OmniWorkspaceRuntimeMonitorRecord *out_monitors,
+    size_t monitor_capacity,
+    OmniWorkspaceRuntimeWorkspaceRecord *out_workspaces,
+    size_t workspace_capacity,
+    OmniWorkspaceRuntimeWindowRecord *out_windows,
+    size_t window_capacity);
+
 int32_t omni_workspace_runtime_workspace_id_by_name(
     OmniWorkspaceRuntime *runtime,
     OmniWorkspaceRuntimeName name,
+    uint8_t create_if_missing,
+    uint8_t *out_has_workspace_id,
+    OmniUuid128 *out_workspace_id);
+
+int32_t omni_workspace_runtime_workspace_id_by_name_ptr(
+    OmniWorkspaceRuntime *runtime,
+    const OmniWorkspaceRuntimeName *name,
     uint8_t create_if_missing,
     uint8_t *out_has_workspace_id,
     OmniUuid128 *out_workspace_id);
@@ -1834,9 +1863,34 @@ int32_t omni_workspace_runtime_set_active_workspace(
     OmniUuid128 workspace_id,
     uint32_t monitor_display_id);
 
+int32_t omni_workspace_runtime_switch_workspace_by_name(
+    OmniWorkspaceRuntime *runtime,
+    OmniWorkspaceRuntimeName name,
+    uint8_t *out_has_workspace_id,
+    OmniUuid128 *out_workspace_id);
+
+int32_t omni_workspace_runtime_switch_workspace_by_name_ptr(
+    OmniWorkspaceRuntime *runtime,
+    const OmniWorkspaceRuntimeName *name,
+    uint8_t *out_has_workspace_id,
+    OmniUuid128 *out_workspace_id);
+
+int32_t omni_workspace_runtime_focus_workspace_anywhere(
+    OmniWorkspaceRuntime *runtime,
+    OmniUuid128 workspace_id,
+    uint8_t *out_has_workspace_id,
+    OmniUuid128 *out_workspace_id);
+
 int32_t omni_workspace_runtime_summon_workspace_by_name(
     OmniWorkspaceRuntime *runtime,
     OmniWorkspaceRuntimeName name,
+    uint32_t monitor_display_id,
+    uint8_t *out_has_workspace_id,
+    OmniUuid128 *out_workspace_id);
+
+int32_t omni_workspace_runtime_summon_workspace_by_name_ptr(
+    OmniWorkspaceRuntime *runtime,
+    const OmniWorkspaceRuntimeName *name,
     uint32_t monitor_display_id,
     uint8_t *out_has_workspace_id,
     OmniUuid128 *out_workspace_id);
@@ -2263,10 +2317,11 @@ int32_t omni_dwindle_ctx_find_neighbor(
     OmniUuid128 *out_neighbor_window_id);
 
 enum {
-    OMNI_CONTROLLER_ABI_VERSION = 1,
+    OMNI_CONTROLLER_ABI_VERSION = 2,
     OMNI_CONTROLLER_NAME_CAP = 64,
     OMNI_CONTROLLER_MAX_TRANSFER_WINDOWS = 128,
-    OMNI_CONTROLLER_UI_WORKSPACE_CAP = 32
+    OMNI_CONTROLLER_UI_WORKSPACE_CAP = 32,
+    OMNI_CONTROLLER_NIRI_WIDTH_PRESET_CAP = 8
 };
 
 typedef enum {
@@ -2358,7 +2413,11 @@ typedef enum {
     OMNI_CONTROLLER_COMMAND_DWINDLE_RESIZE_DIRECTION = 54,
     OMNI_CONTROLLER_COMMAND_DWINDLE_PRESELECT_DIRECTION = 55,
     OMNI_CONTROLLER_COMMAND_DWINDLE_PRESELECT_CLEAR = 56,
-    OMNI_CONTROLLER_COMMAND_TOGGLE_WORKSPACE_LAYOUT = 57
+    OMNI_CONTROLLER_COMMAND_TOGGLE_WORKSPACE_LAYOUT = 57,
+    OMNI_CONTROLLER_COMMAND_FOCUS_WINDOW_HANDLE = 58,
+    OMNI_CONTROLLER_COMMAND_OVERVIEW_INSERT_WINDOW = 59,
+    OMNI_CONTROLLER_COMMAND_OVERVIEW_INSERT_WINDOW_IN_NEW_COLUMN = 60,
+    OMNI_CONTROLLER_COMMAND_SET_ACTIVE_WORKSPACE_ON_MONITOR = 61
 } OmniControllerCommandKind;
 
 typedef enum {
@@ -2447,7 +2506,9 @@ typedef enum {
     OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_RESIZE_DIRECTION = 23,
     OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_PRESELECT_DIRECTION = 24,
     OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_PRESELECT_CLEAR = 25,
-    OMNI_CONTROLLER_LAYOUT_ACTION_TOGGLE_WORKSPACE_LAYOUT = 26
+    OMNI_CONTROLLER_LAYOUT_ACTION_TOGGLE_WORKSPACE_LAYOUT = 26,
+    OMNI_CONTROLLER_LAYOUT_ACTION_OVERVIEW_INSERT_WINDOW = 27,
+    OMNI_CONTROLLER_LAYOUT_ACTION_OVERVIEW_INSERT_WINDOW_IN_NEW_COLUMN = 28
 } OmniControllerLayoutActionKind;
 
 enum {
@@ -2494,6 +2555,23 @@ typedef struct {
     uint8_t has_last_focused_window_id;
     OmniUuid128 last_focused_window_id;
 } OmniControllerWorkspaceSnapshot;
+
+typedef struct {
+    OmniUuid128 workspace_id;
+    uint64_t layout_generation;
+} OmniControllerWorkspaceProjectionRecord;
+
+typedef struct {
+    size_t workspace_count;
+} OmniControllerWorkspaceProjectionCounts;
+
+typedef struct {
+    size_t monitor_count;
+    size_t workspace_count;
+    size_t window_count;
+    size_t changed_workspace_count;
+    uint8_t invalidate_all_workspace_projections;
+} OmniWMControllerSnapshotCounts;
 
 typedef struct {
     OmniUuid128 handle_id;
@@ -2549,6 +2627,8 @@ typedef struct {
     OmniUuid128 workspace_id;
     uint8_t has_window_handle_id;
     OmniUuid128 window_handle_id;
+    uint8_t has_secondary_window_handle_id;
+    OmniUuid128 secondary_window_handle_id;
 } OmniControllerCommand;
 
 typedef struct {
@@ -2716,6 +2796,12 @@ typedef struct {
     uint8_t direction;
     int64_t index;
     uint8_t flag;
+    uint8_t has_workspace_id;
+    OmniUuid128 workspace_id;
+    uint8_t has_window_handle_id;
+    OmniUuid128 window_handle_id;
+    uint8_t has_secondary_window_handle_id;
+    OmniUuid128 secondary_window_handle_id;
 } OmniControllerLayoutAction;
 
 typedef struct {
@@ -2739,10 +2825,76 @@ typedef struct {
 } OmniControllerConfig;
 
 typedef struct {
+    uint32_t display_id;
+    uint8_t orientation;
+    uint8_t center_focused_column;
+    uint8_t always_center_single_column;
+    double single_window_aspect_width;
+    double single_window_aspect_height;
+} OmniControllerMonitorNiriSettings;
+
+typedef struct {
+    uint32_t display_id;
+    uint8_t smart_split;
+    double default_split_ratio;
+    double split_width_multiplier;
+    double inner_gap;
+    double outer_gap_top;
+    double outer_gap_bottom;
+    double outer_gap_left;
+    double outer_gap_right;
+    double single_window_aspect_width;
+    double single_window_aspect_height;
+} OmniControllerMonitorDwindleSettings;
+
+typedef struct {
+    OmniControllerName name;
+    uint8_t layout_kind;
+} OmniControllerWorkspaceLayoutSetting;
+
+typedef struct {
+    size_t struct_size;
+    uint8_t has_focus_follows_mouse;
+    uint8_t focus_follows_mouse;
     uint8_t has_focus_follows_window_to_monitor;
     uint8_t focus_follows_window_to_monitor;
     uint8_t has_move_mouse_to_focused_window;
     uint8_t move_mouse_to_focused_window;
+    uint8_t has_layout_gap;
+    double layout_gap;
+    uint8_t has_outer_gap_left;
+    double outer_gap_left;
+    uint8_t has_outer_gap_right;
+    double outer_gap_right;
+    uint8_t has_outer_gap_top;
+    double outer_gap_top;
+    uint8_t has_outer_gap_bottom;
+    double outer_gap_bottom;
+    uint8_t has_niri_max_visible_columns;
+    int64_t niri_max_visible_columns;
+    uint8_t has_niri_max_windows_per_column;
+    int64_t niri_max_windows_per_column;
+    uint8_t has_niri_infinite_loop;
+    uint8_t niri_infinite_loop;
+    uint8_t has_niri_width_presets;
+    size_t niri_width_preset_count;
+    double niri_width_presets[OMNI_CONTROLLER_NIRI_WIDTH_PRESET_CAP];
+    uint8_t has_border_enabled;
+    uint8_t border_enabled;
+    uint8_t has_border_width;
+    double border_width;
+    uint8_t has_border_color;
+    OmniBorderColor border_color;
+    uint8_t has_default_layout_kind;
+    uint8_t default_layout_kind;
+    uint8_t has_dwindle_move_to_root_stable;
+    uint8_t dwindle_move_to_root_stable;
+    const OmniControllerMonitorNiriSettings *monitor_niri_settings;
+    size_t monitor_niri_settings_count;
+    const OmniControllerMonitorDwindleSettings *monitor_dwindle_settings;
+    size_t monitor_dwindle_settings_count;
+    const OmniControllerWorkspaceLayoutSetting *workspace_layout_settings;
+    size_t workspace_layout_settings_count;
 } OmniControllerSettingsDelta;
 
 typedef struct {
@@ -2826,10 +2978,21 @@ typedef int32_t (*OmniServiceLifecycleErrorFn)(
     int32_t code,
     OmniControllerName message);
 
+typedef int32_t (*OmniServiceLifecycleSecureInputStateChangedFn)(
+    void *userdata,
+    uint8_t is_secure_input_active);
+
+typedef int32_t (*OmniServiceLifecycleTapHealthNotificationFn)(
+    void *userdata,
+    uint8_t tap_kind,
+    uint8_t reason);
+
 typedef struct {
     void *userdata;
     OmniServiceLifecycleStateChangedFn on_state_changed;
     OmniServiceLifecycleErrorFn on_error;
+    OmniServiceLifecycleSecureInputStateChangedFn on_secure_input_state_changed;
+    OmniServiceLifecycleTapHealthNotificationFn on_tap_health_notification;
 } OmniServiceLifecycleHostVTable;
 
 /// Create a controller owner.
@@ -2919,6 +3082,10 @@ int32_t omni_wm_controller_start(OmniWMController *runtime_owner);
 
 int32_t omni_wm_controller_stop(OmniWMController *runtime_owner);
 
+int32_t omni_wm_controller_set_ax_runtime(
+    OmniWMController *runtime_owner,
+    OmniAXRuntime *ax_runtime_owner);
+
 int32_t omni_wm_controller_submit_hotkey(
     OmniWMController *runtime_owner,
     const OmniControllerCommand *command);
@@ -2926,6 +3093,14 @@ int32_t omni_wm_controller_submit_hotkey(
 int32_t omni_wm_controller_submit_os_event(
     OmniWMController *runtime_owner,
     const OmniControllerEvent *event);
+
+int32_t omni_wm_controller_handle_focused_window_changed(
+    OmniWMController *runtime_owner,
+    int32_t pid);
+
+int32_t omni_wm_controller_submit_input_effect_batch(
+    OmniWMController *runtime_owner,
+    const OmniInputEffectExport *effects);
 
 int32_t omni_wm_controller_apply_settings(
     OmniWMController *runtime_owner,
@@ -2935,13 +3110,76 @@ int32_t omni_wm_controller_tick(
     OmniWMController *runtime_owner,
     double sample_time);
 
+int32_t omni_wm_controller_flush(
+    OmniWMController *runtime_owner);
+
 int32_t omni_wm_controller_query_ui_state(
     const OmniWMController *runtime_owner,
     OmniControllerUiState *out_state);
 
+OmniWMControllerSnapshot *omni_wm_controller_snapshot_create(
+    OmniWMController *runtime_owner);
+
+void omni_wm_controller_snapshot_destroy(
+    OmniWMControllerSnapshot *snapshot);
+
+int32_t omni_wm_controller_snapshot_query_counts(
+    const OmniWMControllerSnapshot *snapshot,
+    OmniWMControllerSnapshotCounts *out_counts);
+
+int32_t omni_wm_controller_snapshot_query_ui_state(
+    const OmniWMControllerSnapshot *snapshot,
+    OmniControllerUiState *out_state);
+
+int32_t omni_wm_controller_snapshot_copy_controller_state(
+    const OmniWMControllerSnapshot *snapshot,
+    OmniControllerSnapshot *out_snapshot,
+    OmniControllerMonitorSnapshot *out_monitors,
+    size_t monitor_capacity,
+    OmniControllerWorkspaceSnapshot *out_workspaces,
+    size_t workspace_capacity,
+    OmniControllerWindowSnapshot *out_windows,
+    size_t window_capacity);
+
+int32_t omni_wm_controller_snapshot_copy_workspace_state(
+    const OmniWMControllerSnapshot *snapshot,
+    OmniWorkspaceRuntimeStateExport *out_export,
+    OmniWorkspaceRuntimeMonitorRecord *out_monitors,
+    size_t monitor_capacity,
+    OmniWorkspaceRuntimeWorkspaceRecord *out_workspaces,
+    size_t workspace_capacity,
+    OmniWorkspaceRuntimeWindowRecord *out_windows,
+    size_t window_capacity);
+
+int32_t omni_wm_controller_snapshot_copy_changed_workspaces(
+    const OmniWMControllerSnapshot *snapshot,
+    OmniUuid128 *out_workspace_ids,
+    size_t workspace_capacity,
+    size_t *out_workspace_count);
+
 int32_t omni_wm_controller_export_workspace_state(
     OmniWMController *runtime_owner,
     OmniWorkspaceRuntimeStateExport *out_export);
+
+int32_t omni_wm_controller_query_workspace_projection_counts(
+    const OmniWMController *runtime_owner,
+    OmniControllerWorkspaceProjectionCounts *out_counts);
+
+int32_t omni_wm_controller_copy_workspace_projections(
+    OmniWMController *runtime_owner,
+    OmniControllerWorkspaceProjectionRecord *out_records,
+    size_t record_capacity,
+    size_t *out_record_count);
+
+int32_t omni_wm_controller_query_workspace_layout_settings_count(
+    const OmniWMController *runtime_owner,
+    size_t *out_setting_count);
+
+int32_t omni_wm_controller_copy_workspace_layout_settings(
+    OmniWMController *runtime_owner,
+    OmniControllerWorkspaceLayoutSetting *out_settings,
+    size_t setting_capacity,
+    size_t *out_setting_count);
 
 int32_t omni_ui_bridge_submit_hotkey(
     OmniWMController *runtime_owner,
@@ -2959,6 +3197,16 @@ int32_t omni_ui_bridge_export_workspace_state(
     OmniWMController *runtime_owner,
     OmniWorkspaceRuntimeStateExport *out_export);
 
+int32_t omni_ui_bridge_query_workspace_projection_counts(
+    const OmniWMController *runtime_owner,
+    OmniControllerWorkspaceProjectionCounts *out_counts);
+
+int32_t omni_ui_bridge_copy_workspace_projections(
+    OmniWMController *runtime_owner,
+    OmniControllerWorkspaceProjectionRecord *out_records,
+    size_t record_capacity,
+    size_t *out_record_count);
+
 OmniServiceLifecycle *omni_service_lifecycle_create(
     const OmniServiceLifecycleConfig *config,
     const OmniServiceLifecycleHandles *handles,
@@ -2973,6 +3221,21 @@ int32_t omni_service_lifecycle_stop(OmniServiceLifecycle *runtime_owner);
 int32_t omni_service_lifecycle_query_state(
     const OmniServiceLifecycle *runtime_owner,
     uint8_t *out_state);
+
+int32_t omni_service_lifecycle_set_bindings(
+    OmniServiceLifecycle *runtime_owner,
+    const OmniInputBinding *bindings,
+    size_t binding_count);
+
+int32_t omni_service_lifecycle_set_input_options(
+    OmniServiceLifecycle *runtime_owner,
+    const OmniInputOptions *options);
+
+int32_t omni_service_lifecycle_query_registration_failures(
+    OmniServiceLifecycle *runtime_owner,
+    OmniInputRegistrationFailure *out_failures,
+    size_t out_capacity,
+    size_t *out_written);
 
 int32_t omni_focus_activate_application(int32_t pid);
 

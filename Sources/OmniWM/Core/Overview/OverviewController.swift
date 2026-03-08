@@ -68,34 +68,9 @@ final class OverviewController {
         )
     }
     private func buildLayout() {
-        guard let wmController else { return }
-        let workspaceManager = wmController.workspaceManager
-        let appInfoCache = wmController.appInfoCache
-        var workspaces: [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)] = []
-        var windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)] = [:]
-        for monitor in workspaceManager.monitors {
-            let activeWs = workspaceManager.activeWorkspace(on: monitor.id)
-            for ws in workspaceManager.workspaces(on: monitor.id) {
-                workspaces.append((
-                    id: ws.id,
-                    name: wmController.settings.displayName(for: ws.name),
-                    isActive: ws.id == activeWs?.id
-                ))
-                for entry in workspaceManager.entries(in: ws.id) {
-                    guard entry.layoutReason == .standard else { continue }
-                    let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
-                    let appInfo = appInfoCache.info(for: entry.handle.pid)
-                    let frame = AXWindowService.framePreferFast(entry.axRef) ?? .zero
-                    windowData[entry.handle] = (
-                        entry: entry,
-                        title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
-                        appName: appInfo?.name ?? "Unknown",
-                        appIcon: appInfo?.icon,
-                        frame: frame
-                    )
-                }
-            }
-        }
+        guard wmController != nil else { return }
+        let workspaces = overviewWorkspaceContexts()
+        let windowData = overviewWindowData()
         guard let screen = NSScreen.main else { return }
         let previousScale = layout.scale
         layout = OverviewLayoutCalculator.calculateLayout(
@@ -110,6 +85,92 @@ final class OverviewController {
         }
         buildNiriColumnLayout(windowData: windowData)
         buildNiriDropZones()
+    }
+
+    func overviewWorkspaceContexts() -> [(id: WorkspaceDescriptor.ID, name: String, isActive: Bool)] {
+        guard let wmController else { return [] }
+        let workspaceManager = wmController.workspaceManager
+
+        if wmController.latestWorkspaceStateExport != nil {
+            return workspaceManager.monitors.flatMap { monitor in
+                let activeWorkspaceId = wmController.activeWorkspaceId(on: monitor)
+                let runtimeWorkspaces = wmController.runtimeWorkspaceRecords(on: monitor) ?? []
+                return runtimeWorkspaces.map { workspace in
+                    (
+                        id: workspace.workspaceId,
+                        name: wmController.settings.displayName(for: workspace.name),
+                        isActive: workspace.workspaceId == activeWorkspaceId
+                    )
+                }
+            }
+        }
+
+        return workspaceManager.monitors.flatMap { monitor in
+            let activeWorkspace = workspaceManager.activeWorkspace(on: monitor.id)
+            return workspaceManager.workspaces(on: monitor.id).map { workspace in
+                (
+                    id: workspace.id,
+                    name: wmController.settings.displayName(for: workspace.name),
+                    isActive: workspace.id == activeWorkspace?.id
+                )
+            }
+        }
+    }
+
+    private func overviewWindowData()
+        -> [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)]
+    {
+        guard let wmController else { return [:] }
+        let workspaceManager = wmController.workspaceManager
+        let appInfoCache = wmController.appInfoCache
+
+        if let stateExport = wmController.latestWorkspaceStateExport {
+            var windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)] = [:]
+            for record in stateExport.windows where record.layoutReason == .standard && record.hiddenState == nil {
+                let handle = WindowHandle(id: record.handleId, pid: record.pid)
+                let managerEntry = workspaceManager.entry(for: handle)
+                let entry = managerEntry ?? WindowModel.Entry(
+                    handle: handle,
+                    axRef: AXWindowRef(pid: record.pid, windowId: record.windowId),
+                    workspaceId: record.workspaceId,
+                    windowId: record.windowId,
+                    hiddenProportionalPosition: nil
+                )
+                let title = UInt32(exactly: record.windowId)
+                    .flatMap(AXWindowService.titlePreferFast(windowId:))
+                    ?? ""
+                let appInfo = appInfoCache.info(for: record.pid)
+                let frame = managerEntry.flatMap { AXWindowService.framePreferFast($0.axRef) } ?? .zero
+                windowData[handle] = (
+                    entry: entry,
+                    title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
+                    appName: appInfo?.name ?? "Unknown",
+                    appIcon: appInfo?.icon,
+                    frame: frame
+                )
+            }
+            return windowData
+        }
+
+        var windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)] = [:]
+        for monitor in workspaceManager.monitors {
+            for workspace in workspaceManager.workspaces(on: monitor.id) {
+                for entry in workspaceManager.entries(in: workspace.id) {
+                    guard entry.layoutReason == .standard else { continue }
+                    let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
+                    let appInfo = appInfoCache.info(for: entry.handle.pid)
+                    let frame = AXWindowService.framePreferFast(entry.axRef) ?? .zero
+                    windowData[entry.handle] = (
+                        entry: entry,
+                        title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
+                        appName: appInfo?.name ?? "Unknown",
+                        appIcon: appInfo?.icon,
+                        frame: frame
+                    )
+                }
+            }
+        }
+        return windowData
     }
     private func createWindows() {
         closeWindows()
@@ -235,8 +296,8 @@ final class OverviewController {
     }
     func focusTargetWindow(_ handle: WindowHandle) {
         guard let wmController else { return }
-        guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
-        onActivateWindow?(handle, entry.workspaceId)
+        guard let workspaceId = wmController.runtimeWorkspaceId(for: handle) else { return }
+        onActivateWindow?(handle, workspaceId)
     }
     func selectAndActivateWindow(_ handle: WindowHandle) {
         layout.setSelected(handle: handle)
@@ -463,16 +524,11 @@ private extension OverviewController {
     }
     func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let wmController else { return false }
-        guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
-        let layoutType = wmController.settings.layoutType(for: name)
+        let layoutType = wmController.effectiveLayoutType(forWorkspaceId: workspaceId)
         return layoutType != .dwindle
     }
     func buildNiriDropZones() {
         guard let wmController else { return }
-        guard wmController.zigNiriEngine != nil else {
-            layout.niriColumnDropZonesByWorkspace = [:]
-            return
-        }
         let gapBase = CGFloat(wmController.workspaceManager.gaps)
         var zonesByWorkspace: [WorkspaceDescriptor.ID: [OverviewColumnDropZone]] = [:]
         for section in layout.workspaceSections {
@@ -537,19 +593,19 @@ private extension OverviewController {
         windowData: [WindowHandle: (entry: WindowModel.Entry, title: String, appName: String, appIcon: NSImage?, frame: CGRect)]
     ) {
         guard let wmController else { return }
-        guard wmController.zigNiriEngine != nil else {
+        guard let controllerSnapshot = wmController.latestControllerSnapshot else {
             layout.niriColumnsByWorkspace = [:]
             return
         }
         var columnsByWorkspace: [WorkspaceDescriptor.ID: [OverviewNiriColumn]] = [:]
         for section in layout.workspaceSections {
             guard isNiriLayout(workspaceId: section.workspaceId) else { continue }
-            guard let workspaceView = wmController.syncZigNiriWorkspace(workspaceId: section.workspaceId) else {
-                continue
-            }
-            let niriColumns = workspaceView.columns
-            guard !niriColumns.isEmpty else { continue }
-            let columnCount = niriColumns.count
+            let snapshotColumns = snapshotColumns(
+                for: section.workspaceId,
+                controllerSnapshot: controllerSnapshot
+            )
+            guard !snapshotColumns.isEmpty else { continue }
+            let columnCount = snapshotColumns.count
             let spacing = OverviewLayoutMetrics.windowSpacing
             let totalSpacing = spacing * CGFloat(max(0, columnCount - 1))
             let rawWidth = (section.gridFrame.width - totalSpacing) / CGFloat(columnCount)
@@ -561,7 +617,8 @@ private extension OverviewController {
             let startX = section.gridFrame.minX + max(0, (section.gridFrame.width - totalWidth) / 2)
             let columnHeight = section.gridFrame.height
             var columns: [OverviewNiriColumn] = []
-            for (idx, column) in niriColumns.enumerated() {
+            for (idx, snapshotColumn) in snapshotColumns.enumerated() {
+                let orderedHandles = snapshotColumn.windowHandles
                 let columnX = startX + CGFloat(idx) * (columnWidth + spacing)
                 let columnFrame = CGRect(
                     x: columnX,
@@ -569,23 +626,13 @@ private extension OverviewController {
                     width: columnWidth,
                     height: columnHeight
                 )
-                let handles: [WindowHandle] = column.windowIds.compactMap { windowId in
-                    wmController.zigWindowHandle(for: windowId, workspaceId: section.workspaceId)
-                }
-                let orderedHandles = handles
-                    .compactMap { handle -> (WindowHandle, CGRect)? in
-                        guard let frame = windowData[handle]?.frame else { return nil }
-                        return (handle, frame)
-                    }
-                    .sorted { lhs, rhs in
-                        lhs.1.maxY > rhs.1.maxY
-                    }
-                    .map(\.0)
-                let tileCount = max(1, orderedHandles.count)
+                let visibleHandles = orderedHandles.filter { windowData[$0] != nil }
+                guard !visibleHandles.isEmpty else { continue }
+                let tileCount = max(1, visibleHandles.count)
                 let innerSpacing: CGFloat = 6
                 let totalInnerSpacing = innerSpacing * CGFloat(max(0, tileCount - 1))
                 let tileHeight = max(30, (columnHeight - totalInnerSpacing) / CGFloat(tileCount))
-                for (tileIdx, handle) in orderedHandles.enumerated() {
+                for (tileIdx, handle) in visibleHandles.enumerated() {
                     let tileY = columnFrame.maxY - CGFloat(tileIdx + 1) * tileHeight - CGFloat(tileIdx) * innerSpacing
                     let tileFrame = CGRect(
                         x: columnFrame.minX,
@@ -599,12 +646,40 @@ private extension OverviewController {
                     workspaceId: section.workspaceId,
                     columnIndex: idx,
                     frame: columnFrame,
-                    windowHandles: orderedHandles
+                    windowHandles: visibleHandles
                 )
                 columns.append(columnEntry)
             }
             columnsByWorkspace[section.workspaceId] = columns
         }
         layout.niriColumnsByWorkspace = columnsByWorkspace
+    }
+
+    private func snapshotColumns(
+        for workspaceId: WorkspaceDescriptor.ID,
+        controllerSnapshot: WMControllerControllerSnapshot
+    ) -> [(columnIndex: Int, windowHandles: [WindowHandle])] {
+        var columns: [(columnIndex: Int, windowHandles: [WindowHandle])] = []
+        var columnIndexByKey: [UUID: Int] = [:]
+
+        for window in controllerSnapshot.orderedWindows(in: workspaceId) {
+            let key = window.columnId ?? window.handleId
+            if let existingIndex = columnIndexByKey[key] {
+                columns[existingIndex].windowHandles.append(window.handle)
+                continue
+            }
+
+            columnIndexByKey[key] = columns.count
+            columns.append(
+                (columnIndex: window.columnIndex >= 0 ? window.columnIndex : columns.count, windowHandles: [window.handle])
+            )
+        }
+
+        return columns.sorted { lhs, rhs in
+            if lhs.columnIndex != rhs.columnIndex {
+                return lhs.columnIndex < rhs.columnIndex
+            }
+            return lhs.windowHandles.first?.id.uuidString ?? "" < rhs.windowHandles.first?.id.uuidString ?? ""
+        }
     }
 }

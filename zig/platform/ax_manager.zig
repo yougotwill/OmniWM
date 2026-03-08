@@ -359,6 +359,21 @@ const RuntimeImpl = struct {
         _ = self;
         return accessibility.withWindowElementById(pid, window_id, callback, @ptrCast(&op_ctx));
     }
+
+    fn getFocusedWindowId(self: *RuntimeImpl, pid: i32, out_has_window_id: [*c]u8, out_window_id: [*c]u32) i32 {
+        if (out_has_window_id == null or out_window_id == null) return abi.OMNI_ERR_INVALID_ARGS;
+        out_has_window_id[0] = 0;
+        out_window_id[0] = 0;
+
+        _ = self;
+        var window_id: u32 = 0;
+        const rc = accessibility.getFocusedWindowIdForApp(pid, &window_id);
+        if (rc != abi.OMNI_OK) return rc;
+
+        out_has_window_id[0] = 1;
+        out_window_id[0] = window_id;
+        return abi.OMNI_OK;
+    }
 };
 
 fn asImpl(runtime: [*c]OmniAXRuntime) ?*RuntimeImpl {
@@ -515,4 +530,14 @@ pub fn omni_ax_runtime_get_window_constraints_impl(
 ) i32 {
     const impl = asImpl(runtime) orelse return abi.OMNI_ERR_INVALID_ARGS;
     return impl.getWindowConstraints(pid, window_id, out_constraints);
+}
+
+pub fn omni_ax_runtime_get_focused_window_id_impl(
+    runtime: [*c]OmniAXRuntime,
+    pid: i32,
+    out_has_window_id: [*c]u8,
+    out_window_id: [*c]u32,
+) i32 {
+    const impl = asImpl(runtime) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    return impl.getFocusedWindowId(pid, out_has_window_id, out_window_id);
 }

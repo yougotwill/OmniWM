@@ -2,15 +2,6 @@ import AppKit
 import CZigLayout
 import Foundation
 
-private func zigCoreRuntimeInputHotkeyBridge(
-    _ userdata: UnsafeMutableRawPointer?,
-    _ command: OmniControllerCommand
-) -> Int32 {
-    guard let userdata else { return Int32(OMNI_ERR_INVALID_ARGS) }
-    let runtime = Unmanaged<ZigCoreRuntime>.fromOpaque(userdata).takeUnretainedValue()
-    return runtime.handleInputHotkeyCallback(command)
-}
-
 private func zigCoreRuntimeSecureInputBridge(
     _ userdata: UnsafeMutableRawPointer?,
     _ isSecureInputActive: UInt8
@@ -18,15 +9,6 @@ private func zigCoreRuntimeSecureInputBridge(
     guard let userdata else { return Int32(OMNI_ERR_INVALID_ARGS) }
     let runtime = Unmanaged<ZigCoreRuntime>.fromOpaque(userdata).takeUnretainedValue()
     return runtime.handleSecureInputChangedCallback(isSecureInputActive)
-}
-
-private func zigCoreRuntimeMouseEffectBridge(
-    _ userdata: UnsafeMutableRawPointer?,
-    _ effects: UnsafePointer<OmniInputEffectExport>?
-) -> Int32 {
-    guard let userdata else { return Int32(OMNI_ERR_INVALID_ARGS) }
-    let runtime = Unmanaged<ZigCoreRuntime>.fromOpaque(userdata).takeUnretainedValue()
-    return runtime.handleMouseEffectBatchCallback(effects)
 }
 
 private func zigCoreRuntimeTapHealthBridge(
@@ -86,7 +68,6 @@ final class ZigCoreRuntime {
     var registrationFailures: Set<HotkeyCommand> = []
 
     private var wmControllerRuntime: OpaquePointer?
-    private var inputRuntime: OpaquePointer?
     private var serviceLifecycle: OpaquePointer?
 
     private var hotkeyCommandByBindingId: [String: HotkeyCommand] = [:]
@@ -116,6 +97,7 @@ final class ZigCoreRuntime {
         updateBindings(settings.hotkeyBindings)
         setHotkeysEnabled(settings.hotkeysEnabled, settings: settings)
         applyControllerSettings(
+            settings: settings,
             focusFollowsWindowToMonitor: focusFollowsWindowToMonitor,
             moveMouseToFocusedWindow: moveMouseToFocusedWindow
         )
@@ -142,6 +124,7 @@ final class ZigCoreRuntime {
         registrationFailures.removeAll(keepingCapacity: false)
         secureInputState = false
         onSecureInputStateChange?(false)
+        controller?.invalidateControllerSnapshot()
     }
 
     func setHotkeysEnabled(_ enabled: Bool, settings: SettingsStore) {
@@ -149,7 +132,7 @@ final class ZigCoreRuntime {
             updateBindings(settings.hotkeyBindings)
         }
 
-        guard let inputRuntime else {
+        guard let serviceLifecycle else {
             registrationFailures.removeAll(keepingCapacity: false)
             return
         }
@@ -162,7 +145,7 @@ final class ZigCoreRuntime {
         )
 
         withUnsafePointer(to: &options) { optionsPtr in
-            _ = omni_input_runtime_set_options(inputRuntime, optionsPtr)
+            _ = omni_service_lifecycle_set_input_options(serviceLifecycle, optionsPtr)
         }
 
         if enabled {
@@ -178,7 +161,7 @@ final class ZigCoreRuntime {
             uniquingKeysWith: { first, _ in first }
         )
 
-        guard let inputRuntime else {
+        guard let serviceLifecycle else {
             registrationFailures.removeAll(keepingCapacity: false)
             return
         }
@@ -194,33 +177,137 @@ final class ZigCoreRuntime {
 
         let rc: Int32
         if rawBindings.isEmpty {
-            rc = omni_input_runtime_set_bindings(inputRuntime, nil, 0)
+            rc = omni_service_lifecycle_set_bindings(serviceLifecycle, nil, 0)
         } else {
             rc = rawBindings.withUnsafeBufferPointer { buffer in
-                omni_input_runtime_set_bindings(inputRuntime, buffer.baseAddress, buffer.count)
+                omni_service_lifecycle_set_bindings(serviceLifecycle, buffer.baseAddress, buffer.count)
             }
         }
 
         if rc != Int32(OMNI_OK) {
-            dispatchControllerError(code: rc, message: "failed to update input runtime bindings")
+            dispatchControllerError(code: rc, message: "failed to update input bindings")
         }
 
         refreshRegistrationFailures()
     }
 
     func applyControllerSettings(
+        settings: SettingsStore,
         focusFollowsWindowToMonitor: Bool,
         moveMouseToFocusedWindow: Bool
     ) {
         guard let wmControllerRuntime else { return }
-        var settings = OmniControllerSettingsDelta(
-            has_focus_follows_window_to_monitor: 1,
-            focus_follows_window_to_monitor: focusFollowsWindowToMonitor ? 1 : 0,
-            has_move_mouse_to_focused_window: 1,
-            move_mouse_to_focused_window: moveMouseToFocusedWindow ? 1 : 0
+        var delta = OmniControllerSettingsDelta()
+        delta.struct_size = MemoryLayout<OmniControllerSettingsDelta>.size
+        delta.has_focus_follows_mouse = 1
+        delta.focus_follows_mouse = settings.focusFollowsMouse ? 1 : 0
+        delta.has_focus_follows_window_to_monitor = 1
+        delta.focus_follows_window_to_monitor = focusFollowsWindowToMonitor ? 1 : 0
+        delta.has_move_mouse_to_focused_window = 1
+        delta.move_mouse_to_focused_window = moveMouseToFocusedWindow ? 1 : 0
+        delta.has_layout_gap = 1
+        delta.layout_gap = settings.gapSize
+        delta.has_outer_gap_left = 1
+        delta.outer_gap_left = settings.outerGapLeft
+        delta.has_outer_gap_right = 1
+        delta.outer_gap_right = settings.outerGapRight
+        delta.has_outer_gap_top = 1
+        delta.outer_gap_top = settings.outerGapTop
+        delta.has_outer_gap_bottom = 1
+        delta.outer_gap_bottom = settings.outerGapBottom
+        delta.has_niri_max_visible_columns = 1
+        delta.niri_max_visible_columns = Int64(settings.niriMaxVisibleColumns)
+        delta.has_niri_max_windows_per_column = 1
+        delta.niri_max_windows_per_column = Int64(settings.niriMaxWindowsPerColumn)
+        delta.has_niri_infinite_loop = 1
+        delta.niri_infinite_loop = settings.niriInfiniteLoop ? 1 : 0
+        delta.has_niri_width_presets = 1
+        delta.has_border_enabled = 1
+        delta.border_enabled = settings.bordersEnabled ? 1 : 0
+        delta.has_border_width = 1
+        delta.border_width = settings.borderWidth
+        delta.has_border_color = 1
+        delta.border_color = OmniBorderColor(
+            red: settings.borderColorRed,
+            green: settings.borderColorGreen,
+            blue: settings.borderColorBlue,
+            alpha: settings.borderColorAlpha
         )
-        withUnsafePointer(to: &settings) { settingsPtr in
-            _ = omni_ui_bridge_apply_settings(wmControllerRuntime, settingsPtr)
+        delta.has_default_layout_kind = 1
+        delta.default_layout_kind = Self.rawControllerLayoutKind(from: settings.defaultLayoutType)
+        delta.has_dwindle_move_to_root_stable = 1
+        delta.dwindle_move_to_root_stable = settings.dwindleMoveToRootStable ? 1 : 0
+
+        let cappedPresets = Array(
+            settings.niriColumnWidthPresets.prefix(Int(OMNI_CONTROLLER_NIRI_WIDTH_PRESET_CAP))
+        )
+        delta.niri_width_preset_count = cappedPresets.count
+        withUnsafeMutableBytes(of: &delta.niri_width_presets) { rawBuffer in
+            rawBuffer.initializeMemory(as: Double.self, repeating: 0)
+            let buffer = rawBuffer.bindMemory(to: Double.self)
+            for (index, preset) in cappedPresets.enumerated() where index < buffer.count {
+                buffer[index] = preset
+            }
+        }
+
+        let monitorSettings: [OmniControllerMonitorNiriSettings] = controller?.workspaceManager.monitors.map { monitor in
+            let resolved = settings.resolvedNiriSettings(for: monitor)
+            let aspect = Self.aspectComponents(from: resolved.singleWindowAspectRatio)
+            return OmniControllerMonitorNiriSettings(
+                display_id: monitor.displayId,
+                orientation: Self.rawOrientation(from: settings.effectiveOrientation(for: monitor)),
+                center_focused_column: Self.rawCenterMode(from: resolved.centerFocusedColumn),
+                always_center_single_column: resolved.alwaysCenterSingleColumn ? 1 : 0,
+                single_window_aspect_width: aspect.width,
+                single_window_aspect_height: aspect.height
+            )
+        } ?? []
+        let dwindleMonitorSettings: [OmniControllerMonitorDwindleSettings] = controller?.workspaceManager.monitors.map { monitor in
+            let resolved = settings.resolvedDwindleSettings(for: monitor)
+            let aspect = resolved.singleWindowAspectRatio.size
+            return OmniControllerMonitorDwindleSettings(
+                display_id: monitor.displayId,
+                smart_split: resolved.smartSplit ? 1 : 0,
+                default_split_ratio: resolved.defaultSplitRatio,
+                split_width_multiplier: resolved.splitWidthMultiplier,
+                inner_gap: resolved.innerGap,
+                outer_gap_top: resolved.outerGapTop,
+                outer_gap_bottom: resolved.outerGapBottom,
+                outer_gap_left: resolved.outerGapLeft,
+                outer_gap_right: resolved.outerGapRight,
+                single_window_aspect_width: aspect.width,
+                single_window_aspect_height: aspect.height
+            )
+        } ?? []
+
+        let workspaceLayoutSettings = settings.workspaceConfigurations
+            .filter { $0.layoutType != .defaultLayout }
+            .sorted { $0.name.toLogicalSegments() < $1.name.toLogicalSegments() }
+            .map { config in
+            OmniControllerWorkspaceLayoutSetting(
+                name: Self.rawControllerName(from: config.name),
+                layout_kind: Self.rawControllerLayoutKind(from: config.layoutType)
+            )
+        }
+
+        let rc = monitorSettings.withUnsafeBufferPointer { buffer in
+            delta.monitor_niri_settings = buffer.isEmpty ? nil : buffer.baseAddress
+            delta.monitor_niri_settings_count = buffer.count
+            return dwindleMonitorSettings.withUnsafeBufferPointer { dwindleBuffer in
+                delta.monitor_dwindle_settings = dwindleBuffer.isEmpty ? nil : dwindleBuffer.baseAddress
+                delta.monitor_dwindle_settings_count = dwindleBuffer.count
+                return workspaceLayoutSettings.withUnsafeBufferPointer { workspaceBuffer in
+                    delta.workspace_layout_settings = workspaceBuffer.isEmpty ? nil : workspaceBuffer.baseAddress
+                    delta.workspace_layout_settings_count = workspaceBuffer.count
+                    return withUnsafePointer(to: &delta) { settingsPtr in
+                        omni_wm_controller_apply_settings(wmControllerRuntime, settingsPtr)
+                    }
+                }
+            }
+        }
+
+        if rc != Int32(OMNI_OK) {
+            dispatchControllerError(code: rc, message: "failed to apply controller settings")
         }
     }
 
@@ -238,47 +325,34 @@ final class ZigCoreRuntime {
     func syncControllerState() {
         refreshLifecycleState()
 
-        guard let wmControllerRuntime else { return }
-        _ = omni_wm_controller_tick(wmControllerRuntime, Date().timeIntervalSinceReferenceDate)
-        var uiState = OmniControllerUiState()
-        let rc = withUnsafeMutablePointer(to: &uiState) { statePtr in
-            omni_ui_bridge_query_ui_state(wmControllerRuntime, statePtr)
+        guard started, let wmControllerRuntime else {
+            controller?.invalidateControllerSnapshot()
+            return
         }
-        guard rc == Int32(OMNI_OK) else { return }
+        guard let snapshotExport = WMControllerSnapshotAdapter.flushAndCapture(runtime: wmControllerRuntime) else {
+            controller?.invalidateControllerSnapshot(refreshUI: false)
+            controller?.syncExperimentalProjectionsFromCore(changedWorkspaceIds: nil)
+            updateSecureInputStateFromRuntime()
+            return
+        }
+        let workspaceLayoutOverrides = captureWorkspaceLayoutOverrides(runtime: wmControllerRuntime)
 
-        let isSecure = uiState.secure_input_active != 0
-        if isSecure != secureInputState {
-            secureInputState = isSecure
-            onSecureInputStateChange?(isSecure)
-        }
-    }
-
-    nonisolated fileprivate func handleInputHotkeyCallback(_ command: OmniControllerCommand) -> Int32 {
-        MainActor.assumeIsolated {
-            guard let wmControllerRuntime else { return Int32(OMNI_ERR_INVALID_ARGS) }
-            var mutableCommand = command
-            return withUnsafePointer(to: &mutableCommand) { commandPtr in
-                omni_wm_controller_submit_hotkey(wmControllerRuntime, commandPtr)
-            }
-        }
+        controller?.syncExperimentalProjectionsFromCore(
+            changedWorkspaceIds: snapshotExport.changedWorkspaceIds,
+            stateExport: snapshotExport.stateExport,
+            controllerSnapshot: snapshotExport.controllerSnapshot,
+            workspaceLayoutOverrides: workspaceLayoutOverrides
+        )
+        updateSecureInputState(snapshotExport.uiState)
     }
 
     nonisolated fileprivate func handleSecureInputChangedCallback(_ isSecureInputActive: UInt8) -> Int32 {
         MainActor.assumeIsolated {
             let isSecure = isSecureInputActive != 0
-            let rc = submitSecureInputChangedEvent(isSecure)
             secureInputState = isSecure
             onSecureInputStateChange?(isSecure)
-            return rc
+            return Int32(OMNI_OK)
         }
-    }
-
-    nonisolated fileprivate func handleMouseEffectBatchCallback(
-        _ effects: UnsafePointer<OmniInputEffectExport>?
-    ) -> Int32 {
-        guard let effects else { return Int32(OMNI_ERR_INVALID_ARGS) }
-        Self.releaseUnconsumedMouseEffects(effects.pointee)
-        return Int32(OMNI_OK)
     }
 
     nonisolated fileprivate func handleTapHealthCallback(tapKind: UInt8, reason: UInt8) -> Int32 {
@@ -320,6 +394,9 @@ final class ZigCoreRuntime {
     nonisolated fileprivate func handleLifecycleStateChangedCallback(_ state: UInt8) -> Int32 {
         MainActor.assumeIsolated {
             started = state == Self.rawEnumValue(OMNI_SERVICE_LIFECYCLE_STATE_RUNNING)
+            if !started {
+                controller?.invalidateControllerSnapshot()
+            }
         }
         return Int32(OMNI_OK)
     }
@@ -330,6 +407,7 @@ final class ZigCoreRuntime {
     ) -> Int32 {
         MainActor.assumeIsolated {
             started = false
+            controller?.invalidateControllerSnapshot()
             dispatchControllerError(code: code, message: Self.string(from: message))
         }
         return Int32(OMNI_OK)
@@ -353,24 +431,7 @@ final class ZigCoreRuntime {
             }
         }
 
-        var inputConfig = OmniInputRuntimeConfig(
-            abi_version: UInt32(OMNI_INPUT_RUNTIME_ABI_VERSION),
-            reserved: 0
-        )
-        var inputHost = OmniInputHostVTable(
-            userdata: userdata,
-            on_hotkey_command: zigCoreRuntimeInputHotkeyBridge,
-            on_secure_input_state_changed: zigCoreRuntimeSecureInputBridge,
-            on_mouse_effect_batch: zigCoreRuntimeMouseEffectBridge,
-            on_tap_health_notification: zigCoreRuntimeTapHealthBridge
-        )
-        inputRuntime = withUnsafePointer(to: &inputConfig) { configPtr in
-            withUnsafePointer(to: &inputHost) { hostPtr in
-                omni_input_runtime_create(configPtr, hostPtr)
-            }
-        }
-
-        guard wmControllerRuntime != nil, inputRuntime != nil else {
+        guard wmControllerRuntime != nil else {
             dispatchControllerError(code: Int32(OMNI_ERR_PLATFORM), message: "failed to create core runtimes")
             destroyRuntimes()
             return
@@ -386,7 +447,7 @@ final class ZigCoreRuntime {
         )
         var lifecycleHandles = OmniServiceLifecycleHandles(
             wm_controller: wmControllerRuntime,
-            input_runtime: inputRuntime,
+            input_runtime: nil,
             platform_runtime: nil,
             workspace_observer_runtime: nil,
             lock_observer_runtime: nil,
@@ -396,7 +457,9 @@ final class ZigCoreRuntime {
         var lifecycleHost = OmniServiceLifecycleHostVTable(
             userdata: userdata,
             on_state_changed: zigCoreRuntimeLifecycleStateBridge,
-            on_error: zigCoreRuntimeLifecycleErrorBridge
+            on_error: zigCoreRuntimeLifecycleErrorBridge,
+            on_secure_input_state_changed: zigCoreRuntimeSecureInputBridge,
+            on_tap_health_notification: zigCoreRuntimeTapHealthBridge
         )
 
         serviceLifecycle = withUnsafePointer(to: &lifecycleConfig) { configPtr in
@@ -420,17 +483,13 @@ final class ZigCoreRuntime {
             self.serviceLifecycle = nil
         }
 
-        if let inputRuntime {
-            omni_input_runtime_destroy(inputRuntime)
-            self.inputRuntime = nil
-        }
-
         if let wmControllerRuntime {
             omni_wm_controller_destroy(wmControllerRuntime)
             self.wmControllerRuntime = nil
         }
 
         started = false
+        controller?.invalidateControllerSnapshot()
     }
 
     private func refreshLifecycleState() {
@@ -450,14 +509,14 @@ final class ZigCoreRuntime {
     }
 
     private func refreshRegistrationFailures() {
-        guard let inputRuntime else {
+        guard let serviceLifecycle else {
             registrationFailures.removeAll(keepingCapacity: false)
             return
         }
 
         var required = 0
         let probeRc = withUnsafeMutablePointer(to: &required) { writtenPtr in
-            omni_input_runtime_query_registration_failures(inputRuntime, nil, 0, writtenPtr)
+            omni_service_lifecycle_query_registration_failures(serviceLifecycle, nil, 0, writtenPtr)
         }
         guard probeRc == Int32(OMNI_OK), required > 0 else {
             registrationFailures.removeAll(keepingCapacity: false)
@@ -468,8 +527,8 @@ final class ZigCoreRuntime {
         var written = 0
         let queryRc = failures.withUnsafeMutableBufferPointer { buffer in
             withUnsafeMutablePointer(to: &written) { writtenPtr in
-                omni_input_runtime_query_registration_failures(
-                    inputRuntime,
+                omni_service_lifecycle_query_registration_failures(
+                    serviceLifecycle,
                     buffer.baseAddress,
                     buffer.count,
                     writtenPtr
@@ -489,27 +548,6 @@ final class ZigCoreRuntime {
             }
         }
         registrationFailures = commands
-    }
-
-    private func submitSecureInputChangedEvent(_ isSecure: Bool) -> Int32 {
-        guard let wmControllerRuntime else { return Int32(OMNI_ERR_INVALID_ARGS) }
-
-        var event = OmniControllerEvent(
-            kind: Self.rawEnumValue(OMNI_CONTROLLER_EVENT_SECURE_INPUT_CHANGED),
-            enabled: isSecure ? 1 : 0,
-            refresh_reason: 0,
-            has_display_id: 0,
-            display_id: 0,
-            pid: 0,
-            has_window_handle_id: 0,
-            window_handle_id: OmniUuid128(),
-            has_workspace_id: 0,
-            workspace_id: OmniUuid128()
-        )
-
-        return withUnsafePointer(to: &event) { eventPtr in
-            omni_wm_controller_submit_os_event(wmControllerRuntime, eventPtr)
-        }
     }
 
     private func dispatchUIActions(_ uiActionKinds: [UInt8]) {
@@ -541,23 +579,71 @@ final class ZigCoreRuntime {
         }
     }
 
-    nonisolated private static func releaseUnconsumedMouseEffects(_ effectExport: OmniInputEffectExport) {
-        guard let effects = effectExport.effects,
-              effectExport.effect_count > 0
-        else {
-            return
-        }
+    private func dispatchControllerError(code: Int32, message: String) {
+        controller?.handleZigCoreRuntimeError(code: code, message: message)
+    }
 
-        for effect in UnsafeBufferPointer(start: effects, count: effectExport.effect_count) {
-            let consumed = false
-            if !consumed, let eventRef = effect.event.event_ref {
-                Unmanaged<CGEvent>.fromOpaque(eventRef).release()
-            }
+    private func updateSecureInputStateFromRuntime() {
+        guard let wmControllerRuntime else { return }
+        var uiState = OmniControllerUiState()
+        let rc = withUnsafeMutablePointer(to: &uiState) { statePtr in
+            omni_wm_controller_query_ui_state(wmControllerRuntime, statePtr)
+        }
+        guard rc == Int32(OMNI_OK) else { return }
+        updateSecureInputState(uiState)
+    }
+
+    private func updateSecureInputState(_ uiState: OmniControllerUiState) {
+        let isSecure = uiState.secure_input_active != 0
+        if isSecure != secureInputState {
+            secureInputState = isSecure
+            onSecureInputStateChange?(isSecure)
         }
     }
 
-    private func dispatchControllerError(code: Int32, message: String) {
-        controller?.handleZigCoreRuntimeError(code: code, message: message)
+    private func captureWorkspaceLayoutOverrides(runtime: OpaquePointer) -> [WMControllerWorkspaceLayoutOverride]? {
+        var requiredCount: Int = 0
+        let countRc = withUnsafeMutablePointer(to: &requiredCount) { countPtr in
+            omni_wm_controller_query_workspace_layout_settings_count(runtime, countPtr)
+        }
+        guard countRc == Int32(OMNI_OK), requiredCount >= 0 else { return nil }
+
+        for _ in 0 ..< 3 {
+            var buffer = Array(repeating: OmniControllerWorkspaceLayoutSetting(), count: requiredCount)
+            var writtenCount = 0
+            let copyRc = buffer.withUnsafeMutableBufferPointer { settingsPtr in
+                withUnsafeMutablePointer(to: &writtenCount) { writtenPtr in
+                    omni_wm_controller_copy_workspace_layout_settings(
+                        runtime,
+                        settingsPtr.baseAddress,
+                        settingsPtr.count,
+                        writtenPtr
+                    )
+                }
+            }
+
+            if copyRc == Int32(OMNI_OK) {
+                let safeCount = max(0, min(writtenCount, buffer.count))
+                return buffer.prefix(safeCount).compactMap { rawSetting in
+                    guard let layoutType = Self.layoutType(fromControllerLayoutKind: rawSetting.layout_kind) else {
+                        return nil
+                    }
+                    return WMControllerWorkspaceLayoutOverride(
+                        name: Self.string(from: rawSetting.name),
+                        layoutType: layoutType
+                    )
+                }
+            }
+
+            guard copyRc == Int32(OMNI_ERR_OUT_OF_RANGE) else { return nil }
+
+            let nextCountRc = withUnsafeMutablePointer(to: &requiredCount) { countPtr in
+                omni_wm_controller_query_workspace_layout_settings_count(runtime, countPtr)
+            }
+            guard nextCountRc == Int32(OMNI_OK), requiredCount >= 0 else { return nil }
+        }
+
+        return nil
     }
 
     private static func rawBindingId(from string: String) -> OmniInputBindingId {
@@ -585,6 +671,74 @@ final class ZigCoreRuntime {
             Array(rawBuffer.prefix(length))
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private static func rawControllerName(from string: String) -> OmniControllerName {
+        var result = OmniControllerName()
+        let utf8 = Array(string.utf8.prefix(Int(OMNI_CONTROLLER_NAME_CAP)))
+        result.length = UInt8(utf8.count)
+        withUnsafeMutableBytes(of: &result.bytes) { buffer in
+            buffer.initializeMemory(as: UInt8.self, repeating: 0)
+            buffer.copyBytes(from: utf8)
+        }
+        return result
+    }
+
+    private static func rawOrientation(from orientation: Monitor.Orientation) -> UInt8 {
+        switch orientation {
+        case .horizontal:
+            return rawEnumValue(OMNI_NIRI_ORIENTATION_HORIZONTAL)
+        case .vertical:
+            return rawEnumValue(OMNI_NIRI_ORIENTATION_VERTICAL)
+        }
+    }
+
+    private static func rawCenterMode(from centerMode: CenterFocusedColumn) -> UInt8 {
+        switch centerMode {
+        case .never:
+            return rawEnumValue(OMNI_CENTER_NEVER)
+        case .always:
+            return rawEnumValue(OMNI_CENTER_ALWAYS)
+        case .onOverflow:
+            return rawEnumValue(OMNI_CENTER_ON_OVERFLOW)
+        }
+    }
+
+    private static func aspectComponents(from ratio: SingleWindowAspectRatio) -> (width: Double, height: Double) {
+        switch ratio {
+        case .none:
+            return (0, 0)
+        case .ratio16x9:
+            return (16, 9)
+        case .ratio4x3:
+            return (4, 3)
+        case .ratio21x9:
+            return (21, 9)
+        case .square:
+            return (1, 1)
+        }
+    }
+
+    private static func rawControllerLayoutKind(from layoutType: LayoutType) -> UInt8 {
+        switch layoutType {
+        case .defaultLayout:
+            return rawEnumValue(OMNI_CONTROLLER_LAYOUT_DEFAULT)
+        case .niri:
+            return rawEnumValue(OMNI_CONTROLLER_LAYOUT_NIRI)
+        case .dwindle:
+            return rawEnumValue(OMNI_CONTROLLER_LAYOUT_DWINDLE)
+        }
+    }
+
+    private static func layoutType(fromControllerLayoutKind rawKind: UInt8) -> LayoutType? {
+        switch rawKind {
+        case rawEnumValue(OMNI_CONTROLLER_LAYOUT_NIRI):
+            return .niri
+        case rawEnumValue(OMNI_CONTROLLER_LAYOUT_DWINDLE):
+            return .dwindle
+        default:
+            return nil
+        }
     }
 
     private static func rawEnumValue<T: RawRepresentable>(_ value: T) -> UInt8 where T.RawValue: BinaryInteger {

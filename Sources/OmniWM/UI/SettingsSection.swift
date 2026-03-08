@@ -2,7 +2,6 @@ import SwiftUI
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case niri
-    case dwindle
     case monitors
     case workspaces
     case borders
@@ -16,7 +15,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .niri: "Niri"
-        case .dwindle: "Dwindle"
         case .monitors: "Monitors"
         case .workspaces: "Workspaces"
         case .borders: "Borders"
@@ -31,7 +29,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .niri: "scroll"
-        case .dwindle: "square.split.2x2"
         case .monitors: "display"
         case .workspaces: "rectangle.3.group"
         case .borders: "square.dashed"

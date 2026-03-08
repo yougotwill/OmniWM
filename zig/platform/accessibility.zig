@@ -14,6 +14,7 @@ var g_windows_attr: c.CFStringRef = null;
 var g_role_attr: c.CFStringRef = null;
 var g_subrole_attr: c.CFStringRef = null;
 var g_enabled_attr: c.CFStringRef = null;
+var g_focused_window_attr: c.CFStringRef = null;
 var g_position_attr: c.CFStringRef = null;
 var g_size_attr: c.CFStringRef = null;
 var g_close_button_attr: c.CFStringRef = null;
@@ -57,6 +58,10 @@ pub fn axAttrSubrole() c.CFStringRef {
 
 pub fn axAttrEnabled() c.CFStringRef {
     return cachedAttr(&g_enabled_attr, "AXEnabled");
+}
+
+pub fn axAttrFocusedWindow() c.CFStringRef {
+    return cachedAttr(&g_focused_window_attr, "AXFocusedWindow");
 }
 
 pub fn axAttrPosition() c.CFStringRef {
@@ -297,6 +302,23 @@ pub fn getConstraints(element: AXElementRef, out_constraints: *abi.OmniAXWindowC
         .is_fixed = is_fixed,
     };
 
+    return abi.OMNI_OK;
+}
+
+pub fn getFocusedWindowIdForApp(pid: i32, out_window_id: *u32) i32 {
+    const app = createApplication(pid);
+    if (app == null) return abi.OMNI_ERR_PLATFORM;
+
+    var focused_raw: c.CFTypeRef = null;
+    defer releaseCF(focused_raw);
+
+    if (!copyAttributeValue(app, axAttrFocusedWindow(), &focused_raw)) return abi.OMNI_ERR_PLATFORM;
+    if (focused_raw == null) return abi.OMNI_ERR_PLATFORM;
+    if (c.CFGetTypeID(focused_raw) != c.AXUIElementGetTypeID()) return abi.OMNI_ERR_PLATFORM;
+
+    const element: AXElementRef = @ptrCast(focused_raw);
+    const window_id = getWindowId(element) orelse return abi.OMNI_ERR_PLATFORM;
+    out_window_id.* = window_id;
     return abi.OMNI_OK;
 }
 

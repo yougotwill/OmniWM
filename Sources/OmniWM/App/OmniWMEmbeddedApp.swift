@@ -5,6 +5,7 @@ struct OmniWMEmbeddedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var settings: SettingsStore
     @State private var controller: WMController
+
     init() {
         SettingsMigration.run()
         let settings = SettingsStore()
@@ -29,17 +30,9 @@ struct OmniWMEmbeddedApp: App {
             singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
             columnWidthPresets: settings.niriColumnWidthPresets
         )
-        controller.enableDwindleLayout()
-        controller.updateDwindleConfig(
-            smartSplit: settings.dwindleSmartSplit,
-            defaultSplitRatio: settings.dwindleDefaultSplitRatio,
-            splitWidthMultiplier: settings.dwindleSplitWidthMultiplier,
-            singleWindowAspectRatio: settings.dwindleSingleWindowAspectRatio.size
-        )
         controller.updateWorkspaceConfig()
         controller.rebuildAppRulesCache()
         controller.setEnabled(true)
-        controller.syncBorderConfigFromSettings()
         controller.setFocusFollowsMouse(settings.focusFollowsMouse)
         controller.setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
         controller.setWorkspaceBarEnabled(settings.workspaceBarEnabled)

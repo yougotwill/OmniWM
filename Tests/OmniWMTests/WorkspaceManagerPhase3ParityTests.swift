@@ -91,6 +91,163 @@ final class WorkspaceManagerPhase3ParityTests: XCTestCase {
     }
 
     @MainActor
+    func testExactMonitorAssignmentRequiresOriginalDisplayId() {
+        let originalMonitors = testMonitors()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = [
+            WorkspaceConfiguration(
+                name: "2",
+                monitorAssignment: .exact(MonitorRestoreKey(monitor: originalMonitors[1]))
+            )
+        ]
+
+        let manager = WorkspaceManager(settings: settings)
+        manager.updateMonitors(originalMonitors)
+
+        let ws2 = unwrapWorkspaceId(manager.workspaceId(for: "2", createIfMissing: true))
+        manager.applySettings()
+        XCTAssertEqual(manager.monitorId(for: ws2), originalMonitors[1].id)
+
+        let reconnectedMonitors = [
+            Monitor(
+                id: Monitor.ID(displayId: originalMonitors[1].displayId),
+                displayId: originalMonitors[1].displayId,
+                frame: originalMonitors[0].frame,
+                visibleFrame: originalMonitors[0].visibleFrame,
+                hasNotch: false,
+                name: originalMonitors[0].name
+            ),
+            Monitor(
+                id: Monitor.ID(displayId: originalMonitors[0].displayId),
+                displayId: originalMonitors[0].displayId,
+                frame: originalMonitors[1].frame,
+                visibleFrame: originalMonitors[1].visibleFrame,
+                hasNotch: false,
+                name: originalMonitors[1].name
+            )
+        ]
+
+        manager.updateMonitors(reconnectedMonitors)
+        manager.applySettings()
+
+        XCTAssertEqual(manager.monitorId(for: ws2), reconnectedMonitors[0].id)
+    }
+
+    @MainActor
+    func testSwitchWorkspaceNamedUsesExistingWorkspaceMonitor() {
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+        let monitors = testMonitors()
+        manager.updateMonitors(monitors)
+
+        let ws1 = unwrapWorkspaceId(manager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = unwrapWorkspaceId(manager.workspaceId(for: "2", createIfMissing: true))
+
+        XCTAssertTrue(manager.setActiveWorkspace(ws1, on: monitors[0].id))
+        XCTAssertTrue(manager.setActiveWorkspace(ws2, on: monitors[1].id))
+        XCTAssertTrue(manager.setActiveWorkspace(ws1, on: monitors[0].id))
+
+        let result = manager.switchWorkspace(named: "2")
+
+        XCTAssertEqual(result?.workspace.id, ws2)
+        XCTAssertEqual(result?.monitor.id, monitors[1].id)
+        XCTAssertEqual(manager.activeWorkspace(on: monitors[0].id)?.id, ws1)
+        XCTAssertEqual(manager.activeWorkspace(on: monitors[1].id)?.id, ws2)
+        XCTAssertEqual(manager.monitorId(for: ws2), monitors[1].id)
+        XCTAssertEqual(manager.runtimeActiveMonitorId, monitors[1].id)
+        XCTAssertEqual(manager.runtimePreviousMonitorId, monitors[0].id)
+    }
+
+    @MainActor
+    func testSwitchWorkspaceNamedCreatesMissingWorkspaceOnPrimaryMonitor() {
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+        let monitors = testMonitors()
+        manager.updateMonitors(monitors)
+
+        let ws2 = unwrapWorkspaceId(manager.workspaceId(for: "2", createIfMissing: true))
+        XCTAssertTrue(manager.setActiveWorkspace(ws2, on: monitors[1].id))
+
+        let result = manager.switchWorkspace(named: "3")
+
+        XCTAssertEqual(result?.workspace.name, "3")
+        XCTAssertEqual(result?.monitor.id, monitors[0].id)
+        XCTAssertEqual(manager.activeWorkspace(on: monitors[0].id)?.name, "3")
+        XCTAssertEqual(manager.runtimeActiveMonitorId, monitors[0].id)
+        XCTAssertEqual(manager.runtimePreviousMonitorId, monitors[1].id)
+    }
+
+    @MainActor
+    func testFocusWorkspaceAnywherePreservesExistingMonitor() {
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+        let monitors = testMonitors()
+        manager.updateMonitors(monitors)
+
+        let ws1 = unwrapWorkspaceId(manager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = unwrapWorkspaceId(manager.workspaceId(for: "2", createIfMissing: true))
+
+        XCTAssertTrue(manager.setActiveWorkspace(ws1, on: monitors[0].id))
+        XCTAssertTrue(manager.setActiveWorkspace(ws2, on: monitors[1].id))
+        XCTAssertTrue(manager.setActiveWorkspace(ws2, on: monitors[1].id))
+
+        let result = manager.focusWorkspaceAnywhere(ws1)
+
+        XCTAssertEqual(result?.workspace.id, ws1)
+        XCTAssertEqual(result?.monitor.id, monitors[0].id)
+        XCTAssertEqual(manager.monitorId(for: ws1), monitors[0].id)
+        XCTAssertEqual(manager.activeWorkspace(on: monitors[0].id)?.id, ws1)
+        XCTAssertEqual(manager.activeWorkspace(on: monitors[1].id)?.id, ws2)
+        XCTAssertEqual(manager.runtimeActiveMonitorId, monitors[0].id)
+        XCTAssertEqual(manager.runtimePreviousMonitorId, monitors[1].id)
+    }
+
+    @MainActor
+    func testAdjacentNumericWorkspaceReusesExistingSharedWorkspace() {
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+        let monitors = testMonitors()
+        manager.updateMonitors(monitors)
+
+        let ws1 = unwrapWorkspaceId(manager.workspaceId(for: "1", createIfMissing: true))
+        let ws2 = unwrapWorkspaceId(manager.workspaceId(for: "2", createIfMissing: true))
+
+        XCTAssertTrue(manager.setActiveWorkspace(ws1, on: monitors[0].id))
+        XCTAssertTrue(manager.setActiveWorkspace(ws2, on: monitors[1].id))
+
+        let adjacent = manager.resolveOrCreateAdjacentSharedWorkspace(
+            from: ws1,
+            direction: .down,
+            on: monitors[0].id
+        )
+
+        XCTAssertEqual(adjacent?.id, ws2)
+        XCTAssertEqual(adjacent?.name, "2")
+    }
+
+    @MainActor
+    func testAdjacentNumericWorkspaceReusesExistingWorkspaceAboveTen() {
+        let settings = SettingsStore(defaults: defaults)
+        let manager = WorkspaceManager(settings: settings)
+        let monitors = testMonitors()
+        manager.updateMonitors(monitors)
+
+        let ws10 = unwrapWorkspaceId(manager.workspaceId(for: "10", createIfMissing: true))
+        let ws11 = unwrapWorkspaceId(manager.workspaceId(for: "11", createIfMissing: true))
+
+        XCTAssertTrue(manager.setActiveWorkspace(ws10, on: monitors[0].id))
+
+        let adjacent = manager.resolveOrCreateAdjacentSharedWorkspace(
+            from: ws10,
+            direction: .down,
+            on: monitors[0].id
+        )
+
+        XCTAssertEqual(adjacent?.id, ws11)
+        XCTAssertEqual(adjacent?.name, "11")
+    }
+
+    @MainActor
     func testEachMonitorGetsVisibleWorkspaceStubWhenNeeded() {
         let settings = SettingsStore(defaults: defaults)
         let manager = WorkspaceManager(settings: settings)
@@ -106,19 +263,19 @@ final class WorkspaceManagerPhase3ParityTests: XCTestCase {
     }
 
     @MainActor
-    func testHiddenStateRetentionRoundTrip() {
+    func testHiddenStateRetentionRoundTrip() throws {
         let settings = SettingsStore(defaults: defaults)
         let manager = WorkspaceManager(settings: settings)
         let monitors = testMonitors()
         manager.updateMonitors(monitors)
 
         let ws1 = unwrapWorkspaceId(manager.workspaceId(for: "1", createIfMissing: true))
-        let handle = manager.addWindow(
+        let handle = try XCTUnwrap(manager.addWindow(
             AXWindowRef(pid: 111, windowId: 222),
             pid: 111,
             windowId: 222,
             to: ws1
-        )
+        ))
 
         let expected = WindowModel.HiddenState(
             proportionalPosition: CGPoint(x: 0.8, y: 0.2),

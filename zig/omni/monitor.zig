@@ -58,7 +58,9 @@ pub fn fromSnapshot(snapshot: abi.OmniWorkspaceRuntimeMonitorSnapshot) Monitor {
 
 pub fn nameSlice(name: abi.OmniWorkspaceRuntimeName) []const u8 {
     const clamped = @min(@as(usize, name.length), abi.OMNI_WORKSPACE_RUNTIME_NAME_CAP);
-    return name.bytes[0..clamped];
+    const bytes = name.bytes[0..clamped];
+    const nul_index = std.mem.indexOfScalar(u8, bytes, 0) orelse bytes.len;
+    return bytes[0..nul_index];
 }
 
 pub fn encodeName(value: []const u8) abi.OmniWorkspaceRuntimeName {

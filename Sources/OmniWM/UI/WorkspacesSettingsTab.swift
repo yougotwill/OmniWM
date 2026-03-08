@@ -9,7 +9,7 @@ struct WorkspacesSettingsTab: View {
         Form {
             Section("Default Layout") {
                 Picker("Layout Algorithm", selection: $settings.defaultLayoutType) {
-                    ForEach(LayoutType.allCases.filter { $0 != .defaultLayout }) { layout in
+                    ForEach(LayoutType.productionCases.filter { $0 != .defaultLayout }) { layout in
                         Text(layout.displayName).tag(layout)
                     }
                 }
@@ -160,6 +160,8 @@ struct WorkspaceConfigurationRow: View {
                 return connectedMonitors[n - 1].name
             }
             return "Monitor \(n)"
+        case let .exact(key):
+            return key.resolveMonitor(in: connectedMonitors)?.name ?? "Saved: \(key.name)"
         case let .pattern(p):
             return "Pattern: \(p)"
         }
@@ -226,7 +228,14 @@ struct WorkspaceEditSheet: View {
                                 Text("(Main)").foregroundColor(.secondary)
                             }
                         }
-                        .tag(MonitorAssignment.numbered(index + 1))
+                        .tag(MonitorAssignment.exact(MonitorRestoreKey(monitor: monitor)))
+                    }
+                    if case let .exact(key) = configuration.monitorAssignment,
+                       key.resolveMonitor(in: connectedMonitors) == nil
+                    {
+                        Divider()
+                        Text("Saved: \(key.name)")
+                            .tag(MonitorAssignment.exact(key))
                     }
                     Divider()
                     Text("Custom Pattern...")
@@ -240,7 +249,7 @@ struct WorkspaceEditSheet: View {
                         }
                 }
                 Picker("Layout", selection: $configuration.layoutType) {
-                    ForEach(LayoutType.allCases) { layout in
+                    ForEach(LayoutType.productionCases) { layout in
                         Text(layout.displayName).tag(layout)
                     }
                 }

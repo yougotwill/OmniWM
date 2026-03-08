@@ -263,6 +263,18 @@ fn refreshSnapshotFromPlatform(impl: *RuntimeImpl) i32 {
     return abi.OMNI_OK;
 }
 
+fn refreshSnapshotFromProvided(
+    impl: *RuntimeImpl,
+    snapshot: *const abi.OmniControllerSnapshot,
+) i32 {
+    const seed_rc = seedSnapshotIntoState(impl, snapshot);
+    if (seed_rc != abi.OMNI_OK) {
+        reportError(impl, seed_rc, "controller snapshot import failed");
+        return seed_rc;
+    }
+    return abi.OMNI_OK;
+}
+
 fn runTick(impl: *RuntimeImpl, sample_time: f64) i32 {
     _ = sample_time;
     if (impl.state.lock_screen_active) {
@@ -309,6 +321,24 @@ pub fn omni_controller_start_impl(controller: [*c]OmniController) i32 {
     return flushEffectsToPlatform(impl);
 }
 
+pub fn omni_controller_start_with_snapshot_impl(
+    controller: [*c]OmniController,
+    snapshot: ?*const abi.OmniControllerSnapshot,
+) i32 {
+    const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_snapshot = snapshot orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (impl.started) {
+        return abi.OMNI_OK;
+    }
+    impl.started = true;
+    const snapshot_rc = refreshSnapshotFromProvided(impl, resolved_snapshot);
+    if (snapshot_rc != abi.OMNI_OK) {
+        impl.started = false;
+        return snapshot_rc;
+    }
+    return flushEffectsToPlatform(impl);
+}
+
 pub fn omni_controller_stop_impl(controller: [*c]OmniController) i32 {
     const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
     impl.started = false;
@@ -326,6 +356,30 @@ pub fn omni_controller_submit_hotkey_impl(
         return abi.OMNI_ERR_INVALID_ARGS;
     }
     const snapshot_rc = refreshSnapshotFromPlatform(impl);
+    if (snapshot_rc != abi.OMNI_OK) {
+        return snapshot_rc;
+    }
+    const handle_rc = actions.handleCommand(&impl.state, resolved_command.*) catch abi.OMNI_ERR_OUT_OF_RANGE;
+    if (handle_rc != abi.OMNI_OK) {
+        reportError(impl, handle_rc, "controller hotkey handling failed");
+        impl.state.clearEffects();
+        return handle_rc;
+    }
+    return flushEffectsToPlatform(impl);
+}
+
+pub fn omni_controller_submit_hotkey_with_snapshot_impl(
+    controller: [*c]OmniController,
+    command: ?*const abi.OmniControllerCommand,
+    snapshot: ?*const abi.OmniControllerSnapshot,
+) i32 {
+    const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_command = command orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_snapshot = snapshot orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (!impl.started) {
+        return abi.OMNI_ERR_INVALID_ARGS;
+    }
+    const snapshot_rc = refreshSnapshotFromProvided(impl, resolved_snapshot);
     if (snapshot_rc != abi.OMNI_OK) {
         return snapshot_rc;
     }
@@ -360,12 +414,39 @@ pub fn omni_controller_submit_os_event_impl(
     return flushEffectsToPlatform(impl);
 }
 
+pub fn omni_controller_submit_os_event_with_snapshot_impl(
+    controller: [*c]OmniController,
+    event: ?*const abi.OmniControllerEvent,
+    snapshot: ?*const abi.OmniControllerSnapshot,
+) i32 {
+    const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_event = event orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_snapshot = snapshot orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (!impl.started) {
+        return abi.OMNI_ERR_INVALID_ARGS;
+    }
+    const snapshot_rc = refreshSnapshotFromProvided(impl, resolved_snapshot);
+    if (snapshot_rc != abi.OMNI_OK) {
+        return snapshot_rc;
+    }
+    const handle_rc = event_reducer.handleEvent(&impl.state, resolved_event.*) catch abi.OMNI_ERR_OUT_OF_RANGE;
+    if (handle_rc != abi.OMNI_OK) {
+        reportError(impl, handle_rc, "controller event handling failed");
+        impl.state.clearEffects();
+        return handle_rc;
+    }
+    return flushEffectsToPlatform(impl);
+}
+
 pub fn omni_controller_apply_settings_impl(
     controller: [*c]OmniController,
     settings_delta: ?*const abi.OmniControllerSettingsDelta,
 ) i32 {
     const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
     const resolved_delta = settings_delta orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (resolved_delta.struct_size != @sizeOf(abi.OmniControllerSettingsDelta)) {
+        return abi.OMNI_ERR_INVALID_ARGS;
+    }
     if (resolved_delta.has_focus_follows_window_to_monitor != 0) {
         impl.state.focus_follows_window_to_monitor = resolved_delta.focus_follows_window_to_monitor != 0;
     }
@@ -384,6 +465,29 @@ pub fn omni_controller_tick_impl(
         return abi.OMNI_ERR_INVALID_ARGS;
     }
     const snapshot_rc = refreshSnapshotFromPlatform(impl);
+    if (snapshot_rc != abi.OMNI_OK) {
+        return snapshot_rc;
+    }
+    const tick_rc = runTick(impl, sample_time);
+    if (tick_rc != abi.OMNI_OK) {
+        reportError(impl, tick_rc, "controller tick failed");
+        impl.state.clearEffects();
+        return tick_rc;
+    }
+    return flushEffectsToPlatform(impl);
+}
+
+pub fn omni_controller_tick_with_snapshot_impl(
+    controller: [*c]OmniController,
+    sample_time: f64,
+    snapshot: ?*const abi.OmniControllerSnapshot,
+) i32 {
+    const impl = implFromController(controller) orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_snapshot = snapshot orelse return abi.OMNI_ERR_INVALID_ARGS;
+    if (!impl.started) {
+        return abi.OMNI_ERR_INVALID_ARGS;
+    }
+    const snapshot_rc = refreshSnapshotFromProvided(impl, resolved_snapshot);
     if (snapshot_rc != abi.OMNI_OK) {
         return snapshot_rc;
     }
@@ -495,6 +599,48 @@ test "adjacent monitor routing prefers directional candidate" {
     try std.testing.expectEqual(@as(u32, 2), target.display_id);
 }
 
+fn appendTestMonitor(
+    state: *types.RuntimeState,
+    display_id: u32,
+    is_main: bool,
+    origin_x: f64,
+    name: []const u8,
+) !void {
+    try state.monitors.append(std.testing.allocator, .{
+        .display_id = display_id,
+        .is_main = is_main,
+        .frame_x = origin_x,
+        .frame_y = 0,
+        .frame_width = 100,
+        .frame_height = 100,
+        .visible_x = origin_x,
+        .visible_y = 0,
+        .visible_width = 100,
+        .visible_height = 100,
+        .name = types.encodeName(name),
+    });
+}
+
+fn appendTestWorkspace(
+    state: *types.RuntimeState,
+    workspace_id: types.Uuid,
+    display_id: u32,
+    is_visible: bool,
+    is_previous_visible: bool,
+    name: []const u8,
+) !void {
+    try state.workspaces.append(std.testing.allocator, .{
+        .workspace_id = workspace_id,
+        .assigned_display_id = display_id,
+        .is_visible = is_visible,
+        .is_previous_visible = is_previous_visible,
+        .layout_kind = .niri,
+        .name = types.encodeName(name),
+        .selected_node_id = null,
+        .last_focused_window_id = null,
+    });
+}
+
 test "switch workspace command queues route and refresh plans" {
     var impl = RuntimeImpl.init(
         std.testing.allocator,
@@ -553,7 +699,7 @@ test "switch workspace command queues route and refresh plans" {
     });
     try std.testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
     try std.testing.expectEqual(@as(usize, 1), impl.state.effects.route_plans.items.len);
-    try std.testing.expectEqual(@as(usize, 1), impl.state.effects.refresh_plans.items.len);
+    try std.testing.expectEqual(@as(usize, 3), impl.state.effects.refresh_plans.items.len);
 }
 
 test "focus previous command exports prior focused window" {
@@ -661,40 +807,12 @@ test "workspace command can target explicit workspace id" {
     const workspace_1: types.Uuid = [_]u8{1} ++ [_]u8{0} ** 15;
     const workspace_2: types.Uuid = [_]u8{2} ++ [_]u8{0} ** 15;
 
-    try impl.state.monitors.append(std.testing.allocator, .{
-        .display_id = 1,
-        .is_main = true,
-        .frame_x = 0,
-        .frame_y = 0,
-        .frame_width = 100,
-        .frame_height = 100,
-        .visible_x = 0,
-        .visible_y = 0,
-        .visible_width = 100,
-        .visible_height = 100,
-        .name = types.encodeName("Main"),
-    });
-    try impl.state.workspaces.append(std.testing.allocator, .{
-        .workspace_id = workspace_1,
-        .assigned_display_id = 1,
-        .is_visible = true,
-        .is_previous_visible = false,
-        .layout_kind = .niri,
-        .name = types.encodeName("dev"),
-        .selected_node_id = null,
-        .last_focused_window_id = null,
-    });
-    try impl.state.workspaces.append(std.testing.allocator, .{
-        .workspace_id = workspace_2,
-        .assigned_display_id = 1,
-        .is_visible = false,
-        .is_previous_visible = true,
-        .layout_kind = .niri,
-        .name = types.encodeName("ops"),
-        .selected_node_id = null,
-        .last_focused_window_id = null,
-    });
-    impl.state.active_monitor = 1;
+    try appendTestMonitor(&impl.state, 1, true, 0, "Main");
+    try appendTestMonitor(&impl.state, 2, false, 120, "Side");
+    try appendTestWorkspace(&impl.state, workspace_1, 1, true, false, "dev");
+    try appendTestWorkspace(&impl.state, workspace_2, 1, false, true, "ops");
+    try appendTestWorkspace(&impl.state, [_]u8{3} ++ [_]u8{0} ** 15, 2, true, false, "www");
+    impl.state.active_monitor = 2;
 
     const rc = try actions.handleCommand(&impl.state, .{
         .kind = abi.OMNI_CONTROLLER_COMMAND_SWITCH_WORKSPACE_ANYWHERE,
@@ -712,4 +830,122 @@ test "workspace command can target explicit workspace id" {
     const route_plan = impl.state.effects.route_plans.items[0];
     try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_workspace_id);
     try std.testing.expectEqual(workspace_2, route_plan.target_workspace_id.bytes);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_display_id);
+    try std.testing.expectEqual(@as(u32, 1), route_plan.target_display_id);
+    try std.testing.expectEqual(abi.OMNI_CONTROLLER_ROUTE_FOCUS_WORKSPACE_ANYWHERE, route_plan.kind);
+    try std.testing.expectEqual(@as(u8, 0), route_plan.create_target_workspace_if_missing);
+}
+
+test "switch workspace index targets the workspace monitor when it exists elsewhere" {
+    var impl = RuntimeImpl.init(
+        std.testing.allocator,
+        defaultControllerConfig(),
+        defaultControllerPlatform(),
+    );
+    defer impl.deinit();
+
+    const workspace_1: types.Uuid = [_]u8{1} ++ [_]u8{0} ** 15;
+    const workspace_2: types.Uuid = [_]u8{2} ++ [_]u8{0} ** 15;
+
+    try appendTestMonitor(&impl.state, 1, true, 0, "Main");
+    try appendTestMonitor(&impl.state, 2, false, 120, "Side");
+    try appendTestWorkspace(&impl.state, workspace_1, 1, true, false, "1");
+    try appendTestWorkspace(&impl.state, workspace_2, 2, true, false, "2");
+    impl.state.active_monitor = 2;
+
+    const rc = try actions.handleCommand(&impl.state, .{
+        .kind = abi.OMNI_CONTROLLER_COMMAND_SWITCH_WORKSPACE_INDEX,
+        .direction = 0,
+        .workspace_index = 0,
+        .monitor_direction = 0,
+        .has_workspace_id = 0,
+        .workspace_id = .{ .bytes = [_]u8{0} ** 16 },
+        .has_window_handle_id = 0,
+        .window_handle_id = .{ .bytes = [_]u8{0} ** 16 },
+    });
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
+    try std.testing.expectEqual(@as(usize, 1), impl.state.effects.route_plans.items.len);
+    const route_plan = impl.state.effects.route_plans.items[0];
+    try std.testing.expectEqual(abi.OMNI_CONTROLLER_ROUTE_SWITCH_WORKSPACE, route_plan.kind);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_display_id);
+    try std.testing.expectEqual(@as(u32, 1), route_plan.target_display_id);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_workspace_id);
+    try std.testing.expectEqual(workspace_1, route_plan.target_workspace_id.bytes);
+    try std.testing.expectEqual(@as(u8, 0), route_plan.create_target_workspace_if_missing);
+}
+
+test "switch workspace index creates a missing workspace on the main monitor" {
+    var impl = RuntimeImpl.init(
+        std.testing.allocator,
+        defaultControllerConfig(),
+        defaultControllerPlatform(),
+    );
+    defer impl.deinit();
+
+    const workspace_2: types.Uuid = [_]u8{2} ++ [_]u8{0} ** 15;
+
+    try appendTestMonitor(&impl.state, 1, true, 0, "Main");
+    try appendTestMonitor(&impl.state, 2, false, 120, "Side");
+    try appendTestWorkspace(&impl.state, workspace_2, 2, true, false, "2");
+    impl.state.active_monitor = 2;
+
+    const rc = try actions.handleCommand(&impl.state, .{
+        .kind = abi.OMNI_CONTROLLER_COMMAND_SWITCH_WORKSPACE_INDEX,
+        .direction = 0,
+        .workspace_index = 0,
+        .monitor_direction = 0,
+        .has_workspace_id = 0,
+        .workspace_id = .{ .bytes = [_]u8{0} ** 16 },
+        .has_window_handle_id = 0,
+        .window_handle_id = .{ .bytes = [_]u8{0} ** 16 },
+    });
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
+    try std.testing.expectEqual(@as(usize, 1), impl.state.effects.route_plans.items.len);
+    const route_plan = impl.state.effects.route_plans.items[0];
+    try std.testing.expectEqual(abi.OMNI_CONTROLLER_ROUTE_SWITCH_WORKSPACE, route_plan.kind);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_display_id);
+    try std.testing.expectEqual(@as(u32, 1), route_plan.target_display_id);
+    try std.testing.expectEqual(@as(u8, 0), route_plan.has_target_workspace_id);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.create_target_workspace_if_missing);
+}
+
+test "summon workspace targets the current monitor without creating a missing workspace" {
+    var impl = RuntimeImpl.init(
+        std.testing.allocator,
+        defaultControllerConfig(),
+        defaultControllerPlatform(),
+    );
+    defer impl.deinit();
+
+    const workspace_1: types.Uuid = [_]u8{1} ++ [_]u8{0} ** 15;
+    const workspace_2: types.Uuid = [_]u8{2} ++ [_]u8{0} ** 15;
+
+    try appendTestMonitor(&impl.state, 1, true, 0, "Main");
+    try appendTestMonitor(&impl.state, 2, false, 120, "Side");
+    try appendTestWorkspace(&impl.state, workspace_1, 1, true, false, "1");
+    try appendTestWorkspace(&impl.state, workspace_2, 2, true, false, "2");
+    impl.state.active_monitor = 2;
+
+    const rc = try actions.handleCommand(&impl.state, .{
+        .kind = abi.OMNI_CONTROLLER_COMMAND_SUMMON_WORKSPACE,
+        .direction = 0,
+        .workspace_index = 0,
+        .monitor_direction = 0,
+        .has_workspace_id = 0,
+        .workspace_id = .{ .bytes = [_]u8{0} ** 16 },
+        .has_window_handle_id = 0,
+        .window_handle_id = .{ .bytes = [_]u8{0} ** 16 },
+    });
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), rc);
+    try std.testing.expectEqual(@as(usize, 1), impl.state.effects.route_plans.items.len);
+    const route_plan = impl.state.effects.route_plans.items[0];
+    try std.testing.expectEqual(abi.OMNI_CONTROLLER_ROUTE_SUMMON_WORKSPACE, route_plan.kind);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_display_id);
+    try std.testing.expectEqual(@as(u32, 2), route_plan.target_display_id);
+    try std.testing.expectEqual(@as(u8, 1), route_plan.has_target_workspace_id);
+    try std.testing.expectEqual(workspace_1, route_plan.target_workspace_id.bytes);
+    try std.testing.expectEqual(@as(u8, 0), route_plan.create_target_workspace_if_missing);
 }

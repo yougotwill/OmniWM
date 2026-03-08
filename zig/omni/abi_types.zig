@@ -402,6 +402,11 @@ pub const OmniWorkspaceRuntimeStateExport = extern struct {
     has_previous_monitor_display_id: u8,
     previous_monitor_display_id: u32,
 };
+pub const OmniWorkspaceRuntimeStateCounts = extern struct {
+    monitor_count: usize,
+    workspace_count: usize,
+    window_count: usize,
+};
 pub const OmniNiriColumnInput = extern struct {
     span: f64,
     render_offset_x: f64,
@@ -1064,6 +1069,13 @@ pub const OmniControllerWorkspaceSnapshot = extern struct {
     has_last_focused_window_id: u8,
     last_focused_window_id: OmniUuid128,
 };
+pub const OmniControllerWorkspaceProjectionRecord = extern struct {
+    workspace_id: OmniUuid128,
+    layout_generation: u64,
+};
+pub const OmniControllerWorkspaceProjectionCounts = extern struct {
+    workspace_count: usize,
+};
 pub const OmniControllerWindowSnapshot = extern struct {
     handle_id: OmniUuid128,
     pid: i32,
@@ -1116,6 +1128,8 @@ pub const OmniControllerCommand = extern struct {
     workspace_id: OmniUuid128,
     has_window_handle_id: u8,
     window_handle_id: OmniUuid128,
+    has_secondary_window_handle_id: u8 = 0,
+    secondary_window_handle_id: OmniUuid128 = .{ .bytes = [_]u8{0} ** 16 },
 };
 pub const OmniInputRuntime = extern struct {
     _opaque: u8 = 0,
@@ -1253,6 +1267,12 @@ pub const OmniControllerLayoutAction = extern struct {
     direction: u8,
     index: i64,
     flag: u8,
+    has_workspace_id: u8 = 0,
+    workspace_id: OmniUuid128 = .{ .bytes = [_]u8{0} ** 16 },
+    has_window_handle_id: u8 = 0,
+    window_handle_id: OmniUuid128 = .{ .bytes = [_]u8{0} ** 16 },
+    has_secondary_window_handle_id: u8 = 0,
+    secondary_window_handle_id: OmniUuid128 = .{ .bytes = [_]u8{0} ** 16 },
 };
 pub const OmniControllerEffectExport = extern struct {
     focus_exports: [*c]const OmniControllerFocusExport,
@@ -1272,11 +1292,74 @@ pub const OmniControllerConfig = extern struct {
     abi_version: u32,
     reserved: u32,
 };
+pub const OmniControllerMonitorNiriSettings = extern struct {
+    display_id: u32,
+    orientation: u8,
+    center_focused_column: u8,
+    always_center_single_column: u8,
+    single_window_aspect_width: f64,
+    single_window_aspect_height: f64,
+};
+pub const OmniControllerMonitorDwindleSettings = extern struct {
+    display_id: u32,
+    smart_split: u8,
+    default_split_ratio: f64,
+    split_width_multiplier: f64,
+    inner_gap: f64,
+    outer_gap_top: f64,
+    outer_gap_bottom: f64,
+    outer_gap_left: f64,
+    outer_gap_right: f64,
+    single_window_aspect_width: f64,
+    single_window_aspect_height: f64,
+};
+pub const OmniControllerWorkspaceLayoutSetting = extern struct {
+    name: OmniControllerName,
+    layout_kind: u8,
+};
 pub const OmniControllerSettingsDelta = extern struct {
+    struct_size: usize,
+    has_focus_follows_mouse: u8,
+    focus_follows_mouse: u8,
     has_focus_follows_window_to_monitor: u8,
     focus_follows_window_to_monitor: u8,
     has_move_mouse_to_focused_window: u8,
     move_mouse_to_focused_window: u8,
+    has_layout_gap: u8,
+    layout_gap: f64,
+    has_outer_gap_left: u8,
+    outer_gap_left: f64,
+    has_outer_gap_right: u8,
+    outer_gap_right: f64,
+    has_outer_gap_top: u8,
+    outer_gap_top: f64,
+    has_outer_gap_bottom: u8,
+    outer_gap_bottom: f64,
+    has_niri_max_visible_columns: u8,
+    niri_max_visible_columns: i64,
+    has_niri_max_windows_per_column: u8,
+    niri_max_windows_per_column: i64,
+    has_niri_infinite_loop: u8,
+    niri_infinite_loop: u8,
+    has_niri_width_presets: u8,
+    niri_width_preset_count: usize,
+    niri_width_presets: [OMNI_CONTROLLER_NIRI_WIDTH_PRESET_CAP]f64,
+    has_border_enabled: u8,
+    border_enabled: u8,
+    has_border_width: u8,
+    border_width: f64,
+    has_border_color: u8,
+    border_color: OmniBorderColor,
+    has_default_layout_kind: u8,
+    default_layout_kind: u8,
+    has_dwindle_move_to_root_stable: u8,
+    dwindle_move_to_root_stable: u8,
+    monitor_niri_settings: [*c]const OmniControllerMonitorNiriSettings,
+    monitor_niri_settings_count: usize,
+    monitor_dwindle_settings: [*c]const OmniControllerMonitorDwindleSettings,
+    monitor_dwindle_settings_count: usize,
+    workspace_layout_settings: [*c]const OmniControllerWorkspaceLayoutSetting,
+    workspace_layout_settings_count: usize,
 };
 pub const OmniControllerUiState = extern struct {
     has_focused_window_id: u8,
@@ -1299,9 +1382,19 @@ pub const OmniControllerPlatformVTable = extern struct {
 pub const OmniWMController = extern struct {
     _opaque: u8 = 0,
 };
+pub const OmniWMControllerSnapshot = extern struct {
+    _opaque: u8 = 0,
+};
 pub const OmniWMControllerConfig = extern struct {
     abi_version: u32,
     reserved: u32,
+};
+pub const OmniWMControllerSnapshotCounts = extern struct {
+    monitor_count: usize,
+    workspace_count: usize,
+    window_count: usize,
+    changed_workspace_count: usize,
+    invalidate_all_workspace_projections: u8,
 };
 pub const OmniWMControllerHostVTable = extern struct {
     userdata: ?*anyopaque,
@@ -1332,12 +1425,15 @@ pub const OmniServiceLifecycleHostVTable = extern struct {
     userdata: ?*anyopaque,
     on_state_changed: ?*const fn (?*anyopaque, u8) callconv(.c) i32,
     on_error: ?*const fn (?*anyopaque, i32, OmniControllerName) callconv(.c) i32,
+    on_secure_input_state_changed: ?*const fn (?*anyopaque, u8) callconv(.c) i32,
+    on_tap_health_notification: ?*const fn (?*anyopaque, u8, u8) callconv(.c) i32,
 };
 pub const MAX_WINDOWS: usize = 512;
 pub const OMNI_OK: i32 = 0;
 pub const OMNI_ERR_INVALID_ARGS: i32 = -1;
 pub const OMNI_ERR_OUT_OF_RANGE: i32 = -2;
 pub const OMNI_ERR_PLATFORM: i32 = -3;
+pub const OMNI_ERR_UNSUPPORTED: i32 = -4;
 pub const OMNI_BORDER_UPDATE_MODE_COALESCED: u8 = 0;
 pub const OMNI_BORDER_UPDATE_MODE_REALTIME: u8 = 1;
 pub const OMNI_CENTER_NEVER: u8 = 0;
@@ -1469,10 +1565,11 @@ pub const OMNI_DWINDLE_OP_SWAP_SPLIT: u8 = 11;
 pub const OMNI_DWINDLE_OP_SET_PRESELECTION: u8 = 12;
 pub const OMNI_DWINDLE_OP_CLEAR_PRESELECTION: u8 = 13;
 pub const OMNI_DWINDLE_OP_VALIDATE_SELECTION: u8 = 14;
-pub const OMNI_CONTROLLER_ABI_VERSION: u32 = 1;
+pub const OMNI_CONTROLLER_ABI_VERSION: u32 = 2;
 pub const OMNI_CONTROLLER_NAME_CAP: usize = 64;
 pub const OMNI_CONTROLLER_MAX_TRANSFER_WINDOWS: usize = 128;
 pub const OMNI_CONTROLLER_UI_WORKSPACE_CAP: usize = 32;
+pub const OMNI_CONTROLLER_NIRI_WIDTH_PRESET_CAP: usize = 8;
 pub const OMNI_CONTROLLER_LAYOUT_DEFAULT: u8 = 0;
 pub const OMNI_CONTROLLER_LAYOUT_NIRI: u8 = 1;
 pub const OMNI_CONTROLLER_LAYOUT_DWINDLE: u8 = 2;
@@ -1534,6 +1631,10 @@ pub const OMNI_CONTROLLER_COMMAND_DWINDLE_RESIZE_DIRECTION: u8 = 54;
 pub const OMNI_CONTROLLER_COMMAND_DWINDLE_PRESELECT_DIRECTION: u8 = 55;
 pub const OMNI_CONTROLLER_COMMAND_DWINDLE_PRESELECT_CLEAR: u8 = 56;
 pub const OMNI_CONTROLLER_COMMAND_TOGGLE_WORKSPACE_LAYOUT: u8 = 57;
+pub const OMNI_CONTROLLER_COMMAND_FOCUS_WINDOW_HANDLE: u8 = 58;
+pub const OMNI_CONTROLLER_COMMAND_OVERVIEW_INSERT_WINDOW: u8 = 59;
+pub const OMNI_CONTROLLER_COMMAND_OVERVIEW_INSERT_WINDOW_IN_NEW_COLUMN: u8 = 60;
+pub const OMNI_CONTROLLER_COMMAND_SET_ACTIVE_WORKSPACE_ON_MONITOR: u8 = 61;
 pub const OMNI_CONTROLLER_EVENT_REFRESH_SESSION: u8 = 0;
 pub const OMNI_CONTROLLER_EVENT_SECURE_INPUT_CHANGED: u8 = 1;
 pub const OMNI_CONTROLLER_EVENT_LOCK_SCREEN_CHANGED: u8 = 2;
@@ -1566,7 +1667,7 @@ pub const OMNI_CONTROLLER_TRANSFER_MODE_NIRI_TO_NIRI_COLUMN: u8 = 4;
 pub const OMNI_CONTROLLER_TRANSFER_MODE_NIRI_TO_DWINDLE_BATCH: u8 = 5;
 pub const OMNI_CONTROLLER_TRANSFER_MODE_DWINDLE_TO_NIRI_COLUMN: u8 = 6;
 pub const OMNI_CONTROLLER_TRANSFER_MODE_DWINDLE_TO_DWINDLE_BATCH: u8 = 7;
-pub const OMNI_WM_CONTROLLER_ABI_VERSION: u32 = 1;
+pub const OMNI_WM_CONTROLLER_ABI_VERSION: u32 = 2;
 pub const OMNI_SERVICE_LIFECYCLE_ABI_VERSION: u32 = 1;
 pub const OMNI_MONITOR_RUNTIME_ABI_VERSION: u32 = 1;
 pub const OMNI_PLATFORM_RUNTIME_ABI_VERSION: u32 = 1;
@@ -1644,6 +1745,8 @@ pub const OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_RESIZE_DIRECTION: u8 = 23;
 pub const OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_PRESELECT_DIRECTION: u8 = 24;
 pub const OMNI_CONTROLLER_LAYOUT_ACTION_DWINDLE_PRESELECT_CLEAR: u8 = 25;
 pub const OMNI_CONTROLLER_LAYOUT_ACTION_TOGGLE_WORKSPACE_LAYOUT: u8 = 26;
+pub const OMNI_CONTROLLER_LAYOUT_ACTION_OVERVIEW_INSERT_WINDOW: u8 = 27;
+pub const OMNI_CONTROLLER_LAYOUT_ACTION_OVERVIEW_INSERT_WINDOW_IN_NEW_COLUMN: u8 = 28;
 pub const OMNI_SERVICE_LIFECYCLE_STATE_STOPPED: u8 = 0;
 pub const OMNI_SERVICE_LIFECYCLE_STATE_STARTING: u8 = 1;
 pub const OMNI_SERVICE_LIFECYCLE_STATE_RUNNING: u8 = 2;

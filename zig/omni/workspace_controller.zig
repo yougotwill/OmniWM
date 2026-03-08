@@ -66,6 +66,24 @@ pub const WorkspaceController = struct {
         return true;
     }
 
+    pub fn switchWorkspaceByName(
+        self: *WorkspaceController,
+        name: abi.OmniWorkspaceRuntimeName,
+    ) !?abi.OmniUuid128 {
+        const result = try self.manager.switchWorkspaceByName(monitor_model.nameSlice(name));
+        try self.refreshExportState();
+        return result;
+    }
+
+    pub fn focusWorkspaceAnywhere(
+        self: *WorkspaceController,
+        workspace_id: abi.OmniUuid128,
+    ) ?abi.OmniUuid128 {
+        const result = self.manager.focusWorkspaceAnywhere(workspace_id) orelse return null;
+        self.refreshExportState() catch return null;
+        return result;
+    }
+
     pub fn summonWorkspaceByName(
         self: *WorkspaceController,
         name: abi.OmniWorkspaceRuntimeName,
@@ -247,7 +265,7 @@ pub const WorkspaceController = struct {
         try self.export_windows.ensureTotalCapacity(self.allocator, self.windows.entries.items.len);
 
         for (self.manager.monitors.items) |value| {
-            self.export_monitors.appendAssumeCapacity(self.monitorRecord(value));
+            try self.export_monitors.append(self.allocator, self.monitorRecord(value));
         }
 
         for (self.manager.workspaces.items) |workspace| {
@@ -255,7 +273,7 @@ pub const WorkspaceController = struct {
             const visible_monitor = self.manager.visibleMonitorForWorkspace(workspace.id);
             const assigned_anchor = workspace.assigned_anchor orelse monitor_model.Point{ .x = 0, .y = 0 };
 
-            self.export_workspaces.appendAssumeCapacity(.{
+            try self.export_workspaces.append(self.allocator, .{
                 .workspace_id = workspace.id,
                 .name = workspace.name,
                 .has_assigned_monitor_anchor = if (workspace.assigned_anchor == null) 0 else 1,
@@ -270,7 +288,7 @@ pub const WorkspaceController = struct {
         }
 
         for (self.windows.entries.items) |entry| {
-            self.export_windows.appendAssumeCapacity(.{
+            try self.export_windows.append(self.allocator, .{
                 .handle_id = entry.handle_id,
                 .pid = entry.key.pid,
                 .window_id = entry.key.window_id,
@@ -333,4 +351,109 @@ test "workspace controller tracks window lifecycle" {
     var state_export: abi.OmniWorkspaceRuntimeStateExport = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
     try controller.exportState(&state_export);
     try std.testing.expectEqual(@as(usize, 0), state_export.window_count);
+}
+
+fn testMonitorSnapshot(
+    id: u32,
+    is_main: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    name: []const u8,
+) abi.OmniWorkspaceRuntimeMonitorSnapshot {
+    return .{
+        .display_id = id,
+        .is_main = if (is_main) 1 else 0,
+        .frame_x = x,
+        .frame_y = y,
+        .frame_width = width,
+        .frame_height = height,
+        .visible_x = x,
+        .visible_y = y,
+        .visible_width = width,
+        .visible_height = height,
+        .name = monitor_model.encodeName(name),
+    };
+}
+
+test "workspace controller switchWorkspaceByName follows the existing workspace monitor" {
+    var controller = try WorkspaceController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try controller.importMonitors(snapshots[0..]);
+
+    const one = (try controller.workspaceIdByName(monitor_model.encodeName("1"), true)).?;
+    const two = (try controller.workspaceIdByName(monitor_model.encodeName("2"), true)).?;
+
+    try std.testing.expect(controller.setActiveWorkspace(one, 11));
+    try std.testing.expect(controller.setActiveWorkspace(two, 22));
+    try std.testing.expect(controller.setActiveWorkspace(one, 11));
+
+    const resolved = (try controller.switchWorkspaceByName(monitor_model.encodeName("2"))).?;
+    try std.testing.expectEqual(two, resolved);
+    try std.testing.expectEqual(two, controller.manager.visibleWorkspaceOnMonitor(22).?);
+    try std.testing.expectEqual(one, controller.manager.visibleWorkspaceOnMonitor(11).?);
+
+    var state_export: abi.OmniWorkspaceRuntimeStateExport = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
+    try controller.exportState(&state_export);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_active_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 22), state_export.active_monitor_display_id);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_previous_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 11), state_export.previous_monitor_display_id);
+}
+
+test "workspace controller switchWorkspaceByName creates a missing workspace on the main monitor" {
+    var controller = try WorkspaceController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try controller.importMonitors(snapshots[0..]);
+
+    const two = (try controller.workspaceIdByName(monitor_model.encodeName("2"), true)).?;
+    try std.testing.expect(controller.setActiveWorkspace(two, 22));
+
+    const created = (try controller.switchWorkspaceByName(monitor_model.encodeName("3"))).?;
+    try std.testing.expectEqual(created, controller.manager.visibleWorkspaceOnMonitor(11).?);
+
+    var state_export: abi.OmniWorkspaceRuntimeStateExport = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
+    try controller.exportState(&state_export);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_active_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 11), state_export.active_monitor_display_id);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_previous_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 22), state_export.previous_monitor_display_id);
+}
+
+test "workspace controller focusWorkspaceAnywhere updates export state to the workspace monitor" {
+    var controller = try WorkspaceController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const snapshots = [_]abi.OmniWorkspaceRuntimeMonitorSnapshot{
+        testMonitorSnapshot(11, true, 0.0, 0.0, 100.0, 100.0, "Main"),
+        testMonitorSnapshot(22, false, 120.0, 0.0, 100.0, 100.0, "Side"),
+    };
+    try controller.importMonitors(snapshots[0..]);
+
+    const one = (try controller.workspaceIdByName(monitor_model.encodeName("1"), true)).?;
+    const two = (try controller.workspaceIdByName(monitor_model.encodeName("2"), true)).?;
+
+    try std.testing.expect(controller.setActiveWorkspace(one, 11));
+    try std.testing.expect(controller.setActiveWorkspace(two, 22));
+
+    const resolved = controller.focusWorkspaceAnywhere(one).?;
+    try std.testing.expectEqual(one, resolved);
+
+    var state_export: abi.OmniWorkspaceRuntimeStateExport = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
+    try controller.exportState(&state_export);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_active_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 11), state_export.active_monitor_display_id);
+    try std.testing.expectEqual(@as(u8, 1), state_export.has_previous_monitor_display_id);
+    try std.testing.expectEqual(@as(u32, 22), state_export.previous_monitor_display_id);
 }

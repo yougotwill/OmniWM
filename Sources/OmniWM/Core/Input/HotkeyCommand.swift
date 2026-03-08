@@ -153,4 +153,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
             .shared
         }
     }
+
+    var isProductionAvailable: Bool {
+        true
+    }
 }

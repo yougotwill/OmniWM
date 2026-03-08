@@ -19,8 +19,6 @@ struct SettingsDetailView: View {
             GeneralSettingsTab(settings: settings, controller: controller)
         case .niri:
             NiriSettingsTab(settings: settings, controller: controller)
-        case .dwindle:
-            DwindleSettingsTab(settings: settings, controller: controller)
         case .monitors:
             MonitorSettingsTab(settings: settings, controller: controller)
         case .workspaces:

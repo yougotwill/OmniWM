@@ -333,3 +333,14 @@ pub fn omni_lock_observer_runtime_stop_impl(runtime: [*c]OmniLockObserverRuntime
     const impl = asImpl(runtime) orelse return abi.OMNI_ERR_INVALID_ARGS;
     return impl.stop();
 }
+
+pub fn omni_lock_observer_runtime_query_locked_impl(
+    runtime: [*c]const OmniLockObserverRuntime,
+    out_locked: ?*u8,
+) i32 {
+    if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
+    const resolved_out = out_locked orelse return abi.OMNI_ERR_INVALID_ARGS;
+    const impl: *const RuntimeImpl = @ptrCast(@alignCast(runtime));
+    resolved_out.* = if (impl.lock_active) 1 else 0;
+    return abi.OMNI_OK;
+}
