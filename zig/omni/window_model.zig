@@ -225,4 +225,105 @@ pub const WindowModel = struct {
         const index = self.findIndexByHandle(handle_id) orelse return null;
         return self.entries.items[index].workspace_id;
     }
+
+    pub fn validateInvariants(self: *const WindowModel) !void {
+        if (self.index_by_key.count() != self.entries.items.len) {
+            std.log.warn(
+                "window model validation failed reason=index_by_key_count_mismatch expected={d} actual={d}",
+                .{ self.entries.items.len, self.index_by_key.count() },
+            );
+            return error.InvariantViolation;
+        }
+        if (self.index_by_handle.count() != self.entries.items.len) {
+            std.log.warn(
+                "window model validation failed reason=index_by_handle_count_mismatch expected={d} actual={d}",
+                .{ self.entries.items.len, self.index_by_handle.count() },
+            );
+            return error.InvariantViolation;
+        }
+
+        var expected_workspace_counts = std.AutoHashMapUnmanaged(abi.OmniUuid128, usize){};
+        defer expected_workspace_counts.deinit(self.allocator);
+
+        for (self.entries.items, 0..) |entry, index| {
+            const key_index = self.index_by_key.get(entry.key) orelse {
+                std.log.warn(
+                    "window model validation failed reason=missing_key_index pid={d} window_id={d}",
+                    .{ entry.key.pid, entry.key.window_id },
+                );
+                return error.InvariantViolation;
+            };
+            if (key_index != index) {
+                std.log.warn(
+                    "window model validation failed reason=key_index_mismatch pid={d} window_id={d} expected={d} actual={d}",
+                    .{ entry.key.pid, entry.key.window_id, index, key_index },
+                );
+                return error.InvariantViolation;
+            }
+
+            const handle_index = self.index_by_handle.get(entry.handle_id) orelse {
+                std.log.warn("window model validation failed reason=missing_handle_index index={d}", .{index});
+                return error.InvariantViolation;
+            };
+            if (handle_index != index) {
+                std.log.warn(
+                    "window model validation failed reason=handle_index_mismatch expected={d} actual={d}",
+                    .{ index, handle_index },
+                );
+                return error.InvariantViolation;
+            }
+
+            const current = expected_workspace_counts.get(entry.workspace_id) orelse 0;
+            try expected_workspace_counts.put(self.allocator, entry.workspace_id, current + 1);
+        }
+
+        if (expected_workspace_counts.count() != self.workspace_counts.count()) {
+            std.log.warn(
+                "window model validation failed reason=workspace_count_size_mismatch expected={d} actual={d}",
+                .{ expected_workspace_counts.count(), self.workspace_counts.count() },
+            );
+            return error.InvariantViolation;
+        }
+
+        var expected_it = expected_workspace_counts.iterator();
+        while (expected_it.next()) |entry| {
+            const actual = self.workspace_counts.get(entry.key_ptr.*) orelse {
+                std.log.warn("window model validation failed reason=missing_workspace_count", .{});
+                return error.InvariantViolation;
+            };
+            if (actual != entry.value_ptr.*) {
+                std.log.warn(
+                    "window model validation failed reason=workspace_count_mismatch expected={d} actual={d}",
+                    .{ entry.value_ptr.*, actual },
+                );
+                return error.InvariantViolation;
+            }
+        }
+
+        var actual_it = self.workspace_counts.iterator();
+        while (actual_it.next()) |entry| {
+            const expected = expected_workspace_counts.get(entry.key_ptr.*) orelse {
+                std.log.warn("window model validation failed reason=unexpected_workspace_count", .{});
+                return error.InvariantViolation;
+            };
+            if (expected != entry.value_ptr.*) {
+                std.log.warn(
+                    "window model validation failed reason=workspace_count_reverse_mismatch expected={d} actual={d}",
+                    .{ expected, entry.value_ptr.* },
+                );
+                return error.InvariantViolation;
+            }
+        }
+
+        var missing_it = self.missing_counts.iterator();
+        while (missing_it.next()) |entry| {
+            if (!self.index_by_key.contains(entry.key_ptr.*)) {
+                std.log.warn(
+                    "window model validation failed reason=stale_missing_count pid={d} window_id={d}",
+                    .{ entry.key_ptr.*.pid, entry.key_ptr.*.window_id },
+                );
+                return error.InvariantViolation;
+            }
+        }
+    }
 };

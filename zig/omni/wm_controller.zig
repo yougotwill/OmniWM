@@ -135,6 +135,11 @@ const WorkspaceRuntimeContextResolution = struct {
     context: ?WorkspaceRuntimeContext = null,
 };
 
+const NavigationSelectionNormalization = enum {
+    ok,
+    retry,
+};
+
 const SnapshotImpl = struct {
     allocator: std.mem.Allocator,
     controller_snapshot: abi.OmniControllerSnapshot = std.mem.zeroes(abi.OmniControllerSnapshot),
@@ -191,6 +196,11 @@ const OwnedWorkspaceState = struct {
 const WindowInventoryOperation = struct {
     request: abi.OmniWorkspaceRuntimeWindowUpsert,
     layout_reason: u8,
+};
+
+const LayoutReasonResolution = struct {
+    reason: ?u8 = null,
+    classified: bool = false,
 };
 
 const RuntimeImpl = struct {
@@ -1911,20 +1921,24 @@ const RuntimeImpl = struct {
         const effects = effect_export.*;
 
         const route_rc = self.applyRoutePlans(effects);
-        if (route_rc != abi.OMNI_OK) return route_rc;
+        if (route_rc != abi.OMNI_OK) return self.reportPhaseError(route_rc, "route plan application failed");
 
         const transfer_rc = self.applyTransferPlans(effects);
-        if (transfer_rc != abi.OMNI_OK) return transfer_rc;
+        if (transfer_rc != abi.OMNI_OK) return self.reportPhaseError(transfer_rc, "transfer plan application failed");
 
         const layout_rc = self.applyLayoutActions(effects);
-        if (layout_rc != abi.OMNI_OK and layout_rc != abi.OMNI_ERR_PLATFORM) return layout_rc;
+        if (layout_rc != abi.OMNI_OK and layout_rc != abi.OMNI_ERR_PLATFORM) {
+            return self.reportPhaseError(layout_rc, "layout action application failed");
+        }
 
         self.absorbFocusEffects(effects);
         const focus_rc = self.applyFocusEffects(effects);
-        if (focus_rc != abi.OMNI_OK and focus_rc != abi.OMNI_ERR_PLATFORM) return focus_rc;
+        if (focus_rc != abi.OMNI_OK and focus_rc != abi.OMNI_ERR_PLATFORM) {
+            return self.reportPhaseError(focus_rc, "focus effect application failed");
+        }
 
         const refresh_rc = self.applyRefreshPlans(effects);
-        if (refresh_rc != abi.OMNI_OK) return refresh_rc;
+        if (refresh_rc != abi.OMNI_OK) return self.reportPhaseError(refresh_rc, "refresh plan application failed");
 
         if (self.host.apply_effects) |callback| {
             var ui_only = abi.OmniControllerEffectExport{
@@ -1942,7 +1956,9 @@ const RuntimeImpl = struct {
                 .layout_action_count = 0,
             };
             const callback_rc = callback(self.host.userdata, &ui_only);
-            if (callback_rc != abi.OMNI_OK) return callback_rc;
+            if (callback_rc != abi.OMNI_OK) {
+                return self.reportPhaseError(callback_rc, "host ui effect application failed");
+            }
         }
         return abi.OMNI_OK;
     }
@@ -2475,7 +2491,10 @@ const RuntimeImpl = struct {
     fn syncWindowInventoryFromSystem(self: *RuntimeImpl, state_export: abi.OmniWorkspaceRuntimeStateExport) i32 {
         const query_rc = self.queryVisibleWindows();
         if (query_rc != abi.OMNI_OK) return query_rc;
+        return self.syncWindowInventoryFromVisibleWindows(state_export);
+    }
 
+    fn syncWindowInventoryFromVisibleWindows(self: *RuntimeImpl, state_export: abi.OmniWorkspaceRuntimeStateExport) i32 {
         self.active_window_keys.clearRetainingCapacity();
         var current_ax_pids = std.AutoHashMap(i32, void).init(self.allocator);
         defer current_ax_pids.deinit();
@@ -2515,10 +2534,25 @@ const RuntimeImpl = struct {
             if (window.id == 0 or window.pid <= 0) continue;
             if (window.pid == own_pid) continue;
             if (!isRectFinite(window.frame) or window.frame.width <= 1 or window.frame.height <= 1) continue;
-            current_ax_pids.put(window.pid, {}) catch return abi.OMNI_ERR_OUT_OF_RANGE;
+            if (window.parent_id != 0) {
+                logWindowInventorySkip("parented_window", window, null);
+                continue;
+            }
 
             const workspace_id = self.resolveWorkspaceForWindow(state_export, window.frame) orelse continue;
-            const existing_handle = self.findExistingHandle(state_export, window.pid, window.id);
+            const existing_record = self.findExistingWindowRecord(state_export, window.pid, window.id);
+            const existing_handle = if (existing_record) |record| record.handle_id else null;
+            const existing_reason = if (existing_record) |record| record.layout_reason else null;
+            const layout_reason_resolution = self.resolveLayoutReason(window.pid, window.id, existing_reason);
+            const layout_reason = layout_reason_resolution.reason orelse {
+                logWindowInventorySkip("classification_unresolved", window, existing_reason);
+                continue;
+            };
+            if (!layout_reason_resolution.classified) {
+                logWindowInventorySkip("classification_preserved_existing_reason", window, existing_reason);
+            }
+
+            current_ax_pids.put(window.pid, {}) catch return abi.OMNI_ERR_OUT_OF_RANGE;
 
             const request = abi.OmniWorkspaceRuntimeWindowUpsert{
                 .pid = window.pid,
@@ -2527,7 +2561,6 @@ const RuntimeImpl = struct {
                 .has_handle_id = if (existing_handle == null) 0 else 1,
                 .handle_id = existing_handle orelse .{ .bytes = [_]u8{0} ** 16 },
             };
-            const layout_reason = self.resolveLayoutReason(window.pid, window.id);
             operations.append(self.allocator, .{
                 .request = request,
                 .layout_reason = layout_reason,
@@ -2554,13 +2587,20 @@ const RuntimeImpl = struct {
                 &request,
                 &handle_id,
             );
-            if (upsert_rc != abi.OMNI_OK) continue;
+            if (upsert_rc != abi.OMNI_OK) {
+                logWindowInventoryOperationFailure(operation, null, upsert_rc, "window_upsert");
+                return upsert_rc;
+            }
 
-            _ = workspace_runtime.omni_workspace_runtime_window_set_layout_reason_impl(
+            const layout_reason_rc = workspace_runtime.omni_workspace_runtime_window_set_layout_reason_impl(
                 self.workspace_runtime_owner,
                 handle_id,
                 operation.layout_reason,
             );
+            if (layout_reason_rc != abi.OMNI_OK) {
+                logWindowInventoryOperationFailure(operation, handle_id, layout_reason_rc, "window_set_layout_reason");
+                return layout_reason_rc;
+            }
         }
         return abi.OMNI_OK;
     }
@@ -2683,22 +2723,33 @@ const RuntimeImpl = struct {
         return null;
     }
 
+    fn findExistingWindowRecord(
+        self: *RuntimeImpl,
+        state_export: abi.OmniWorkspaceRuntimeStateExport,
+        pid: i32,
+        window_id: u32,
+    ) ?abi.OmniWorkspaceRuntimeWindowRecord {
+        _ = self;
+        if (state_export.window_count == 0 or state_export.windows == null) return null;
+        for (state_export.windows[0..state_export.window_count]) |window| {
+            if (window.pid != pid) continue;
+            if (window.window_id <= 0 or window.window_id > std.math.maxInt(u32)) continue;
+            const raw_window_id = std.math.cast(u32, window.window_id) orelse continue;
+            if (raw_window_id == window_id) {
+                return window;
+            }
+        }
+        return null;
+    }
+
     fn findExistingHandle(
         self: *RuntimeImpl,
         state_export: abi.OmniWorkspaceRuntimeStateExport,
         pid: i32,
         window_id: u32,
     ) ?abi.OmniUuid128 {
-        _ = self;
-        if (state_export.window_count == 0 or state_export.windows == null) return null;
-        for (state_export.windows[0..state_export.window_count]) |window| {
-            if (window.pid != pid) continue;
-            const raw_window_id = std.math.cast(u32, window.window_id) orelse continue;
-            if (raw_window_id == window_id) {
-                return window.handle_id;
-            }
-        }
-        return null;
+        const record = self.findExistingWindowRecord(state_export, pid, window_id) orelse return null;
+        return record.handle_id;
     }
 
     fn resolveManagedHandleForWindowId(
@@ -2707,23 +2758,18 @@ const RuntimeImpl = struct {
         pid: i32,
         window_id: u32,
     ) ?Uuid {
-        _ = self;
-        if (state_export.window_count == 0 or state_export.windows == null) return null;
-
-        for (state_export.windows[0..state_export.window_count]) |window| {
-            if (window.pid != pid) continue;
-            if (window.window_id <= 0 or window.window_id > std.math.maxInt(u32)) continue;
-            const raw_window_id = std.math.cast(u32, window.window_id) orelse continue;
-            if (raw_window_id != window_id) continue;
-            if (window.layout_reason != abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD) return null;
-            return window.handle_id.bytes;
-        }
-
-        return null;
+        const record = self.findExistingWindowRecord(state_export, pid, window_id) orelse return null;
+        if (record.layout_reason != abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD) return null;
+        return record.handle_id.bytes;
     }
 
-    fn resolveLayoutReason(self: *RuntimeImpl, pid: i32, window_id: u32) u8 {
-        const runtime = self.ax_runtime orelse return abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD;
+    fn resolveLayoutReason(
+        self: *RuntimeImpl,
+        pid: i32,
+        window_id: u32,
+        existing_reason: ?u8,
+    ) LayoutReasonResolution {
+        const runtime = self.ax_runtime orelse return .{ .reason = existing_reason, .classified = false };
         var request = abi.OmniAXWindowTypeRequest{
             .pid = pid,
             .window_id = window_id,
@@ -2732,11 +2778,16 @@ const RuntimeImpl = struct {
         };
         var window_type: u8 = abi.OMNI_AX_WINDOW_TYPE_TILING;
         const rc = ax_manager.omni_ax_runtime_get_window_type_impl(runtime, &request, &window_type);
-        if (rc != abi.OMNI_OK) return abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD;
-        return if (window_type == abi.OMNI_AX_WINDOW_TYPE_TILING)
-            abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD
-        else
-            abi.OMNI_WORKSPACE_LAYOUT_REASON_MACOS_HIDDEN_APP;
+        if (rc != abi.OMNI_OK) {
+            return .{ .reason = existing_reason, .classified = false };
+        }
+        return .{
+            .reason = if (window_type == abi.OMNI_AX_WINDOW_TYPE_TILING)
+                abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD
+            else
+                abi.OMNI_WORKSPACE_LAYOUT_REASON_MACOS_HIDDEN_APP,
+            .classified = true,
+        };
     }
 
     fn applyGridFallbackLayoutForWorkspace(
@@ -3560,9 +3611,28 @@ const RuntimeImpl = struct {
 
         var resolved = self.resolveActiveWorkspaceRuntimeContextRecovering(state_export, true);
         if (resolved.rc != abi.OMNI_OK) {
+            logNiriNavigationFailure(action, null, null, resolved.rc, "niri navigation context resolution failed");
             return self.reportPhaseError(resolved.rc, "navigation runtime snapshot failed");
         }
         var ctx = resolved.context orelse return abi.OMNI_OK;
+        var retried_context_resolution = false;
+        while (true) {
+            switch (normalizeNavigationSelection(ctx.runtime_export, &ctx.selection)) {
+                .ok => break,
+                .retry => {
+                    if (retried_context_resolution) return abi.OMNI_OK;
+                    retried_context_resolution = true;
+                    self.clearWorkspaceSelectionCache(ctx.workspace_id.bytes);
+                    resolved = self.resolveWorkspaceRuntimeContextRecovering(state_export, ctx.workspace_id.bytes, true);
+                    if (resolved.rc != abi.OMNI_OK) {
+                        logNiriNavigationFailure(action, ctx.workspace_id.bytes, ctx.selection, resolved.rc, "niri navigation context retry failed");
+                        return self.reportPhaseError(resolved.rc, "navigation runtime snapshot retry failed");
+                    }
+                    ctx = resolved.context orelse return abi.OMNI_OK;
+                    continue;
+                },
+            }
+        }
         if (ctx.selection.actionable_window_id == null) return abi.OMNI_OK;
 
         var txn = std.mem.zeroes(abi.OmniNiriTxnRequest);
@@ -3575,14 +3645,20 @@ const RuntimeImpl = struct {
 
             const reseed_rc = self.syncWorkspaceLayoutRuntimeForWorkspace(state_export, ctx.workspace_id.bytes);
             if (reseed_rc != abi.OMNI_OK) {
+                logNiriNavigationFailure(action, ctx.workspace_id.bytes, ctx.selection, reseed_rc, "niri navigation runtime reseed failed");
                 return self.reportPhaseError(reseed_rc, "navigation runtime reseed failed");
             }
 
             resolved = self.resolveWorkspaceRuntimeContextRecovering(state_export, ctx.workspace_id.bytes, true);
             if (resolved.rc != abi.OMNI_OK) {
+                logNiriNavigationFailure(action, ctx.workspace_id.bytes, ctx.selection, resolved.rc, "niri navigation snapshot retry failed");
                 return self.reportPhaseError(resolved.rc, "navigation runtime snapshot retry failed");
             }
             ctx = resolved.context orelse return abi.OMNI_OK;
+            switch (normalizeNavigationSelection(ctx.runtime_export, &ctx.selection)) {
+                .ok => {},
+                .retry => return abi.OMNI_OK,
+            }
             if (ctx.selection.actionable_window_id == null) return abi.OMNI_OK;
 
             const retry_build_rc = self.buildNavigationTxn(ctx, action, &txn);
@@ -3591,6 +3667,7 @@ const RuntimeImpl = struct {
         }
 
         if (rc != abi.OMNI_OK and rc != abi.OMNI_ERR_PLATFORM) {
+            logNiriNavigationFailure(action, ctx.workspace_id.bytes, ctx.selection, rc, "niri navigation runtime transaction failed");
             return self.reportPhaseError(rc, "navigation runtime transaction failed");
         }
         return rc;
@@ -3601,8 +3678,11 @@ const RuntimeImpl = struct {
         state_export: abi.OmniWorkspaceRuntimeStateExport,
         action: abi.OmniControllerLayoutAction,
     ) i32 {
-        const resolved = self.resolveActiveWorkspaceRuntimeContextRecovering(state_export, true);
-        if (resolved.rc != abi.OMNI_OK) return resolved.rc;
+        const resolved = self.resolveActiveWorkspaceRuntimeContextRecovering(state_export, false);
+        if (resolved.rc != abi.OMNI_OK) {
+            logNiriMutationFailure(action, null, null, resolved.rc, "niri mutation context resolution failed");
+            return resolved.rc;
+        }
         const ctx = resolved.context orelse return abi.OMNI_OK;
 
         var txn = std.mem.zeroes(abi.OmniNiriTxnRequest);
@@ -3628,37 +3708,60 @@ const RuntimeImpl = struct {
             txn.mutation.source_column_id = .{ .bytes = column_id };
         }
 
+        var requires_source_window = false;
+        var requires_source_column = false;
         switch (action.kind) {
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_MOVE_DIRECTION => {
-                txn.mutation.op = mutationOpForDirection(action.direction, false) orelse return abi.OMNI_ERR_INVALID_ARGS;
+                txn.mutation.op = mutationOpForDirection(action.direction, false) orelse {
+                    logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation invalid move direction");
+                    return abi.OMNI_ERR_INVALID_ARGS;
+                };
                 txn.mutation.direction = action.direction;
+                requires_source_window = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_SWAP_DIRECTION => {
-                txn.mutation.op = mutationOpForDirection(action.direction, true) orelse return abi.OMNI_ERR_INVALID_ARGS;
+                txn.mutation.op = mutationOpForDirection(action.direction, true) orelse {
+                    logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation invalid swap direction");
+                    return abi.OMNI_ERR_INVALID_ARGS;
+                };
                 txn.mutation.direction = action.direction;
+                requires_source_window = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_MOVE_COLUMN_DIRECTION => {
-                if (!isHorizontalDirection(action.direction)) return abi.OMNI_ERR_INVALID_ARGS;
+                if (!isHorizontalDirection(action.direction)) {
+                    logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation invalid move-column direction");
+                    return abi.OMNI_ERR_INVALID_ARGS;
+                }
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_MOVE_COLUMN;
                 txn.mutation.direction = action.direction;
+                requires_source_column = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_CONSUME_WINDOW_DIRECTION => {
-                if (!isHorizontalDirection(action.direction)) return abi.OMNI_ERR_INVALID_ARGS;
+                if (!isHorizontalDirection(action.direction)) {
+                    logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation invalid consume direction");
+                    return abi.OMNI_ERR_INVALID_ARGS;
+                }
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_CONSUME_WINDOW;
                 txn.mutation.direction = action.direction;
                 txn.mutation.has_placeholder_column_id = 1;
                 txn.mutation.placeholder_column_id = ctx.layout_runtime.generateColumnId(ctx.workspace_id.bytes);
+                requires_source_window = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_EXPEL_WINDOW_DIRECTION => {
-                if (!isHorizontalDirection(action.direction)) return abi.OMNI_ERR_INVALID_ARGS;
+                if (!isHorizontalDirection(action.direction)) {
+                    logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation invalid expel direction");
+                    return abi.OMNI_ERR_INVALID_ARGS;
+                }
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_EXPEL_WINDOW;
                 txn.mutation.direction = action.direction;
                 txn.mutation.has_created_column_id = 1;
                 txn.mutation.created_column_id = ctx.layout_runtime.generateColumnId(ctx.workspace_id.bytes);
                 txn.mutation.has_placeholder_column_id = 1;
                 txn.mutation.placeholder_column_id = ctx.layout_runtime.generateColumnId(ctx.workspace_id.bytes);
+                requires_source_window = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_TOGGLE_COLUMN_TABBED => {
+                requires_source_column = true;
                 const column_id = ctx.selection.selected_column_id orelse return abi.OMNI_OK;
                 const column_index = findRuntimeColumnIndex(ctx.runtime_export, column_id) orelse return abi.OMNI_OK;
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_SET_COLUMN_DISPLAY;
@@ -3669,6 +3772,7 @@ const RuntimeImpl = struct {
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_CYCLE_COLUMN_WIDTH_FORWARD,
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_CYCLE_COLUMN_WIDTH_BACKWARD,
             => {
+                requires_source_column = true;
                 const column_id = ctx.selection.selected_column_id orelse return abi.OMNI_OK;
                 const column_index = findRuntimeColumnIndex(ctx.runtime_export, column_id) orelse return abi.OMNI_OK;
                 const column = ctx.runtime_export.columns[column_index];
@@ -3683,14 +3787,31 @@ const RuntimeImpl = struct {
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_TOGGLE_COLUMN_FULL_WIDTH => {
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_TOGGLE_COLUMN_FULL_WIDTH;
+                requires_source_column = true;
             },
             abi.OMNI_CONTROLLER_LAYOUT_ACTION_BALANCE_SIZES => {
                 txn.mutation.op = abi.OMNI_NIRI_MUTATION_OP_BALANCE_SIZES;
             },
-            else => return abi.OMNI_ERR_INVALID_ARGS,
+            else => {
+                logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, abi.OMNI_ERR_INVALID_ARGS, "niri mutation unsupported action");
+                return abi.OMNI_ERR_INVALID_ARGS;
+            },
         }
 
-        return self.applyRuntimeTxn(ctx, txn, false);
+        if (requires_source_window and ctx.selection.actionable_window_id == null) {
+            std.log.debug("niri mutation no-op kind={d} reason=missing_source_window", .{action.kind});
+            return abi.OMNI_OK;
+        }
+        if (requires_source_column and ctx.selection.selected_column_id == null) {
+            std.log.debug("niri mutation no-op kind={d} reason=missing_source_column", .{action.kind});
+            return abi.OMNI_OK;
+        }
+
+        const rc = self.applyRuntimeTxn(ctx, txn, false);
+        if (rc != abi.OMNI_OK and rc != abi.OMNI_ERR_PLATFORM) {
+            logNiriMutationFailure(action, ctx.workspace_id.bytes, ctx.selection, rc, "niri mutation runtime transaction failed");
+        }
+        return rc;
     }
 
     fn applyNiriOverviewInsertAction(
@@ -4177,7 +4298,19 @@ const RuntimeImpl = struct {
             plan.target_workspace_id,
             plan.target_workspace_name,
             plan.create_target_workspace_if_missing != 0,
-        ) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+        ) orelse {
+            logTransferPlanFailure(plan, null, null, abi.OMNI_ERR_OUT_OF_RANGE, "transfer target workspace resolution failed");
+            return abi.OMNI_ERR_OUT_OF_RANGE;
+        };
+
+        var state_export = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
+        const export_rc = self.exportWorkspaceState(&state_export);
+        if (export_rc != abi.OMNI_OK) {
+            logTransferPlanFailure(plan, target_workspace_id.bytes, null, export_rc, "transfer workspace export failed");
+            return export_rc;
+        }
+
+        const source_workspace_id = types.optionalUuid(plan.has_source_workspace_id, plan.source_workspace_id);
 
         if (plan.has_target_monitor_display_id != 0) {
             const move_rc = workspace_runtime.omni_workspace_runtime_move_workspace_to_monitor_impl(
@@ -4186,6 +4319,7 @@ const RuntimeImpl = struct {
                 plan.target_monitor_display_id,
             );
             if (move_rc != abi.OMNI_OK and move_rc != abi.OMNI_ERR_OUT_OF_RANGE) {
+                logTransferPlanFailure(plan, target_workspace_id.bytes, null, move_rc, "transfer workspace-to-monitor move failed");
                 return move_rc;
             }
         }
@@ -4193,12 +4327,20 @@ const RuntimeImpl = struct {
         const window_count = @min(@as(usize, plan.window_count), abi.OMNI_CONTROLLER_MAX_TRANSFER_WINDOWS);
         for (0..window_count) |index| {
             const handle_id = plan.window_ids[index];
+            const validate_rc = self.validateTransferPlanWindow(state_export, source_workspace_id, handle_id.bytes);
+            if (validate_rc != abi.OMNI_OK) {
+                logTransferPlanFailure(plan, target_workspace_id.bytes, handle_id.bytes, validate_rc, "transfer source window validation failed");
+                return validate_rc;
+            }
             const move_rc = workspace_runtime.omni_workspace_runtime_window_set_workspace_impl(
                 self.workspace_runtime_owner,
                 handle_id,
                 target_workspace_id,
             );
-            if (move_rc != abi.OMNI_OK) return move_rc;
+            if (move_rc != abi.OMNI_OK) {
+                logTransferPlanFailure(plan, target_workspace_id.bytes, handle_id.bytes, move_rc, "transfer window move failed");
+                return move_rc;
+            }
         }
 
         if (plan.follow_focus != 0 and plan.has_target_monitor_display_id != 0) {
@@ -4207,9 +4349,29 @@ const RuntimeImpl = struct {
                 target_workspace_id,
                 plan.target_monitor_display_id,
             );
-            if (focus_rc != abi.OMNI_OK) return focus_rc;
+            if (focus_rc != abi.OMNI_OK) {
+                logTransferPlanFailure(plan, target_workspace_id.bytes, null, focus_rc, "transfer follow-focus workspace activation failed");
+                return focus_rc;
+            }
         }
 
+        return abi.OMNI_OK;
+    }
+
+    fn validateTransferPlanWindow(
+        self: *RuntimeImpl,
+        state_export: abi.OmniWorkspaceRuntimeStateExport,
+        expected_source_workspace_id: ?Uuid,
+        handle_id: Uuid,
+    ) i32 {
+        const record = self.findWindowRecord(state_export, handle_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+        if (record.layout_reason != abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD) return abi.OMNI_ERR_OUT_OF_RANGE;
+        if (record.has_hidden_state != 0) return abi.OMNI_ERR_OUT_OF_RANGE;
+        if (expected_source_workspace_id) |workspace_id| {
+            if (!std.mem.eql(u8, record.workspace_id.bytes[0..], workspace_id[0..])) {
+                return abi.OMNI_ERR_OUT_OF_RANGE;
+            }
+        }
         return abi.OMNI_OK;
     }
 
@@ -4268,6 +4430,146 @@ const RuntimeWindowSnapshot = struct {
 
 fn zeroUuid() abi.OmniUuid128 {
     return .{ .bytes = [_]u8{0} ** 16 };
+}
+
+fn uuidOrZero(value: ?Uuid) Uuid {
+    return value orelse zeroUuid().bytes;
+}
+
+fn logWindowInventorySkip(reason: []const u8, window: abi.OmniSkyLightWindowInfo, existing_reason: ?u8) void {
+    std.log.info(
+        "window inventory skipped reason={s} pid={d} window_id={d} parent_id={d} level={d} tags=0x{x} attributes=0x{x} existing_reason_present={d} existing_reason={d}",
+        .{
+            reason,
+            window.pid,
+            window.id,
+            window.parent_id,
+            window.level,
+            window.tags,
+            window.attributes,
+            if (existing_reason == null) @as(u8, 0) else 1,
+            existing_reason orelse 0,
+        },
+    );
+}
+
+fn logWindowInventoryOperationFailure(
+    operation: WindowInventoryOperation,
+    handle_id: ?abi.OmniUuid128,
+    code: i32,
+    message: []const u8,
+) void {
+    const workspace_hex = std.fmt.bytesToHex(operation.request.workspace_id.bytes[0..], .lower);
+    const handle_hex = std.fmt.bytesToHex(uuidOrZero(if (handle_id) |value| value.bytes else null), .lower);
+    std.log.warn(
+        "window inventory operation failed message={s} code={d} pid={d} window_id={d} workspace={s} preferred_handle_present={d} handle={s} layout_reason={d}",
+        .{
+            message,
+            code,
+            operation.request.pid,
+            operation.request.window_id,
+            workspace_hex[0..],
+            operation.request.has_handle_id,
+            handle_hex[0..],
+            operation.layout_reason,
+        },
+    );
+}
+
+fn logNiriNavigationFailure(
+    action: abi.OmniControllerLayoutAction,
+    workspace_id: ?Uuid,
+    selection: ?WorkspaceSelectionState,
+    code: i32,
+    message: []const u8,
+) void {
+    const focused_window_id = if (selection) |value| value.focused_window_id else null;
+    const actionable_window_id = if (selection) |value| value.actionable_window_id else null;
+    const selected_column_id = if (selection) |value| value.selected_column_id else null;
+    const workspace_hex = std.fmt.bytesToHex(uuidOrZero(workspace_id), .lower);
+    const focused_hex = std.fmt.bytesToHex(uuidOrZero(focused_window_id), .lower);
+    const actionable_hex = std.fmt.bytesToHex(uuidOrZero(actionable_window_id), .lower);
+    const column_hex = std.fmt.bytesToHex(uuidOrZero(selected_column_id), .lower);
+    std.log.warn(
+        "niri navigation failed message={s} code={d} kind={d} direction={d} workspace_present={d} workspace={s} focused_present={d} focused={s} actionable_present={d} actionable={s} selected_column_present={d} selected_column={s}",
+        .{
+            message,
+            code,
+            action.kind,
+            action.direction,
+            if (workspace_id == null) @as(u8, 0) else 1,
+            workspace_hex[0..],
+            if (focused_window_id == null) @as(u8, 0) else 1,
+            focused_hex[0..],
+            if (actionable_window_id == null) @as(u8, 0) else 1,
+            actionable_hex[0..],
+            if (selected_column_id == null) @as(u8, 0) else 1,
+            column_hex[0..],
+        },
+    );
+}
+
+fn logNiriMutationFailure(
+    action: abi.OmniControllerLayoutAction,
+    workspace_id: ?Uuid,
+    selection: ?WorkspaceSelectionState,
+    code: i32,
+    message: []const u8,
+) void {
+    const focused_window_id = if (selection) |value| value.focused_window_id else null;
+    const actionable_window_id = if (selection) |value| value.actionable_window_id else null;
+    const selected_column_id = if (selection) |value| value.selected_column_id else null;
+    const workspace_hex = std.fmt.bytesToHex(uuidOrZero(workspace_id), .lower);
+    const focused_hex = std.fmt.bytesToHex(uuidOrZero(focused_window_id), .lower);
+    const actionable_hex = std.fmt.bytesToHex(uuidOrZero(actionable_window_id), .lower);
+    const column_hex = std.fmt.bytesToHex(uuidOrZero(selected_column_id), .lower);
+    std.log.warn(
+        "niri mutation failed message={s} code={d} kind={d} workspace_present={d} workspace={s} focused_present={d} focused={s} actionable_present={d} actionable={s} selected_column_present={d} selected_column={s}",
+        .{
+            message,
+            code,
+            action.kind,
+            if (workspace_id == null) @as(u8, 0) else 1,
+            workspace_hex[0..],
+            if (focused_window_id == null) @as(u8, 0) else 1,
+            focused_hex[0..],
+            if (actionable_window_id == null) @as(u8, 0) else 1,
+            actionable_hex[0..],
+            if (selected_column_id == null) @as(u8, 0) else 1,
+            column_hex[0..],
+        },
+    );
+}
+
+fn logTransferPlanFailure(
+    plan: abi.OmniControllerTransferPlan,
+    resolved_target_workspace_id: ?Uuid,
+    window_handle_id: ?Uuid,
+    code: i32,
+    message: []const u8,
+) void {
+    const source_workspace_id = types.optionalUuid(plan.has_source_workspace_id, plan.source_workspace_id);
+    const planned_target_workspace_id = types.optionalUuid(plan.has_target_workspace_id, plan.target_workspace_id);
+    const target_workspace_id = resolved_target_workspace_id orelse planned_target_workspace_id;
+    const source_workspace_hex = std.fmt.bytesToHex(uuidOrZero(source_workspace_id), .lower);
+    const target_workspace_hex = std.fmt.bytesToHex(uuidOrZero(target_workspace_id), .lower);
+    const window_hex = std.fmt.bytesToHex(uuidOrZero(window_handle_id), .lower);
+    std.log.warn(
+        "transfer plan failed message={s} code={d} kind={d} source_workspace_present={d} source_workspace={s} target_workspace_present={d} target_workspace={s} target_display_present={d} target_display={d} window_present={d} window={s}",
+        .{
+            message,
+            code,
+            plan.kind,
+            if (source_workspace_id == null) @as(u8, 0) else 1,
+            source_workspace_hex[0..],
+            if (target_workspace_id == null) @as(u8, 0) else 1,
+            target_workspace_hex[0..],
+            plan.has_target_monitor_display_id,
+            plan.target_monitor_display_id,
+            if (window_handle_id == null) @as(u8, 0) else 1,
+            window_hex[0..],
+        },
+    );
 }
 
 fn isDirectionValue(direction: u8) bool {
@@ -4596,6 +4898,53 @@ fn buildWorkspaceSelectionStateForSeed(
     return selection;
 }
 
+fn normalizeNavigationSelection(
+    runtime_export: abi.OmniNiriRuntimeStateExport,
+    selection: *WorkspaceSelectionState,
+) NavigationSelectionNormalization {
+    if (selection.actionable_window_id) |actionable_window_id| {
+        const snapshot = runtimeWindowSnapshot(runtime_export, actionable_window_id) orelse return .retry;
+        selection.selected_column_id = snapshot.column_id.bytes;
+        if (selection.selected_node_id) |selected_node_id| {
+            if (findRuntimeWindowIndex(runtime_export, selected_node_id) != null) {
+                // Keep an actionable window selection intact.
+            } else if (findRuntimeColumnIndex(runtime_export, selected_node_id) != null) {
+                if (!std.mem.eql(u8, selected_node_id[0..], snapshot.column_id.bytes[0..])) {
+                    selection.selected_node_id = actionable_window_id;
+                }
+            } else {
+                return .retry;
+            }
+        } else {
+            selection.selected_node_id = actionable_window_id;
+        }
+    } else if (selection.selected_node_id) |selected_node_id| {
+        if (findRuntimeWindowIndex(runtime_export, selected_node_id) == null and
+            findRuntimeColumnIndex(runtime_export, selected_node_id) == null)
+        {
+            return .retry;
+        }
+    }
+
+    if (selection.focused_window_id) |focused_window_id| {
+        if (findRuntimeWindowIndex(runtime_export, focused_window_id) == null) {
+            if (selection.actionable_window_id) |actionable_window_id| {
+                selection.focused_window_id = actionable_window_id;
+            } else {
+                return .retry;
+            }
+        }
+    }
+
+    if (selection.selected_column_id) |selected_column_id| {
+        if (findRuntimeColumnIndex(runtime_export, selected_column_id) == null) {
+            return .retry;
+        }
+    }
+
+    return .ok;
+}
+
 fn runtimeFromHandle(runtime: [*c]OmniWMController) ?*RuntimeImpl {
     if (runtime == null) return null;
     return @ptrCast(@alignCast(runtime));
@@ -4894,7 +5243,7 @@ pub fn omni_wm_controller_query_ui_state_impl(
 ) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const resolved_out = out_state orelse return abi.OMNI_ERR_INVALID_ARGS;
-    const impl: *RuntimeImpl = @constCast(@ptrCast(@alignCast(runtime)));
+    const impl: *RuntimeImpl = @ptrCast(@alignCast(@constCast(runtime)));
     impl.mutex.lock();
     defer impl.mutex.unlock();
     return impl.queryUiState(resolved_out);
@@ -5082,7 +5431,7 @@ pub fn omni_wm_controller_query_workspace_projection_counts_impl(
 ) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const resolved_out = out_counts orelse return abi.OMNI_ERR_INVALID_ARGS;
-    const impl: *RuntimeImpl = @constCast(@ptrCast(@alignCast(runtime)));
+    const impl: *RuntimeImpl = @ptrCast(@alignCast(@constCast(runtime)));
     impl.mutex.lock();
     defer impl.mutex.unlock();
     return impl.queryWorkspaceProjectionCounts(resolved_out);
@@ -5111,7 +5460,7 @@ pub fn omni_wm_controller_query_workspace_layout_settings_count_impl(
 ) i32 {
     if (runtime == null) return abi.OMNI_ERR_INVALID_ARGS;
     const resolved_out = out_setting_count orelse return abi.OMNI_ERR_INVALID_ARGS;
-    const impl: *RuntimeImpl = @constCast(@ptrCast(@alignCast(runtime)));
+    const impl: *RuntimeImpl = @ptrCast(@alignCast(@constCast(runtime)));
     impl.mutex.lock();
     defer impl.mutex.unlock();
     return impl.queryWorkspaceLayoutSettingsCount(resolved_out);
@@ -5158,6 +5507,22 @@ fn createControllerImplForTest(
     const runtime = omni_wm_controller_create_impl(&wm_config, workspace_runtime_owner, null);
     try std.testing.expect(runtime != null);
     return @ptrCast(@alignCast(runtime));
+}
+
+fn createAXRuntimeForTest() ![*c]ax_manager.OmniAXRuntime {
+    var config = abi.OmniAXRuntimeConfig{
+        .abi_version = abi.OMNI_AX_RUNTIME_ABI_VERSION,
+        .reserved = 0,
+    };
+    var host = abi.OmniAXHostVTable{
+        .userdata = null,
+        .on_window_destroyed = null,
+        .on_window_destroyed_unknown = null,
+        .on_focused_window_changed = null,
+    };
+    const runtime = ax_manager.omni_ax_runtime_create_impl(&config, &host);
+    try std.testing.expect(runtime != null);
+    return runtime;
 }
 
 fn seedWorkspaceForTest(
@@ -5513,7 +5878,6 @@ test "wm controller snapshot export is consistent and drains changed workspaces"
     const initial_counts = try querySnapshotCountsForTest(initial_snapshot);
     try std.testing.expect(initial_counts.monitor_count >= 1);
     try std.testing.expect(initial_counts.workspace_count >= 1);
-    try std.testing.expect(initial_counts.window_count >= 2);
     try std.testing.expectEqual(@as(u8, 1), initial_counts.invalidate_all_workspace_projections);
 
     var ui_state = std.mem.zeroes(abi.OmniControllerUiState);
@@ -5649,12 +6013,118 @@ test "wm controller window inventory plan preserves existing handles before runt
         .attributes = 0,
         .parent_id = 0,
     });
+
+    impl.active_window_keys.clearRetainingCapacity();
+    var current_ax_pids = std.AutoHashMap(i32, void).init(std.testing.allocator);
+    defer current_ax_pids.deinit();
+    var operations = std.ArrayListUnmanaged(WindowInventoryOperation){};
+    defer operations.deinit(impl.allocator);
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        impl.buildWindowInventoryPlan(owned_state.state_export, &current_ax_pids, &operations),
+    );
+    try std.testing.expectEqual(@as(usize, 1), operations.items.len);
+    try std.testing.expectEqual(@as(u8, 1), operations.items[0].request.has_handle_id);
+    try std.testing.expectEqual(existing_handle, operations.items[0].request.handle_id);
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyWindowInventoryPlan(operations.items));
+
+    var refreshed_state = OwnedWorkspaceState.init(std.testing.allocator);
+    defer refreshed_state.deinit();
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&refreshed_state));
+    try std.testing.expectEqual(@as(usize, 1), refreshed_state.state_export.window_count);
+    try std.testing.expectEqual(existing_handle, impl.findExistingHandle(refreshed_state.state_export, 1101, 2101).?);
+}
+
+test "wm controller inventory skips parented visible windows" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 30);
+    _ = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 1201, 2201, null);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    var owned_state = OwnedWorkspaceState.init(std.testing.allocator);
+    defer owned_state.deinit();
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&owned_state));
+
     try impl.visible_windows.append(impl.allocator, .{
-        .id = 2102,
-        .pid = 1102,
+        .id = 2201,
+        .pid = 1201,
         .level = 0,
         .frame = .{
-            .x = 620.0,
+            .x = 40.0,
+            .y = 40.0,
+            .width = 500.0,
+            .height = 400.0,
+        },
+        .tags = 0,
+        .attributes = 0,
+        .parent_id = 99,
+    });
+
+    impl.active_window_keys.clearRetainingCapacity();
+    var current_ax_pids = std.AutoHashMap(i32, void).init(std.testing.allocator);
+    defer current_ax_pids.deinit();
+    var operations = std.ArrayListUnmanaged(WindowInventoryOperation){};
+    defer operations.deinit(impl.allocator);
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        impl.buildWindowInventoryPlan(owned_state.state_export, &current_ax_pids, &operations),
+    );
+    try std.testing.expectEqual(@as(usize, 0), operations.items.len);
+    try std.testing.expectEqual(@as(usize, 0), impl.active_window_keys.items.len);
+    try std.testing.expectEqual(@as(usize, 0), current_ax_pids.count());
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyWindowInventoryPlan(operations.items));
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        workspace_runtime.omni_workspace_runtime_window_remove_missing_impl(workspace_runtime_owner, null, 0, 1),
+    );
+
+    var refreshed_state = OwnedWorkspaceState.init(std.testing.allocator);
+    defer refreshed_state.deinit();
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&refreshed_state));
+    try std.testing.expectEqual(@as(usize, 0), refreshed_state.state_export.window_count);
+}
+
+test "wm controller inventory preserves existing layout reason when AX classification fails" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 31);
+    const existing_handle = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 1301, 2301, null);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const ax_runtime = try createAXRuntimeForTest();
+    defer ax_manager.omni_ax_runtime_destroy_impl(ax_runtime);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.setAXRuntime(ax_runtime));
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        workspace_runtime.omni_workspace_runtime_window_set_layout_reason_impl(
+            workspace_runtime_owner,
+            existing_handle,
+            abi.OMNI_WORKSPACE_LAYOUT_REASON_MACOS_HIDDEN_APP,
+        ),
+    );
+
+    var owned_state = OwnedWorkspaceState.init(std.testing.allocator);
+    defer owned_state.deinit();
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&owned_state));
+
+    try impl.visible_windows.append(impl.allocator, .{
+        .id = 2301,
+        .pid = 1301,
+        .level = 0,
+        .frame = .{
+            .x = 40.0,
             .y = 40.0,
             .width = 500.0,
             .height = 400.0,
@@ -5674,19 +6144,156 @@ test "wm controller window inventory plan preserves existing handles before runt
         @as(i32, abi.OMNI_OK),
         impl.buildWindowInventoryPlan(owned_state.state_export, &current_ax_pids, &operations),
     );
-    try std.testing.expectEqual(@as(usize, 2), operations.items.len);
+    try std.testing.expectEqual(@as(usize, 1), operations.items.len);
     try std.testing.expectEqual(@as(u8, 1), operations.items[0].request.has_handle_id);
     try std.testing.expectEqual(existing_handle, operations.items[0].request.handle_id);
-    try std.testing.expectEqual(@as(u8, 0), operations.items[1].request.has_handle_id);
+    try std.testing.expectEqual(@as(u8, abi.OMNI_WORKSPACE_LAYOUT_REASON_MACOS_HIDDEN_APP), operations.items[0].layout_reason);
 
     try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyWindowInventoryPlan(operations.items));
 
     var refreshed_state = OwnedWorkspaceState.init(std.testing.allocator);
     defer refreshed_state.deinit();
     try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&refreshed_state));
-    try std.testing.expectEqual(@as(usize, 2), refreshed_state.state_export.window_count);
-    try std.testing.expectEqual(existing_handle, impl.findExistingHandle(refreshed_state.state_export, 1101, 2101).?);
-    try std.testing.expect(impl.findExistingHandle(refreshed_state.state_export, 1102, 2102) != null);
+    const record = impl.findExistingWindowRecord(refreshed_state.state_export, 1301, 2301).?;
+    try std.testing.expectEqual(existing_handle, record.handle_id);
+    try std.testing.expectEqual(@as(u8, abi.OMNI_WORKSPACE_LAYOUT_REASON_MACOS_HIDDEN_APP), record.layout_reason);
+}
+
+test "wm controller inventory skips new windows when AX classification fails" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    _ = try seedWorkspaceForTest(workspace_runtime_owner, 32);
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const ax_runtime = try createAXRuntimeForTest();
+    defer ax_manager.omni_ax_runtime_destroy_impl(ax_runtime);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.setAXRuntime(ax_runtime));
+
+    var owned_state = OwnedWorkspaceState.init(std.testing.allocator);
+    defer owned_state.deinit();
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.copyWorkspaceState(&owned_state));
+
+    try impl.visible_windows.append(impl.allocator, .{
+        .id = 2401,
+        .pid = 1401,
+        .level = 0,
+        .frame = .{
+            .x = 40.0,
+            .y = 40.0,
+            .width = 500.0,
+            .height = 400.0,
+        },
+        .tags = 0,
+        .attributes = 0,
+        .parent_id = 0,
+    });
+
+    impl.active_window_keys.clearRetainingCapacity();
+    var current_ax_pids = std.AutoHashMap(i32, void).init(std.testing.allocator);
+    defer current_ax_pids.deinit();
+    var operations = std.ArrayListUnmanaged(WindowInventoryOperation){};
+    defer operations.deinit(impl.allocator);
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        impl.buildWindowInventoryPlan(owned_state.state_export, &current_ax_pids, &operations),
+    );
+    try std.testing.expectEqual(@as(usize, 0), operations.items.len);
+    try std.testing.expectEqual(@as(usize, 0), impl.active_window_keys.items.len);
+    try std.testing.expectEqual(@as(usize, 0), current_ax_pids.count());
+}
+
+test "wm controller inventory plan returns runtime upsert failures" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const invalid_workspace_id = abi.OmniUuid128{ .bytes = [_]u8{0xaa} ** 16 };
+    const operations = [_]WindowInventoryOperation{.{
+        .request = .{
+            .pid = 1501,
+            .window_id = 2501,
+            .workspace_id = invalid_workspace_id,
+            .has_handle_id = 0,
+            .handle_id = zeroUuid(),
+        },
+        .layout_reason = abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD,
+    }};
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_ERR_OUT_OF_RANGE), impl.applyWindowInventoryPlan(operations[0..]));
+}
+
+test "wm controller visible-window inventory sync propagates runtime upsert failures" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const invalid_workspace_id = abi.OmniUuid128{ .bytes = [_]u8{0xbb} ** 16 };
+    var fake_workspace = abi.OmniWorkspaceRuntimeWorkspaceRecord{
+        .workspace_id = invalid_workspace_id,
+        .name = workspaceNameFromControllerName(types.encodeName("ghost")),
+        .has_assigned_monitor_anchor = 0,
+        .assigned_monitor_anchor_x = 0,
+        .assigned_monitor_anchor_y = 0,
+        .has_assigned_display_id = 0,
+        .assigned_display_id = 0,
+        .is_visible = 0,
+        .is_previous_visible = 0,
+        .is_persistent = 0,
+    };
+    var fake_window = abi.OmniWorkspaceRuntimeWindowRecord{
+        .handle_id = .{ .bytes = [_]u8{0xcc} ** 16 },
+        .pid = 1501,
+        .window_id = 2501,
+        .workspace_id = invalid_workspace_id,
+        .has_hidden_state = 0,
+        .hidden_state = .{
+            .proportional_x = 0,
+            .proportional_y = 0,
+            .has_reference_display_id = 0,
+            .reference_display_id = 0,
+            .workspace_inactive = 0,
+        },
+        .layout_reason = abi.OMNI_WORKSPACE_LAYOUT_REASON_STANDARD,
+    };
+    const fake_export = abi.OmniWorkspaceRuntimeStateExport{
+        .monitors = null,
+        .monitor_count = 0,
+        .workspaces = &fake_workspace,
+        .workspace_count = 1,
+        .windows = &fake_window,
+        .window_count = 1,
+        .has_active_monitor_display_id = 0,
+        .active_monitor_display_id = 0,
+        .has_previous_monitor_display_id = 0,
+        .previous_monitor_display_id = 0,
+    };
+
+    try impl.visible_windows.append(impl.allocator, .{
+        .id = 2501,
+        .pid = 1501,
+        .level = 0,
+        .frame = .{
+            .x = 40.0,
+            .y = 40.0,
+            .width = 500.0,
+            .height = 400.0,
+        },
+        .tags = 0,
+        .attributes = 0,
+        .parent_id = 0,
+    });
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_ERR_OUT_OF_RANGE),
+        impl.syncWindowInventoryFromVisibleWindows(fake_export),
+    );
 }
 
 test "wm controller workspace projection generation increments on selection-only changes" {
@@ -5884,6 +6491,110 @@ test "wm controller navigation layout actions are no-op during non-managed focus
     try std.testing.expectEqual(first_handle.bytes, impl.selected_node_by_workspace.get(workspace_id.bytes).?);
 }
 
+test "wm controller navigation selection normalization repairs stale selected column" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 35);
+    const first_handle = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 501, 1501, null);
+    _ = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 502, 1502, null);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const state_export = try exportWorkspaceStateForTest(workspace_runtime_owner);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.syncWorkspaceLayoutRuntimes(state_export));
+
+    var runtime_export = std.mem.zeroes(abi.OmniNiriRuntimeStateExport);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.snapshotWorkspaceLayoutRuntime(workspace_id.bytes, &runtime_export));
+
+    const first_snapshot = runtimeWindowSnapshot(runtime_export, first_handle.bytes).?;
+    const stale_column_id = runtime_export.columns[1].column_id.bytes;
+    var selection = WorkspaceSelectionState{
+        .selected_node_id = stale_column_id,
+        .selected_column_id = stale_column_id,
+        .focused_window_id = first_handle.bytes,
+        .actionable_window_id = first_handle.bytes,
+    };
+
+    try std.testing.expectEqual(NavigationSelectionNormalization.ok, normalizeNavigationSelection(runtime_export, &selection));
+    try std.testing.expectEqual(first_snapshot.column_id.bytes, selection.selected_column_id.?);
+    try std.testing.expectEqual(first_handle.bytes, selection.selected_node_id.?);
+}
+
+test "wm controller focus navigation repairs runtime state before updating focus" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 36);
+    const first_handle = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 601, 1601, null);
+    const second_handle = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 602, 1602, null);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const state_export = try exportWorkspaceStateForTest(workspace_runtime_owner);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.syncWorkspaceLayoutRuntimes(state_export));
+
+    impl.focused_window = first_handle.bytes;
+    try impl.selected_node_by_workspace.put(workspace_id.bytes, first_handle.bytes);
+    try impl.last_focused_by_workspace.put(workspace_id.bytes, first_handle.bytes);
+
+    const entry = impl.workspace_layout_runtimes.getPtr(workspace_id.bytes).?;
+    const runtime_ctx: *niri_runtime.OmniNiriRuntime = @ptrCast(@alignCast(entry.runtime));
+    runtime_ctx.runtime_columns[0].window_start = 1;
+    runtime_ctx.runtime_columns[0].window_count = 2;
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_OK),
+        impl.applySingleLayoutAction(focusDirectionAction(abi.OMNI_NIRI_DIRECTION_RIGHT)),
+    );
+    try std.testing.expectEqual(second_handle.bytes, impl.focused_window.?);
+}
+
+test "wm controller navigation phase errors report to host without crashing" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const HostState = struct {
+        count: usize = 0,
+        last_code: i32 = 0,
+        last_message: abi.OmniControllerName = types.encodeName(""),
+    };
+    var host_state = HostState{};
+    const report_error = struct {
+        fn run(userdata: ?*anyopaque, code: i32, message: abi.OmniControllerName) callconv(.c) i32 {
+            const state: *HostState = @ptrCast(@alignCast(userdata.?));
+            state.count += 1;
+            state.last_code = code;
+            state.last_message = message;
+            return abi.OMNI_OK;
+        }
+    }.run;
+    var host = abi.OmniWMControllerHostVTable{
+        .userdata = @ptrCast(&host_state),
+        .apply_effects = null,
+        .report_error = report_error,
+    };
+
+    var wm_config = abi.OmniWMControllerConfig{
+        .abi_version = abi.OMNI_WM_CONTROLLER_ABI_VERSION,
+        .reserved = 0,
+    };
+    const runtime = omni_wm_controller_create_impl(&wm_config, workspace_runtime_owner, &host);
+    defer omni_wm_controller_destroy_impl(runtime);
+    try std.testing.expect(runtime != null);
+
+    const impl: *RuntimeImpl = @ptrCast(@alignCast(runtime));
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_ERR_OUT_OF_RANGE),
+        impl.reportPhaseError(abi.OMNI_ERR_OUT_OF_RANGE, "navigation runtime snapshot failed"),
+    );
+    try std.testing.expectEqual(@as(usize, 1), host_state.count);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_ERR_OUT_OF_RANGE), host_state.last_code);
+    try std.testing.expect(types.nameEquals(host_state.last_message, "navigation runtime snapshot failed"));
+}
+
 test "wm controller softens focus platform failures and still dispatches ui effects" {
     var workspace_config = abi.OmniWorkspaceRuntimeConfig{
         .abi_version = abi.OMNI_WORKSPACE_RUNTIME_ABI_VERSION,
@@ -6043,6 +6754,90 @@ test "wm controller softens focus platform failures and still dispatches ui effe
 
     try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyEffects(&effects));
     try std.testing.expectEqual(@as(usize, 1), host_state.apply_count);
+}
+
+test "wm controller transfer errors report transfer phase to host" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 34);
+
+    const HostState = struct {
+        count: usize = 0,
+        last_code: i32 = 0,
+        last_message: abi.OmniControllerName = types.encodeName(""),
+    };
+    var host_state = HostState{};
+    const report_error = struct {
+        fn run(userdata: ?*anyopaque, code: i32, message: abi.OmniControllerName) callconv(.c) i32 {
+            const state: *HostState = @ptrCast(@alignCast(userdata.?));
+            state.count += 1;
+            state.last_code = code;
+            state.last_message = message;
+            return abi.OMNI_OK;
+        }
+    }.run;
+    var host = abi.OmniWMControllerHostVTable{
+        .userdata = @ptrCast(&host_state),
+        .apply_effects = null,
+        .report_error = report_error,
+    };
+
+    var wm_config = abi.OmniWMControllerConfig{
+        .abi_version = abi.OMNI_WM_CONTROLLER_ABI_VERSION,
+        .reserved = 0,
+    };
+    const runtime = omni_wm_controller_create_impl(&wm_config, workspace_runtime_owner, &host);
+    defer omni_wm_controller_destroy_impl(runtime);
+    try std.testing.expect(runtime != null);
+
+    const impl: *RuntimeImpl = @ptrCast(@alignCast(runtime));
+
+    var transfer_plan = abi.OmniControllerTransferPlan{
+        .kind = abi.OMNI_CONTROLLER_TRANSFER_MOVE_WINDOW,
+        .mode = abi.OMNI_CONTROLLER_TRANSFER_MODE_NIRI_TO_NIRI_WINDOW,
+        .create_target_workspace_if_missing = 1,
+        .follow_focus = 0,
+        .window_count = 1,
+        .window_ids = [_]abi.OmniUuid128{zeroUuid()} ** abi.OMNI_CONTROLLER_MAX_TRANSFER_WINDOWS,
+        .has_source_workspace_id = 1,
+        .source_workspace_id = workspace_id,
+        .source_workspace_name = types.encodeName("1"),
+        .has_target_workspace_id = 0,
+        .target_workspace_id = zeroUuid(),
+        .target_workspace_name = types.encodeName("2"),
+        .has_target_monitor_display_id = 0,
+        .target_monitor_display_id = 0,
+        .has_source_fallback_window_id = 0,
+        .source_fallback_window_id = zeroUuid(),
+        .has_target_focus_window_id = 0,
+        .target_focus_window_id = zeroUuid(),
+        .has_source_selection_node_id = 0,
+        .source_selection_node_id = zeroUuid(),
+        .has_target_selection_node_id = 0,
+        .target_selection_node_id = zeroUuid(),
+    };
+    transfer_plan.window_ids[0] = .{ .bytes = [_]u8{7} ** 16 };
+
+    var effects = abi.OmniControllerEffectExport{
+        .focus_exports = null,
+        .focus_export_count = 0,
+        .route_plans = null,
+        .route_plan_count = 0,
+        .transfer_plans = &transfer_plan,
+        .transfer_plan_count = 1,
+        .refresh_plans = null,
+        .refresh_plan_count = 0,
+        .ui_actions = null,
+        .ui_action_count = 0,
+        .layout_actions = null,
+        .layout_action_count = 0,
+    };
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_ERR_OUT_OF_RANGE), impl.applyEffects(&effects));
+    try std.testing.expectEqual(@as(usize, 1), host_state.count);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_ERR_OUT_OF_RANGE), host_state.last_code);
+    try std.testing.expect(types.nameEquals(host_state.last_message, "transfer plan application failed"));
 }
 
 test "wm controller snapshot preserves niri node and column ids across syncs and empty transitions" {
@@ -6240,6 +7035,56 @@ test "wm controller niri mutation actions update runtime-backed layout state" {
     try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.snapshotWorkspaceLayoutRuntime(workspace_id.bytes, &fullscreen_export));
     try std.testing.expectEqual(@as(u8, 1), fullscreen_export.columns[selected_column_index].is_full_width);
     try std.testing.expect(findRuntimeWindowIndex(fullscreen_export, second_handle.bytes) != null);
+}
+
+test "wm controller niri mutation actions are no-op when selection is missing" {
+    const workspace_runtime_owner = try createStartedWorkspaceRuntimeForTest();
+    defer workspace_runtime.omni_workspace_runtime_destroy_impl(workspace_runtime_owner);
+
+    const workspace_id = try seedWorkspaceForTest(workspace_runtime_owner, 33);
+    _ = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 1601, 2601, null);
+    _ = try upsertManagedWindowForTest(workspace_runtime_owner, workspace_id, 1602, 2602, null);
+
+    const impl = try createControllerImplForTest(workspace_runtime_owner);
+    defer omni_wm_controller_destroy_impl(@ptrCast(impl));
+
+    const state_export = try exportWorkspaceStateForTest(workspace_runtime_owner);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.syncWorkspaceLayoutRuntimes(state_export));
+
+    impl.focused_window = null;
+    impl.clearWorkspaceSelectionCache(workspace_id.bytes);
+    impl.clearLastFocusedWindow(workspace_id.bytes);
+    try std.testing.expect(impl.selected_node_by_workspace.get(workspace_id.bytes) == null);
+    try std.testing.expect(impl.last_focused_by_workspace.get(workspace_id.bytes) == null);
+
+    var before_export = std.mem.zeroes(abi.OmniNiriRuntimeStateExport);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.snapshotWorkspaceLayoutRuntime(workspace_id.bytes, &before_export));
+    try std.testing.expectEqual(@as(usize, 2), before_export.column_count);
+
+    const move_window_action = abi.OmniControllerLayoutAction{
+        .kind = abi.OMNI_CONTROLLER_LAYOUT_ACTION_MOVE_DIRECTION,
+        .direction = abi.OMNI_NIRI_DIRECTION_RIGHT,
+        .index = 0,
+        .flag = 0,
+    };
+    const move_column_action = abi.OmniControllerLayoutAction{
+        .kind = abi.OMNI_CONTROLLER_LAYOUT_ACTION_MOVE_COLUMN_DIRECTION,
+        .direction = abi.OMNI_NIRI_DIRECTION_RIGHT,
+        .index = 0,
+        .flag = 0,
+    };
+
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyNiriMutationAction(state_export, move_window_action));
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.applyNiriMutationAction(state_export, move_column_action));
+
+    var after_export = std.mem.zeroes(abi.OmniNiriRuntimeStateExport);
+    try std.testing.expectEqual(@as(i32, abi.OMNI_OK), impl.snapshotWorkspaceLayoutRuntime(workspace_id.bytes, &after_export));
+    try std.testing.expectEqual(before_export.column_count, after_export.column_count);
+    try std.testing.expectEqual(before_export.window_count, after_export.window_count);
+    try std.testing.expectEqual(before_export.columns[0].column_id, after_export.columns[0].column_id);
+    try std.testing.expectEqual(before_export.columns[1].column_id, after_export.columns[1].column_id);
+    try std.testing.expect(impl.focused_window == null);
+    try std.testing.expect(impl.selected_node_by_workspace.get(workspace_id.bytes) == null);
 }
 
 test "wm controller toggle workspace layout updates sparse layout override export" {

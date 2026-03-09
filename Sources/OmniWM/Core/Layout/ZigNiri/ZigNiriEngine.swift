@@ -5,6 +5,22 @@ import QuartzCore
 final class ZigNiriEngine {
     static let mutationAnimationDuration: TimeInterval = 0.18
     static let workspaceSwitchAnimationDuration: TimeInterval = 0.20
+    enum RuntimeRenderIssueStage: String {
+        case initialRender = "initial_render"
+        case reseedSync = "reseed_sync"
+        case retryRender = "retry_render"
+        case viewportTransition = "viewport_transition"
+    }
+    struct RuntimeRenderIssue {
+        let workspaceId: WorkspaceDescriptor.ID
+        let stage: RuntimeRenderIssueStage
+        let rc: Int32
+        let expectedWindowCount: Int
+        let expectedColumnCount: Int
+        let mappedWindowCount: Int
+        let missingWindowIds: [NodeId]
+        let unmappedOutputWindowIds: [NodeId]
+    }
     private struct RuntimeSelectionAnchor {
         let windowId: NodeId?
         let columnId: NodeId?
@@ -53,6 +69,7 @@ final class ZigNiriEngine {
     private var savedWindowHeightsByNodeId: [NodeId: WeightedSize] = [:]
     private var runtimeRenderFailureCountByWorkspace: [WorkspaceDescriptor.ID: Int] = [:]
     private var runtimeRenderMismatchCountByWorkspace: [WorkspaceDescriptor.ID: Int] = [:]
+    private var latestRuntimeRenderIssueByWorkspace: [WorkspaceDescriptor.ID: RuntimeRenderIssue] = [:]
     private var interactiveMoveState: ZigNiriInteractiveMoveState?
     private var interactiveResizeState: ActiveInteractiveResize?
     private let timeProvider: () -> TimeInterval
@@ -110,6 +127,37 @@ final class ZigNiriEngine {
     func selection(in workspaceId: WorkspaceDescriptor.ID) -> ZigNiriSelection? {
         workspaceViews[workspaceId]?.selection
     }
+    func latestRuntimeRenderIssue(
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> RuntimeRenderIssue? {
+        latestRuntimeRenderIssueByWorkspace[workspaceId]
+    }
+    #if DEBUG
+    @discardableResult
+    func debugStoreWorkspaceView(
+        _ view: ZigNiriWorkspaceView,
+        workspaceId: WorkspaceDescriptor.ID,
+        allowNilWhenRequested: Bool = false
+    ) -> ZigNiriWorkspaceView {
+        storeWorkspaceView(
+            view,
+            workspaceId: workspaceId,
+            allowNilWhenRequested: allowNilWhenRequested
+        )
+    }
+    @discardableResult
+    func debugReseedRuntimeFromWorkspaceView(
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        guard let context = ensureRuntimeContext(for: workspaceId) else {
+            return false
+        }
+        return reseedRuntimeFromWorkspaceView(
+            workspaceId: workspaceId,
+            context: context
+        )
+    }
+    #endif
     func selectedNodeId(in workspaceId: WorkspaceDescriptor.ID) -> NodeId? {
         selection(in: workspaceId)?.selectedNodeId
     }
@@ -349,6 +397,18 @@ final class ZigNiriEngine {
         guard let context = ensureRuntimeContext(for: workspaceId) else {
             return false
         }
+        guard ensureSyncedViewIfNeeded(workspaceId: workspaceId),
+              let view = workspaceViews[workspaceId],
+              view.columns.indices.contains(requestedIndex)
+        else {
+            if layoutContexts[workspaceId] != nil {
+                _ = cancelViewportMotion(
+                    in: workspaceId,
+                    sampleTime: sampleTime
+                )
+            }
+            return false
+        }
         let result = ZigNiriStateKernel.transitionViewportToColumn(
             context: context,
             request: ZigNiriStateKernel.RuntimeViewportTransitionRequest(
@@ -364,7 +424,17 @@ final class ZigNiriEngine {
                 reduceMotion: reduceMotion
             )
         )
-        return result.rc == 0
+        guard result.rc == 0 else {
+            noteRuntimeRenderIssue(
+                workspaceId: workspaceId,
+                stage: .viewportTransition,
+                rc: result.rc,
+                view: view,
+                decoded: nil
+            )
+            return false
+        }
+        return true
     }
 
     @discardableResult
@@ -1216,6 +1286,18 @@ final class ZigNiriEngine {
         let decoded: RuntimeRenderDecodedOutput?
         let animationActive: Bool
     }
+    private struct RuntimeRenderDiagnostics {
+        let expectedWindowCount: Int
+        let expectedColumnCount: Int
+        let mappedWindowCount: Int
+        let missingWindowIds: [NodeId]
+        let unmappedOutputWindowIds: [NodeId]
+        var isMismatch: Bool {
+            mappedWindowCount != expectedWindowCount
+                || !missingWindowIds.isEmpty
+                || !unmappedOutputWindowIds.isEmpty
+        }
+    }
     func calculateLayout(_ request: ZigNiriLayoutRequest) -> ZigNiriLayoutResult {
         let latencyToken = ZigNiriLatencyProbe.begin(.layoutPass)
         defer { ZigNiriLatencyProbe.end(latencyToken) }
@@ -1235,9 +1317,13 @@ final class ZigNiriEngine {
             request: request,
             view: view
         )
+        let firstDiagnostics = runtimeRenderDiagnostics(
+            view: view,
+            decoded: firstAttempt.decoded
+        )
         if let decoded = firstAttempt.decoded,
            firstAttempt.rc == 0,
-           !isRuntimeRenderMismatch(decoded, view: view)
+           !firstDiagnostics.isMismatch
         {
             var persistedView = view
             if persistFrames {
@@ -1250,11 +1336,11 @@ final class ZigNiriEngine {
                 isAnimating: firstAttempt.animationActive
             )
         }
-        if firstAttempt.rc == 0 {
-            runtimeRenderMismatchCountByWorkspace[request.workspaceId, default: 0] += 1
-        } else {
-            runtimeRenderFailureCountByWorkspace[request.workspaceId, default: 0] += 1
-        }
+        incrementRuntimeRenderCounters(
+            workspaceId: request.workspaceId,
+            rc: firstAttempt.rc,
+            diagnostics: firstDiagnostics
+        )
         guard reseedRuntimeFromWorkspaceView(
             workspaceId: request.workspaceId,
             context: context
@@ -1262,17 +1348,26 @@ final class ZigNiriEngine {
             ensureSyncedViewIfNeeded(workspaceId: request.workspaceId),
             let retryView = workspaceViews[request.workspaceId]
         else {
-            assertionFailure("Runtime render reseed failed for workspace \(request.workspaceId)")
-            return fallbackLayoutResult(for: request.workspaceId)
+            return recordRuntimeRenderIssue(
+                workspaceId: request.workspaceId,
+                stage: .reseedSync,
+                rc: firstAttempt.rc,
+                view: view,
+                decoded: firstAttempt.decoded
+            )
         }
         let retryAttempt = attemptRuntimeRenderFromState(
             context: context,
             request: request,
             view: retryView
         )
+        let retryDiagnostics = runtimeRenderDiagnostics(
+            view: retryView,
+            decoded: retryAttempt.decoded
+        )
         if let decoded = retryAttempt.decoded,
            retryAttempt.rc == 0,
-           !isRuntimeRenderMismatch(decoded, view: retryView)
+           !retryDiagnostics.isMismatch
         {
             var persistedView = retryView
             if persistFrames {
@@ -1285,13 +1380,13 @@ final class ZigNiriEngine {
                 isAnimating: retryAttempt.animationActive
             )
         }
-        if retryAttempt.rc == 0 {
-            runtimeRenderMismatchCountByWorkspace[request.workspaceId, default: 0] += 1
-        } else {
-            runtimeRenderFailureCountByWorkspace[request.workspaceId, default: 0] += 1
-        }
-        assertionFailure("Runtime render from state failed after reseed retry in workspace \(request.workspaceId)")
-        return fallbackLayoutResult(for: request.workspaceId)
+        return recordRuntimeRenderIssue(
+            workspaceId: request.workspaceId,
+            stage: .retryRender,
+            rc: retryAttempt.rc,
+            view: retryView,
+            decoded: retryAttempt.decoded
+        )
     }
     private func attemptRuntimeRenderFromState(
         context: ZigNiriLayoutKernel.LayoutContext,
@@ -1471,13 +1566,75 @@ final class ZigNiriEngine {
             unmappedOutputWindowIds: unmappedOutputWindowIds
         )
     }
-    private func isRuntimeRenderMismatch(
-        _ decoded: RuntimeRenderDecodedOutput,
-        view: ZigNiriWorkspaceView
-    ) -> Bool {
-        decoded.mappedWindowCount != view.windowsById.count
-            || !decoded.missingWindowIds.isEmpty
-            || !decoded.unmappedOutputWindowIds.isEmpty
+    private func runtimeRenderDiagnostics(
+        view: ZigNiriWorkspaceView,
+        decoded: RuntimeRenderDecodedOutput?
+    ) -> RuntimeRenderDiagnostics {
+        let sortNodeIds: ([NodeId]) -> [NodeId] = { nodeIds in
+            nodeIds.sorted { $0.uuid.uuidString < $1.uuid.uuidString }
+        }
+        return RuntimeRenderDiagnostics(
+            expectedWindowCount: view.windowsById.count,
+            expectedColumnCount: view.columns.count,
+            mappedWindowCount: decoded?.mappedWindowCount ?? 0,
+            missingWindowIds: sortNodeIds(decoded?.missingWindowIds ?? []),
+            unmappedOutputWindowIds: sortNodeIds(decoded?.unmappedOutputWindowIds ?? [])
+        )
+    }
+    private func incrementRuntimeRenderCounters(
+        workspaceId: WorkspaceDescriptor.ID,
+        rc: Int32,
+        diagnostics: RuntimeRenderDiagnostics
+    ) {
+        if rc == 0, diagnostics.isMismatch {
+            runtimeRenderMismatchCountByWorkspace[workspaceId, default: 0] += 1
+        } else {
+            runtimeRenderFailureCountByWorkspace[workspaceId, default: 0] += 1
+        }
+    }
+    private func noteRuntimeRenderIssue(
+        workspaceId: WorkspaceDescriptor.ID,
+        stage: RuntimeRenderIssueStage,
+        rc: Int32,
+        view: ZigNiriWorkspaceView,
+        decoded: RuntimeRenderDecodedOutput?
+    ) {
+        let diagnostics = runtimeRenderDiagnostics(view: view, decoded: decoded)
+        incrementRuntimeRenderCounters(
+            workspaceId: workspaceId,
+            rc: rc,
+            diagnostics: diagnostics
+        )
+        latestRuntimeRenderIssueByWorkspace[workspaceId] = RuntimeRenderIssue(
+            workspaceId: workspaceId,
+            stage: stage,
+            rc: rc,
+            expectedWindowCount: diagnostics.expectedWindowCount,
+            expectedColumnCount: diagnostics.expectedColumnCount,
+            mappedWindowCount: diagnostics.mappedWindowCount,
+            missingWindowIds: diagnostics.missingWindowIds,
+            unmappedOutputWindowIds: diagnostics.unmappedOutputWindowIds
+        )
+        markWorkspaceDirty(workspaceId)
+        if layoutContexts[workspaceId] != nil {
+            _ = cancelViewportMotion(in: workspaceId)
+        }
+    }
+    private func recordRuntimeRenderIssue(
+        workspaceId: WorkspaceDescriptor.ID,
+        stage: RuntimeRenderIssueStage,
+        rc: Int32,
+        view: ZigNiriWorkspaceView,
+        decoded: RuntimeRenderDecodedOutput?
+    ) -> ZigNiriLayoutResult {
+        noteRuntimeRenderIssue(
+            workspaceId: workspaceId,
+            stage: stage,
+            rc: rc,
+            view: view,
+            decoded: decoded
+        )
+        return fallbackLayoutResult(for: workspaceId)
     }
     private func fallbackLayoutResult(
         for workspaceId: WorkspaceDescriptor.ID,
@@ -1836,6 +1993,7 @@ final class ZigNiriEngine {
             .union(layoutContexts.keys)
             .union(runtimeRenderFailureCountByWorkspace.keys)
             .union(runtimeRenderMismatchCountByWorkspace.keys)
+            .union(latestRuntimeRenderIssueByWorkspace.keys)
             .union(workspaceNodeIds.keys)
         let removedWorkspaceIds = candidateWorkspaceIds.subtracting(activeWorkspaceIds)
         guard !removedWorkspaceIds.isEmpty else { return }
@@ -1852,6 +2010,7 @@ final class ZigNiriEngine {
             layoutContexts.removeValue(forKey: workspaceId)
             runtimeRenderFailureCountByWorkspace.removeValue(forKey: workspaceId)
             runtimeRenderMismatchCountByWorkspace.removeValue(forKey: workspaceId)
+            latestRuntimeRenderIssueByWorkspace.removeValue(forKey: workspaceId)
         }
 
         if let interactiveMoveState, removedWorkspaceIds.contains(interactiveMoveState.workspaceId) {

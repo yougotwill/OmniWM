@@ -998,6 +998,19 @@ pub const WorkspaceManager = struct {
         }
 
         monitor.sortByPosition(self.monitors.items);
+        if (self.active_monitor) |display_id| {
+            if (!self.monitorExists(display_id)) {
+                self.active_monitor = if (monitor.mainOrFirst(self.monitors.items)) |value|
+                    value.display_id
+                else
+                    null;
+            }
+        }
+        if (self.previous_monitor) |display_id| {
+            if (!self.monitorExists(display_id)) {
+                self.previous_monitor = null;
+            }
+        }
         try self.ensureVisibleWorkspaces(previous_monitors.items, windows);
         self.reconcileForcedVisibleWorkspaces();
     }

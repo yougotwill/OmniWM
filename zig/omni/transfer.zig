@@ -44,6 +44,20 @@ fn currentWorkspaceForWindow(state: *const types.RuntimeState, handle_id: types.
     return routing.workspaceById(state, window.workspace_id);
 }
 
+fn isTransferEligibleWindow(window: types.Window) bool {
+    return window.is_managed and !window.is_hidden;
+}
+
+fn validateTransferSourceWindow(
+    state: *const types.RuntimeState,
+    handle_id: types.Uuid,
+) ?struct { window: types.Window, workspace: types.Workspace } {
+    const window = routing.windowByHandle(state, handle_id) orelse return null;
+    if (!isTransferEligibleWindow(window)) return null;
+    const workspace = currentWorkspaceForWindow(state, handle_id) orelse return null;
+    return .{ .window = window, .workspace = workspace };
+}
+
 fn sourceSelectionNodeId(state: *const types.RuntimeState, workspace_id: types.Uuid) ?types.Uuid {
     return state.selected_node_by_workspace.get(workspace_id);
 }
@@ -53,6 +67,9 @@ fn selectedColumnId(state: *const types.RuntimeState, workspace: types.Workspace
     if (selected_node) |node_id| {
         for (state.windows.items) |window| {
             if (!std.mem.eql(u8, &window.workspace_id, &workspace.workspace_id)) {
+                continue;
+            }
+            if (!isTransferEligibleWindow(window)) {
                 continue;
             }
             if (window.column_id) |column_id| {
@@ -70,6 +87,9 @@ fn selectedColumnId(state: *const types.RuntimeState, workspace: types.Workspace
     var best_window: ?types.Window = null;
     for (state.windows.items) |window| {
         if (!std.mem.eql(u8, &window.workspace_id, &workspace.workspace_id)) {
+            continue;
+        }
+        if (!isTransferEligibleWindow(window)) {
             continue;
         }
         if (window.column_id == null) {
@@ -94,6 +114,9 @@ fn appendTransferWindows(
 
     for (state.windows.items) |window| {
         if (!std.mem.eql(u8, &window.workspace_id, &workspace_id)) {
+            continue;
+        }
+        if (!isTransferEligibleWindow(window)) {
             continue;
         }
         if (maybe_column_id) |column_id| {
@@ -187,7 +210,8 @@ pub fn pushTransferPlan(
     follow_focus: bool,
 ) !i32 {
     const focused_window_id = source_window_id orelse state.focused_window orelse return abi.OMNI_ERR_OUT_OF_RANGE;
-    const source_workspace = currentWorkspaceForWindow(state, focused_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    const source = validateTransferSourceWindow(state, focused_window_id) orelse return abi.OMNI_ERR_OUT_OF_RANGE;
+    const source_workspace = source.workspace;
     const source_layout = source_workspace.layout_kind;
     const resolved_target_layout = if (target_workspace) |workspace| workspace.layout_kind else source_layout;
 
@@ -290,4 +314,103 @@ pub fn pushTransferPlan(
 
     try state.effects.transfer_plans.append(state.allocator, plan);
     return abi.OMNI_OK;
+}
+
+fn testUuid(byte: u8) types.Uuid {
+    return [_]u8{byte} ** 16;
+}
+
+fn appendWorkspaceForTest(
+    state: *types.RuntimeState,
+    workspace_id: types.Uuid,
+    name: []const u8,
+) !void {
+    try state.workspaces.append(state.allocator, .{
+        .workspace_id = workspace_id,
+        .assigned_display_id = 1,
+        .is_visible = true,
+        .is_previous_visible = false,
+        .layout_kind = .niri,
+        .name = types.encodeName(name),
+        .selected_node_id = null,
+        .last_focused_window_id = null,
+    });
+}
+
+fn appendWindowForTest(
+    state: *types.RuntimeState,
+    handle_id: types.Uuid,
+    workspace_id: types.Uuid,
+    is_managed: bool,
+    is_hidden: bool,
+) !void {
+    try state.windows.append(state.allocator, .{
+        .handle_id = handle_id,
+        .pid = 100,
+        .window_id = 200,
+        .workspace_id = workspace_id,
+        .layout_kind = .niri,
+        .is_hidden = is_hidden,
+        .is_focused = false,
+        .is_managed = is_managed,
+        .node_id = handle_id,
+        .column_id = testUuid(42),
+        .order_index = 0,
+        .column_index = 0,
+        .row_index = 0,
+    });
+}
+
+test "transfer planning rejects unmanaged source windows" {
+    var state = types.RuntimeState.init(std.testing.allocator);
+    defer state.deinit();
+
+    const workspace_id = testUuid(1);
+    try appendWorkspaceForTest(&state, workspace_id, "1");
+
+    const handle_id = testUuid(10);
+    try appendWindowForTest(&state, handle_id, workspace_id, false, false);
+    state.focused_window = handle_id;
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_ERR_OUT_OF_RANGE),
+        try pushTransferPlan(&state, abi.OMNI_CONTROLLER_TRANSFER_MOVE_WINDOW, null, null, "2", true, null, false),
+    );
+    try std.testing.expectEqual(@as(usize, 0), state.effects.transfer_plans.items.len);
+}
+
+test "transfer planning rejects hidden source windows" {
+    var state = types.RuntimeState.init(std.testing.allocator);
+    defer state.deinit();
+
+    const workspace_id = testUuid(2);
+    try appendWorkspaceForTest(&state, workspace_id, "1");
+
+    const handle_id = testUuid(11);
+    try appendWindowForTest(&state, handle_id, workspace_id, true, true);
+    state.focused_window = handle_id;
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_ERR_OUT_OF_RANGE),
+        try pushTransferPlan(&state, abi.OMNI_CONTROLLER_TRANSFER_MOVE_WINDOW, null, null, "2", true, null, false),
+    );
+    try std.testing.expectEqual(@as(usize, 0), state.effects.transfer_plans.items.len);
+}
+
+test "transfer planning rejects windows outside known workspaces" {
+    var state = types.RuntimeState.init(std.testing.allocator);
+    defer state.deinit();
+
+    try appendWorkspaceForTest(&state, testUuid(3), "1");
+
+    const orphan_workspace_id = testUuid(99);
+    const handle_id = testUuid(12);
+    try appendWindowForTest(&state, handle_id, orphan_workspace_id, true, false);
+    state.focused_window = handle_id;
+
+    try std.testing.expectEqual(
+        @as(i32, abi.OMNI_ERR_OUT_OF_RANGE),
+        try pushTransferPlan(&state, abi.OMNI_CONTROLLER_TRANSFER_MOVE_WINDOW, null, null, "2", true, null, false),
+    );
+    try std.testing.expectEqual(@as(usize, 0), state.effects.transfer_plans.items.len);
 }

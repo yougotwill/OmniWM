@@ -255,17 +255,142 @@ pub const WorkspaceController = struct {
         };
     }
 
-    fn refreshExportState(self: *WorkspaceController) !void {
-        self.export_monitors.clearRetainingCapacity();
-        self.export_workspaces.clearRetainingCapacity();
-        self.export_windows.clearRetainingCapacity();
+    fn validateRuntimeState(self: *const WorkspaceController) !void {
+        try self.windows.validateInvariants();
 
-        try self.export_monitors.ensureTotalCapacity(self.allocator, self.manager.monitors.items.len);
-        try self.export_workspaces.ensureTotalCapacity(self.allocator, self.manager.workspaces.items.len);
-        try self.export_windows.ensureTotalCapacity(self.allocator, self.windows.entries.items.len);
+        if (self.manager.visible_by_monitor.count() != self.manager.monitors.items.len) {
+            std.log.warn(
+                "workspace export validation failed reason=visible_monitor_count_mismatch expected={d} actual={d}",
+                .{ self.manager.monitors.items.len, self.manager.visible_by_monitor.count() },
+            );
+            return error.InvariantViolation;
+        }
+        if (self.manager.visible_by_workspace.count() != self.manager.visible_by_monitor.count()) {
+            std.log.warn(
+                "workspace export validation failed reason=visible_workspace_count_mismatch expected={d} actual={d}",
+                .{ self.manager.visible_by_monitor.count(), self.manager.visible_by_workspace.count() },
+            );
+            return error.InvariantViolation;
+        }
+
+        if (self.manager.active_monitor) |display_id| {
+            if (monitor_model.findByDisplayId(self.manager.monitors.items, display_id) == null) {
+                std.log.warn(
+                    "workspace export validation failed reason=active_monitor_missing display_id={d}",
+                    .{display_id},
+                );
+                return error.InvariantViolation;
+            }
+        }
+        if (self.manager.previous_monitor) |display_id| {
+            if (monitor_model.findByDisplayId(self.manager.monitors.items, display_id) == null) {
+                std.log.warn(
+                    "workspace export validation failed reason=previous_monitor_missing display_id={d}",
+                    .{display_id},
+                );
+                return error.InvariantViolation;
+            }
+        }
+
+        for (self.manager.monitors.items) |monitor| {
+            const workspace_id = self.manager.visible_by_monitor.get(monitor.display_id) orelse {
+                std.log.warn(
+                    "workspace export validation failed reason=missing_visible_workspace display_id={d}",
+                    .{monitor.display_id},
+                );
+                return error.InvariantViolation;
+            };
+            if (!self.manager.workspaceExists(workspace_id)) {
+                std.log.warn(
+                    "workspace export validation failed reason=visible_workspace_missing display_id={d}",
+                    .{monitor.display_id},
+                );
+                return error.InvariantViolation;
+            }
+            const mapped_display_id = self.manager.visible_by_workspace.get(workspace_id) orelse {
+                std.log.warn(
+                    "workspace export validation failed reason=visible_workspace_inverse_missing display_id={d}",
+                    .{monitor.display_id},
+                );
+                return error.InvariantViolation;
+            };
+            if (mapped_display_id != monitor.display_id) {
+                std.log.warn(
+                    "workspace export validation failed reason=visible_workspace_inverse_mismatch display_id={d} mapped_display_id={d}",
+                    .{ monitor.display_id, mapped_display_id },
+                );
+                return error.InvariantViolation;
+            }
+        }
+
+        var visible_it = self.manager.visible_by_workspace.iterator();
+        while (visible_it.next()) |entry| {
+            if (!self.manager.workspaceExists(entry.key_ptr.*)) {
+                std.log.warn("workspace export validation failed reason=unknown_visible_workspace", .{});
+                return error.InvariantViolation;
+            }
+            if (monitor_model.findByDisplayId(self.manager.monitors.items, entry.value_ptr.*) == null) {
+                std.log.warn(
+                    "workspace export validation failed reason=unknown_visible_monitor display_id={d}",
+                    .{entry.value_ptr.*},
+                );
+                return error.InvariantViolation;
+            }
+            const workspace_id = self.manager.visible_by_monitor.get(entry.value_ptr.*) orelse {
+                std.log.warn(
+                    "workspace export validation failed reason=visible_monitor_inverse_missing display_id={d}",
+                    .{entry.value_ptr.*},
+                );
+                return error.InvariantViolation;
+            };
+            if (!std.mem.eql(u8, workspace_id.bytes[0..], entry.key_ptr.*.bytes[0..])) {
+                std.log.warn(
+                    "workspace export validation failed reason=visible_monitor_inverse_mismatch display_id={d}",
+                    .{entry.value_ptr.*},
+                );
+                return error.InvariantViolation;
+            }
+        }
+
+        var previous_it = self.manager.previous_visible_by_monitor.iterator();
+        while (previous_it.next()) |entry| {
+            if (monitor_model.findByDisplayId(self.manager.monitors.items, entry.key_ptr.*) == null) {
+                std.log.warn(
+                    "workspace export validation failed reason=unknown_previous_monitor display_id={d}",
+                    .{entry.key_ptr.*},
+                );
+                return error.InvariantViolation;
+            }
+            if (!self.manager.workspaceExists(entry.value_ptr.*)) {
+                std.log.warn("workspace export validation failed reason=unknown_previous_workspace", .{});
+                return error.InvariantViolation;
+            }
+        }
+
+        for (self.windows.entries.items) |entry| {
+            if (!self.manager.workspaceExists(entry.workspace_id)) {
+                std.log.warn("workspace export validation failed reason=window_workspace_missing", .{});
+                return error.InvariantViolation;
+            }
+        }
+    }
+
+    fn refreshExportState(self: *WorkspaceController) !void {
+        try self.validateRuntimeState();
+
+        var next_export_monitors: std.ArrayListUnmanaged(abi.OmniWorkspaceRuntimeMonitorRecord) = .{};
+        errdefer next_export_monitors.deinit(self.allocator);
+        var next_export_workspaces: std.ArrayListUnmanaged(abi.OmniWorkspaceRuntimeWorkspaceRecord) = .{};
+        errdefer next_export_workspaces.deinit(self.allocator);
+        var next_export_windows: std.ArrayListUnmanaged(abi.OmniWorkspaceRuntimeWindowRecord) = .{};
+        errdefer next_export_windows.deinit(self.allocator);
+
+        try next_export_monitors.ensureTotalCapacity(self.allocator, self.manager.monitors.items.len);
+        try next_export_workspaces.ensureTotalCapacity(self.allocator, self.manager.workspaces.items.len);
+        try next_export_windows.ensureTotalCapacity(self.allocator, self.windows.entries.items.len);
 
         for (self.manager.monitors.items) |value| {
-            try self.export_monitors.append(self.allocator, self.monitorRecord(value));
+            try next_export_monitors.append(self.allocator, self.monitorRecord(value));
         }
 
         for (self.manager.workspaces.items) |workspace| {
@@ -273,7 +398,7 @@ pub const WorkspaceController = struct {
             const visible_monitor = self.manager.visibleMonitorForWorkspace(workspace.id);
             const assigned_anchor = workspace.assigned_anchor orelse monitor_model.Point{ .x = 0, .y = 0 };
 
-            try self.export_workspaces.append(self.allocator, .{
+            try next_export_workspaces.append(self.allocator, .{
                 .workspace_id = workspace.id,
                 .name = workspace.name,
                 .has_assigned_monitor_anchor = if (workspace.assigned_anchor == null) 0 else 1,
@@ -288,7 +413,7 @@ pub const WorkspaceController = struct {
         }
 
         for (self.windows.entries.items) |entry| {
-            try self.export_windows.append(self.allocator, .{
+            try next_export_windows.append(self.allocator, .{
                 .handle_id = entry.handle_id,
                 .pid = entry.key.pid,
                 .window_id = entry.key.window_id,
@@ -313,6 +438,14 @@ pub const WorkspaceController = struct {
                 .layout_reason = entry.layout_reason,
             });
         }
+
+        std.mem.swap(@TypeOf(self.export_monitors), &self.export_monitors, &next_export_monitors);
+        std.mem.swap(@TypeOf(self.export_workspaces), &self.export_workspaces, &next_export_workspaces);
+        std.mem.swap(@TypeOf(self.export_windows), &self.export_windows, &next_export_windows);
+
+        next_export_monitors.deinit(self.allocator);
+        next_export_workspaces.deinit(self.allocator);
+        next_export_windows.deinit(self.allocator);
     }
 };
 
@@ -351,6 +484,29 @@ test "workspace controller tracks window lifecycle" {
     var state_export: abi.OmniWorkspaceRuntimeStateExport = std.mem.zeroes(abi.OmniWorkspaceRuntimeStateExport);
     try controller.exportState(&state_export);
     try std.testing.expectEqual(@as(usize, 0), state_export.window_count);
+}
+
+test "workspace controller preserves previous export when validation fails" {
+    var controller = try WorkspaceController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const first_monitor = controller.manager.monitors.items[0];
+    const workspace_id = (try controller.workspaceIdByName(monitor_model.encodeName("1"), true)).?;
+    try std.testing.expect(controller.setActiveWorkspace(workspace_id, first_monitor.display_id));
+
+    _ = (try controller.windowUpsert(.{
+        .pid = 777,
+        .window_id = 888,
+        .workspace_id = workspace_id,
+        .has_handle_id = 0,
+        .handle_id = .{ .bytes = [_]u8{0} ** 16 },
+    })).?;
+
+    try std.testing.expectEqual(@as(usize, 1), controller.export_windows.items.len);
+    _ = controller.windows.index_by_key.remove(.{ .pid = 777, .window_id = 888 });
+
+    try std.testing.expectError(error.InvariantViolation, controller.refreshExportState());
+    try std.testing.expectEqual(@as(usize, 1), controller.export_windows.items.len);
 }
 
 fn testMonitorSnapshot(

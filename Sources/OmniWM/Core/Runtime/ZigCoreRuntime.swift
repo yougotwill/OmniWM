@@ -59,6 +59,15 @@ private func zigCoreRuntimeLifecycleErrorBridge(
     return runtime.handleLifecycleErrorCallback(code: code, message: message)
 }
 
+private enum ZigCoreRuntimeHostCallbackAction: Sendable {
+    case secureInputChanged(Bool)
+    case tapHealthNotification(UInt8, UInt8)
+    case applyEffects([UInt8])
+    case reportError(Int32, String)
+    case lifecycleStateChanged(UInt8)
+    case lifecycleError(Int32, String)
+}
+
 @MainActor
 final class ZigCoreRuntime {
     weak var controller: WMController?
@@ -72,6 +81,12 @@ final class ZigCoreRuntime {
 
     private var hotkeyCommandByBindingId: [String: HotkeyCommand] = [:]
     private var secureInputState: Bool = false
+
+#if DEBUG
+    var debugOnUIActionsDispatched: (([UInt8]) -> Void)?
+    var debugOnControllerErrorDispatched: ((Int32, String) -> Void)?
+    private(set) var debugSnapshotInvalidationCount: Int = 0
+#endif
 
     init(workspaceRuntimeHandle: OpaquePointer) {
         createRuntimes(workspaceRuntimeHandle: workspaceRuntimeHandle)
@@ -124,7 +139,7 @@ final class ZigCoreRuntime {
         registrationFailures.removeAll(keepingCapacity: false)
         secureInputState = false
         onSecureInputStateChange?(false)
-        controller?.invalidateControllerSnapshot()
+        invalidateControllerSnapshot()
     }
 
     func setHotkeysEnabled(_ enabled: Bool, settings: SettingsStore) {
@@ -326,11 +341,11 @@ final class ZigCoreRuntime {
         refreshLifecycleState()
 
         guard started, let wmControllerRuntime else {
-            controller?.invalidateControllerSnapshot()
+            invalidateControllerSnapshot()
             return
         }
         guard let snapshotExport = WMControllerSnapshotAdapter.flushAndCapture(runtime: wmControllerRuntime) else {
-            controller?.invalidateControllerSnapshot(refreshUI: false)
+            invalidateControllerSnapshot(refreshUI: false)
             controller?.syncExperimentalProjectionsFromCore(changedWorkspaceIds: nil)
             updateSecureInputStateFromRuntime()
             return
@@ -347,19 +362,11 @@ final class ZigCoreRuntime {
     }
 
     nonisolated fileprivate func handleSecureInputChangedCallback(_ isSecureInputActive: UInt8) -> Int32 {
-        MainActor.assumeIsolated {
-            let isSecure = isSecureInputActive != 0
-            secureInputState = isSecure
-            onSecureInputStateChange?(isSecure)
-            return Int32(OMNI_OK)
-        }
+        enqueueHostCallback(.secureInputChanged(isSecureInputActive != 0))
     }
 
     nonisolated fileprivate func handleTapHealthCallback(tapKind: UInt8, reason: UInt8) -> Int32 {
-        MainActor.assumeIsolated {
-            onTapHealthNotification?(tapKind, reason)
-        }
-        return Int32(OMNI_OK)
+        enqueueHostCallback(.tapHealthNotification(tapKind, reason))
     }
 
     nonisolated fileprivate func handleWMApplyEffectsCallback(
@@ -375,42 +382,25 @@ final class ZigCoreRuntime {
         } else {
             uiActionKinds = []
         }
-        MainActor.assumeIsolated {
-            dispatchUIActions(uiActionKinds)
-        }
-        return Int32(OMNI_OK)
+        return enqueueHostCallback(.applyEffects(uiActionKinds))
     }
 
     nonisolated fileprivate func handleWMReportErrorCallback(
         code: Int32,
         message: OmniControllerName
     ) -> Int32 {
-        MainActor.assumeIsolated {
-            dispatchControllerError(code: code, message: Self.string(from: message))
-        }
-        return Int32(OMNI_OK)
+        enqueueHostCallback(.reportError(code, Self.string(from: message)))
     }
 
     nonisolated fileprivate func handleLifecycleStateChangedCallback(_ state: UInt8) -> Int32 {
-        MainActor.assumeIsolated {
-            started = state == Self.rawEnumValue(OMNI_SERVICE_LIFECYCLE_STATE_RUNNING)
-            if !started {
-                controller?.invalidateControllerSnapshot()
-            }
-        }
-        return Int32(OMNI_OK)
+        enqueueHostCallback(.lifecycleStateChanged(state))
     }
 
     nonisolated fileprivate func handleLifecycleErrorCallback(
         code: Int32,
         message: OmniControllerName
     ) -> Int32 {
-        MainActor.assumeIsolated {
-            started = false
-            controller?.invalidateControllerSnapshot()
-            dispatchControllerError(code: code, message: Self.string(from: message))
-        }
-        return Int32(OMNI_OK)
+        enqueueHostCallback(.lifecycleError(code, Self.string(from: message)))
     }
 
     private func createRuntimes(workspaceRuntimeHandle: OpaquePointer) {
@@ -489,7 +479,7 @@ final class ZigCoreRuntime {
         }
 
         started = false
-        controller?.invalidateControllerSnapshot()
+        invalidateControllerSnapshot()
     }
 
     private func refreshLifecycleState() {
@@ -551,6 +541,9 @@ final class ZigCoreRuntime {
     }
 
     private func dispatchUIActions(_ uiActionKinds: [UInt8]) {
+#if DEBUG
+        debugOnUIActionsDispatched?(uiActionKinds)
+#endif
         for kind in uiActionKinds {
             switch kind {
             case Self.rawEnumValue(OMNI_CONTROLLER_UI_OPEN_WINDOW_FINDER):
@@ -580,8 +573,119 @@ final class ZigCoreRuntime {
     }
 
     private func dispatchControllerError(code: Int32, message: String) {
+#if DEBUG
+        debugOnControllerErrorDispatched?(code, message)
+#endif
         controller?.handleZigCoreRuntimeError(code: code, message: message)
     }
+
+    private func invalidateControllerSnapshot(refreshUI: Bool = true) {
+#if DEBUG
+        debugSnapshotInvalidationCount += 1
+#endif
+        controller?.invalidateControllerSnapshot(refreshUI: refreshUI)
+    }
+
+    nonisolated private func enqueueHostCallback(_ action: ZigCoreRuntimeHostCallbackAction) -> Int32 {
+        let runtimePtr = Unmanaged.passRetained(self).toOpaque()
+        Task { @MainActor in
+            let runtime = Unmanaged<ZigCoreRuntime>.fromOpaque(runtimePtr).takeRetainedValue()
+            runtime.applyHostCallback(action)
+        }
+        return Int32(OMNI_OK)
+    }
+
+    private func applyHostCallback(_ action: ZigCoreRuntimeHostCallbackAction) {
+        switch action {
+        case let .secureInputChanged(isSecure):
+            secureInputState = isSecure
+            onSecureInputStateChange?(isSecure)
+        case let .tapHealthNotification(tapKind, reason):
+            onTapHealthNotification?(tapKind, reason)
+        case let .applyEffects(uiActionKinds):
+            dispatchUIActions(uiActionKinds)
+        case let .reportError(code, message):
+            dispatchControllerError(code: code, message: message)
+        case let .lifecycleStateChanged(state):
+            started = state == Self.rawEnumValue(OMNI_SERVICE_LIFECYCLE_STATE_RUNNING)
+            if !started {
+                invalidateControllerSnapshot()
+            }
+        case let .lifecycleError(code, message):
+            started = false
+            invalidateControllerSnapshot()
+            dispatchControllerError(code: code, message: message)
+        }
+    }
+
+#if DEBUG
+    nonisolated func debugInvokeSecureInputChangedOffMain(_ isSecure: Bool) async {
+        await debugInvokeOffMain { runtime in
+            _ = runtime.handleSecureInputChangedCallback(isSecure ? 1 : 0)
+        }
+    }
+
+    nonisolated func debugInvokeTapHealthOffMain(tapKind: UInt8, reason: UInt8) async {
+        await debugInvokeOffMain { runtime in
+            _ = runtime.handleTapHealthCallback(tapKind: tapKind, reason: reason)
+        }
+    }
+
+    nonisolated func debugInvokeWMApplyEffectsOffMain(_ uiActionKinds: [UInt8]) async {
+        await debugInvokeOffMain { runtime in
+            var rawActions = uiActionKinds.map { OmniControllerUiAction(kind: $0) }
+            var export = OmniControllerEffectExport(
+                focus_exports: nil,
+                focus_export_count: 0,
+                route_plans: nil,
+                route_plan_count: 0,
+                transfer_plans: nil,
+                transfer_plan_count: 0,
+                refresh_plans: nil,
+                refresh_plan_count: 0,
+                ui_actions: nil,
+                ui_action_count: rawActions.count,
+                layout_actions: nil,
+                layout_action_count: 0
+            )
+            rawActions.withUnsafeMutableBufferPointer { buffer in
+                export.ui_actions = buffer.baseAddress.map { UnsafePointer($0) }
+                withUnsafePointer(to: &export) { exportPtr in
+                    _ = runtime.handleWMApplyEffectsCallback(exportPtr)
+                }
+            }
+        }
+    }
+
+    nonisolated func debugInvokeWMReportErrorOffMain(code: Int32, message: String) async {
+        await debugInvokeOffMain { runtime in
+            _ = runtime.handleWMReportErrorCallback(code: code, message: Self.rawControllerName(from: message))
+        }
+    }
+
+    nonisolated func debugInvokeLifecycleStateChangedOffMain(_ state: UInt8) async {
+        await debugInvokeOffMain { runtime in
+            _ = runtime.handleLifecycleStateChangedCallback(state)
+        }
+    }
+
+    nonisolated func debugInvokeLifecycleErrorOffMain(code: Int32, message: String) async {
+        await debugInvokeOffMain { runtime in
+            _ = runtime.handleLifecycleErrorCallback(code: code, message: Self.rawControllerName(from: message))
+        }
+    }
+
+    nonisolated private func debugInvokeOffMain(
+        _ body: @escaping @Sendable (ZigCoreRuntime) -> Void
+    ) async {
+        let runtimePtr = Unmanaged.passRetained(self).toOpaque()
+        await Task.detached {
+            let runtime = Unmanaged<ZigCoreRuntime>.fromOpaque(runtimePtr).takeRetainedValue()
+            body(runtime)
+        }.value
+        _ = await Task { @MainActor in () }.value
+    }
+#endif
 
     private func updateSecureInputStateFromRuntime() {
         guard let wmControllerRuntime else { return }
@@ -646,7 +750,7 @@ final class ZigCoreRuntime {
         return nil
     }
 
-    private static func rawBindingId(from string: String) -> OmniInputBindingId {
+    nonisolated private static func rawBindingId(from string: String) -> OmniInputBindingId {
         var result = OmniInputBindingId()
         let utf8 = Array(string.utf8.prefix(Int(OMNI_INPUT_BINDING_ID_CAP)))
         result.length = UInt8(utf8.count)
@@ -657,7 +761,7 @@ final class ZigCoreRuntime {
         return result
     }
 
-    private static func string(from rawBindingId: OmniInputBindingId) -> String {
+    nonisolated private static func string(from rawBindingId: OmniInputBindingId) -> String {
         let length = min(Int(rawBindingId.length), Int(OMNI_INPUT_BINDING_ID_CAP))
         let bytes: [UInt8] = withUnsafeBytes(of: rawBindingId.bytes) { rawBuffer in
             Array(rawBuffer.prefix(length))
@@ -665,7 +769,7 @@ final class ZigCoreRuntime {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private static func string(from rawName: OmniControllerName) -> String {
+    nonisolated private static func string(from rawName: OmniControllerName) -> String {
         let length = min(Int(rawName.length), Int(OMNI_CONTROLLER_NAME_CAP))
         let bytes: [UInt8] = withUnsafeBytes(of: rawName.bytes) { rawBuffer in
             Array(rawBuffer.prefix(length))
@@ -673,7 +777,7 @@ final class ZigCoreRuntime {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private static func rawControllerName(from string: String) -> OmniControllerName {
+    nonisolated private static func rawControllerName(from string: String) -> OmniControllerName {
         var result = OmniControllerName()
         let utf8 = Array(string.utf8.prefix(Int(OMNI_CONTROLLER_NAME_CAP)))
         result.length = UInt8(utf8.count)
@@ -684,7 +788,7 @@ final class ZigCoreRuntime {
         return result
     }
 
-    private static func rawOrientation(from orientation: Monitor.Orientation) -> UInt8 {
+    nonisolated private static func rawOrientation(from orientation: Monitor.Orientation) -> UInt8 {
         switch orientation {
         case .horizontal:
             return rawEnumValue(OMNI_NIRI_ORIENTATION_HORIZONTAL)
@@ -693,7 +797,7 @@ final class ZigCoreRuntime {
         }
     }
 
-    private static func rawCenterMode(from centerMode: CenterFocusedColumn) -> UInt8 {
+    nonisolated private static func rawCenterMode(from centerMode: CenterFocusedColumn) -> UInt8 {
         switch centerMode {
         case .never:
             return rawEnumValue(OMNI_CENTER_NEVER)
@@ -704,7 +808,7 @@ final class ZigCoreRuntime {
         }
     }
 
-    private static func aspectComponents(from ratio: SingleWindowAspectRatio) -> (width: Double, height: Double) {
+    nonisolated private static func aspectComponents(from ratio: SingleWindowAspectRatio) -> (width: Double, height: Double) {
         switch ratio {
         case .none:
             return (0, 0)
@@ -719,7 +823,7 @@ final class ZigCoreRuntime {
         }
     }
 
-    private static func rawControllerLayoutKind(from layoutType: LayoutType) -> UInt8 {
+    nonisolated private static func rawControllerLayoutKind(from layoutType: LayoutType) -> UInt8 {
         switch layoutType {
         case .defaultLayout:
             return rawEnumValue(OMNI_CONTROLLER_LAYOUT_DEFAULT)
@@ -730,7 +834,7 @@ final class ZigCoreRuntime {
         }
     }
 
-    private static func layoutType(fromControllerLayoutKind rawKind: UInt8) -> LayoutType? {
+    nonisolated private static func layoutType(fromControllerLayoutKind rawKind: UInt8) -> LayoutType? {
         switch rawKind {
         case rawEnumValue(OMNI_CONTROLLER_LAYOUT_NIRI):
             return .niri
@@ -741,7 +845,7 @@ final class ZigCoreRuntime {
         }
     }
 
-    private static func rawEnumValue<T: RawRepresentable>(_ value: T) -> UInt8 where T.RawValue: BinaryInteger {
+    nonisolated private static func rawEnumValue<T: RawRepresentable>(_ value: T) -> UInt8 where T.RawValue: BinaryInteger {
         UInt8(clamping: Int(value.rawValue))
     }
 }
