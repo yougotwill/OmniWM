@@ -385,7 +385,6 @@ private func makeSettingsTestMonitor(
             scrollModifierKey: "option",
             gestureFingerCount: 4,
             gestureInvertDirection: true,
-            animationsEnabled: false,
             menuAnywhereNativeEnabled: false,
             menuAnywherePaletteEnabled: true,
             menuAnywherePosition: "center",
@@ -406,13 +405,9 @@ private func makeSettingsTestMonitor(
 }
 
 @Suite struct IncrementalSettingsExportTests {
-    @Test func defaultsPreserveAnimationsEnabled() {
-        #expect(SettingsExport.defaults().animationsEnabled)
-    }
-
-    @Test func incrementalExportKeepsChangedAnimationsAndOmitsDefaultHotkeys() throws {
+    @Test func incrementalExportOmitsRemovedAnimationsKeyAndDefaultHotkeys() throws {
         var export = SettingsExport.defaults()
-        export.animationsEnabled = false
+        export.menuAnywherePaletteEnabled = false
 
         let data = try export.exportData(incrementalOnly: true)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -420,7 +415,8 @@ private func makeSettingsTestMonitor(
             return
         }
 
-        #expect((json["animationsEnabled"] as? Bool) == false)
+        #expect(json["animationsEnabled"] == nil)
+        #expect((json["menuAnywherePaletteEnabled"] as? Bool) == false)
         #expect(json["hotkeyBindings"] == nil)
     }
 
@@ -444,7 +440,31 @@ private func makeSettingsTestMonitor(
 
         #expect(merged.hotkeyBindings[0].binding == updatedBinding)
         #expect(merged.hotkeyBindings[1].binding == defaults.hotkeyBindings[1].binding)
-        #expect(merged.animationsEnabled == defaults.animationsEnabled)
+    }
+
+    @Test func legacyAnimationsEnabledKeyIsIgnoredOnImportAndOmittedOnReexport() throws {
+        let rawData = Data(
+            """
+            {
+              "version": 1,
+              "animationsEnabled": false,
+              "menuAnywherePaletteEnabled": false
+            }
+            """.utf8
+        )
+
+        let mergedData = try SettingsExport.mergedImportData(from: rawData)
+        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
+        #expect(decoded.menuAnywherePaletteEnabled == false)
+
+        let reexported = try decoded.exportData(incrementalOnly: false)
+        guard let json = try JSONSerialization.jsonObject(with: reexported) as? [String: Any] else {
+            Issue.record("Expected re-export to produce a JSON object")
+            return
+        }
+
+        #expect(json["animationsEnabled"] == nil)
+        #expect((json["menuAnywherePaletteEnabled"] as? Bool) == false)
     }
 }
 

@@ -71,8 +71,6 @@ struct SettingsExport: Codable {
     var gestureFingerCount: Int
     var gestureInvertDirection: Bool
 
-    var animationsEnabled: Bool
-
     var menuAnywhereNativeEnabled: Bool
     var menuAnywherePaletteEnabled: Bool
     var menuAnywherePosition: String
@@ -149,7 +147,6 @@ extension SettingsExport {
             scrollModifierKey: ScrollModifierKey.optionShift.rawValue,
             gestureFingerCount: GestureFingerCount.three.rawValue,
             gestureInvertDirection: true,
-            animationsEnabled: true,
             menuAnywhereNativeEnabled: true,
             menuAnywherePaletteEnabled: true,
             menuAnywherePosition: MenuAnywherePosition.cursor.rawValue,
@@ -335,7 +332,6 @@ extension SettingsStore {
             scrollModifierKey: scrollModifierKey.rawValue,
             gestureFingerCount: gestureFingerCount.rawValue,
             gestureInvertDirection: gestureInvertDirection,
-            animationsEnabled: animationsEnabled,
             menuAnywhereNativeEnabled: menuAnywhereNativeEnabled,
             menuAnywherePaletteEnabled: menuAnywherePaletteEnabled,
             menuAnywherePosition: menuAnywherePosition.rawValue,
@@ -429,8 +425,6 @@ extension SettingsStore {
         scrollModifierKey = ScrollModifierKey(rawValue: export.scrollModifierKey) ?? .optionShift
         gestureFingerCount = GestureFingerCount(rawValue: export.gestureFingerCount) ?? .three
         gestureInvertDirection = export.gestureInvertDirection
-
-        animationsEnabled = export.animationsEnabled
 
         menuAnywhereNativeEnabled = export.menuAnywhereNativeEnabled
         menuAnywherePaletteEnabled = export.menuAnywherePaletteEnabled
