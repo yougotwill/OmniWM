@@ -170,7 +170,7 @@ import QuartzCore
 
     private func finalizeAnimation() {
         guard let controller,
-              let focusedHandle = controller.focusedHandle,
+              let focusedHandle = controller.workspaceManager.focusedHandle,
               let entry = controller.workspaceManager.entry(for: focusedHandle),
               let engine = controller.niriEngine
         else { return }
@@ -191,7 +191,7 @@ import QuartzCore
         direct: Bool
     ) {
         guard let controller,
-              let focusedHandle = controller.focusedHandle else { return }
+              let focusedHandle = controller.workspaceManager.focusedHandle else { return }
 
         if hiddenHandles[focusedHandle] != nil {
             controller.borderManager.hideBorder()
@@ -366,7 +366,7 @@ import QuartzCore
             windowHandles,
             in: pass.wsId,
             selectedNodeId: currentSelection,
-            focusedHandle: controller.focusedHandle
+            focusedHandle: controller.workspaceManager.focusedHandle
         )
         let newHandles = windowHandles.filter { !removal.existingHandleIds.contains($0.id) }
 
@@ -491,13 +491,21 @@ import QuartzCore
         if let selectedId = state.selectedNodeId,
            let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
         {
-            controller.focusManager.updateWorkspaceFocusMemory(selectedNode.handle, for: pass.wsId)
-            if let currentFocused = controller.focusedHandle {
+            _ = controller.workspaceManager.rememberFocus(selectedNode.handle, in: pass.wsId)
+            if let currentFocused = controller.workspaceManager.focusedHandle {
                 if controller.workspaceManager.workspace(for: currentFocused) == pass.wsId {
-                    controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+                    _ = controller.workspaceManager.setManagedFocus(
+                        selectedNode.handle,
+                        in: pass.wsId,
+                        onMonitor: controller.workspaceManager.monitorId(for: pass.wsId)
+                    )
                 }
             } else {
-                controller.focusManager.setFocus(selectedNode.handle, in: pass.wsId)
+                _ = controller.workspaceManager.setManagedFocus(
+                    selectedNode.handle,
+                    in: pass.wsId,
+                    onMonitor: controller.workspaceManager.monitorId(for: pass.wsId)
+                )
             }
         }
 
@@ -556,7 +564,11 @@ import QuartzCore
                     state.activatePrevColumnOnRemoval = offsetBeforeActivation
                 }
             }
-            controller.focusManager.setFocus(newHandle, in: pass.wsId)
+            _ = controller.workspaceManager.setManagedFocus(
+                newHandle,
+                in: pass.wsId,
+                onMonitor: controller.workspaceManager.monitorId(for: pass.wsId)
+            )
             pass.engine.updateFocusTimestamp(for: newNode.id)
             newWindowHandle = newHandle
         }
@@ -973,7 +985,11 @@ import QuartzCore
             if options.updateTimestamp {
                 engine.updateFocusTimestamp(for: windowNode.id)
             }
-            controller.focusManager.setFocus(windowNode.handle, in: workspaceId)
+            _ = controller.workspaceManager.setManagedFocus(
+                windowNode.handle,
+                in: workspaceId,
+                onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+            )
         }
 
         if options.layoutRefresh {

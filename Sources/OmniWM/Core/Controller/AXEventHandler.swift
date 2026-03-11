@@ -85,7 +85,7 @@ final class AXEventHandler: CGSEventDelegate {
 
     private func handleWindowMoveOrResize(windowId: UInt32) {
         guard let controller else { return }
-        guard let focusedHandle = controller.focusedHandle,
+        guard let focusedHandle = controller.workspaceManager.focusedHandle,
               let entry = controller.workspaceManager.entry(for: focusedHandle),
               entry.windowId == Int(windowId)
         else { return }
@@ -138,12 +138,6 @@ final class AXEventHandler: CGSEventDelegate {
                controller.workspaceManager.workspaces(on: monitor.id)
                .contains(where: { $0.id == workspaceId })
             {
-                if let currentMonitorId = controller.activeMonitorId ?? controller.monitorForInteraction()?.id,
-                    currentMonitorId != monitor.id
-                {
-                    controller.previousMonitorId = currentMonitorId
-                }
-                controller.activeMonitorId = monitor.id
                 _ = controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitor.id)
             }
         }
@@ -190,10 +184,10 @@ final class AXEventHandler: CGSEventDelegate {
             }
         }
 
-        let needsFocusRecovery = removedHandle?.id == controller.focusedHandle?.id
+        let needsFocusRecovery = removedHandle?.id == controller.workspaceManager.focusedHandle?.id
 
         if let removed = removedHandle {
-            controller.focusManager.handleWindowRemoved(removed, in: affectedWorkspaceId)
+            controller.focusManager.discardPendingFocus(removed)
         }
 
         var oldFrames: [WindowHandle: CGRect] = [:]
@@ -205,15 +199,10 @@ final class AXEventHandler: CGSEventDelegate {
             }
         }
 
-        controller.workspaceManager.removeWindow(pid: pid, windowId: winId)
+        _ = controller.workspaceManager.removeWindow(pid: pid, windowId: winId)
 
         if needsFocusRecovery, let wsId = affectedWorkspaceId {
-            controller.focusManager.ensureFocusedHandleValid(
-                in: wsId,
-                engine: controller.niriEngine,
-                workspaceManager: controller.workspaceManager,
-                focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
-            )
+            controller.ensureFocusedHandleValid(in: wsId)
         }
 
         if let wsId = affectedWorkspaceId {
@@ -243,7 +232,7 @@ final class AXEventHandler: CGSEventDelegate {
             }
         }
 
-        if let focused = controller.focusedHandle,
+        if let focused = controller.workspaceManager.focusedHandle,
            let entry = controller.workspaceManager.entry(for: focused),
            let frame = try? AXWindowService.frame(entry.axRef)
         {
@@ -261,15 +250,13 @@ final class AXEventHandler: CGSEventDelegate {
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
 
         guard result == .success, let windowElement = focusedWindow else {
-            controller.focusManager.setNonManagedFocus(active: true)
-            controller.focusManager.setAppFullscreen(active: false)
+            _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
             controller.borderManager.hideBorder()
             return
         }
 
         guard let axRef = try? AXWindowRef(element: windowElement as! AXUIElement) else {
-            controller.focusManager.setNonManagedFocus(active: true)
-            controller.focusManager.setAppFullscreen(active: false)
+            _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
             controller.borderManager.hideBorder()
             return
         }
@@ -277,7 +264,6 @@ final class AXEventHandler: CGSEventDelegate {
 
         if let entry = controller.workspaceManager.entry(forPid: pid, windowId: winId) {
             let wsId = entry.workspaceId
-            controller.focusManager.setNonManagedFocus(active: false)
 
             let targetMonitor = controller.workspaceManager.monitor(for: wsId)
             let isWorkspaceActive = targetMonitor.map { monitor in
@@ -286,13 +272,7 @@ final class AXEventHandler: CGSEventDelegate {
 
             if !isWorkspaceActive && !controller.isTransferringWindow {
                 let wsName = controller.workspaceManager.descriptor(for: wsId)?.name ?? ""
-                if let result = controller.workspaceManager.focusWorkspace(named: wsName) {
-                    let currentMonitorId = controller.activeMonitorId
-                        ?? controller.monitorForInteraction()?.id
-                    if let currentMonitorId, currentMonitorId != result.monitor.id {
-                        controller.previousMonitorId = currentMonitorId
-                    }
-                    controller.activeMonitorId = result.monitor.id
+                if controller.workspaceManager.focusWorkspace(named: wsName) != nil {
                     controller.syncMonitorsToNiriEngine()
                 }
             }
@@ -301,16 +281,16 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
-        controller.focusManager.setNonManagedFocus(active: true)
-        controller.focusManager.setAppFullscreen(active: false)
+        _ = controller.workspaceManager.enterNonManagedFocus(appFullscreen: false)
         controller.borderManager.hideBorder()
     }
 
     func handleManagedAppActivation(entry: WindowModel.Entry, isWorkspaceActive: Bool) {
         guard let controller else { return }
         let wsId = entry.workspaceId
+        let monitorId = controller.workspaceManager.monitorId(for: wsId)
 
-        controller.focusManager.setFocus(entry.handle, in: wsId)
+        _ = controller.workspaceManager.setManagedFocus(entry.handle, in: wsId, onMonitor: monitorId)
 
         if let engine = controller.niriEngine,
            let node = engine.findNode(for: entry.handle),

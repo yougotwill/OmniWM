@@ -45,8 +45,7 @@ private func makeRefreshTestController() -> WMController {
         windowFocusOperations: operations
     )
     let monitor = makeRefreshTestMonitor()
-    controller.workspaceManager.updateMonitors([monitor])
-    controller.workspaceManager.reconcileAfterMonitorChange()
+    controller.workspaceManager.applyMonitorConfigurationChange([monitor])
     return controller
 }
 
@@ -143,7 +142,11 @@ private func addFocusedWindow(
         windowId: windowId,
         to: workspaceId
     )
-    controller.focusManager.setFocus(handle, in: workspaceId)
+    _ = controller.workspaceManager.setManagedFocus(
+        handle,
+        in: workspaceId,
+        onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+    )
     return handle
 }
 
@@ -173,8 +176,7 @@ private func makeTwoMonitorRefreshTestController() -> (
     let controller = makeRefreshTestController()
     let primaryMonitor = makeRefreshTestMonitor()
     let secondaryMonitor = makeRefreshTestMonitor(displayId: 2, name: "Secondary", x: 1920)
-    controller.workspaceManager.updateMonitors([primaryMonitor, secondaryMonitor])
-    controller.workspaceManager.reconcileAfterMonitorChange()
+    controller.workspaceManager.applyMonitorConfigurationChange([primaryMonitor, secondaryMonitor])
 
     guard let primaryWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: primaryMonitor.id)?.id,
           let secondaryWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true)
@@ -184,7 +186,7 @@ private func makeTwoMonitorRefreshTestController() -> (
 
     controller.workspaceManager.assignWorkspaceToMonitor(secondaryWorkspaceId, monitorId: secondaryMonitor.id)
     _ = controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id)
-    controller.activeMonitorId = primaryMonitor.id
+    _ = controller.workspaceManager.setInteractionMonitor(primaryMonitor.id)
 
     return (controller, primaryMonitor, secondaryMonitor, primaryWorkspaceId, secondaryWorkspaceId)
 }
@@ -212,13 +214,17 @@ private func prepareNiriState(
         )
         handlesByWindowId[windowId] = handle
         workspaceByWindowId[windowId] = workspaceId
-        controller.focusManager.updateWorkspaceFocusMemory(handle, for: workspaceId)
+        _ = controller.workspaceManager.rememberFocus(handle, in: workspaceId)
     }
 
     if let focusedHandle = handlesByWindowId[focusedWindowId],
        let focusedWorkspaceId = workspaceByWindowId[focusedWindowId]
     {
-        controller.focusManager.setFocus(focusedHandle, in: focusedWorkspaceId)
+        _ = controller.workspaceManager.setManagedFocus(
+            focusedHandle,
+            in: focusedWorkspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: focusedWorkspaceId)
+        )
     }
 
     guard let engine = controller.niriEngine else {
@@ -229,7 +235,7 @@ private func prepareNiriState(
     for workspaceId in workspaceIds {
         let handles = controller.workspaceManager.entries(in: workspaceId).map(\.handle)
         let selectedNodeId = controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId
-        let focusedHandle = controller.focusManager.lastFocusedByWorkspace[workspaceId]
+        let focusedHandle = controller.workspaceManager.lastFocusedHandle(in: workspaceId)
         _ = engine.syncWindows(
             handles,
             in: workspaceId,

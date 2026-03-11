@@ -455,12 +455,7 @@ import QuartzCore
         guard !Task.isCancelled else { return false }
 
         if recoverFocus, let focusedWorkspaceId = controller.activeWorkspace()?.id {
-            controller.focusManager.ensureFocusedHandleValid(
-                in: focusedWorkspaceId,
-                engine: controller.niriEngine,
-                workspaceManager: controller.workspaceManager,
-                focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
-            )
+            controller.ensureFocusedHandleValid(in: focusedWorkspaceId)
         }
 
         return true
@@ -474,7 +469,7 @@ import QuartzCore
         layoutState.isInLightSession = true
 
         if let controller {
-            let focused = controller.focusedHandle
+            let focused = controller.workspaceManager.focusedHandle
             for monitor in controller.workspaceManager.monitors {
                 if let ws = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id) {
                     let handles = controller.workspaceManager.entries(in: ws.id).map(\.handle)
@@ -638,12 +633,7 @@ import QuartzCore
         try Task.checkCancellation()
 
         if let focusedWorkspaceId {
-            controller.focusManager.ensureFocusedHandleValid(
-                in: focusedWorkspaceId,
-                engine: controller.niriEngine,
-                workspaceManager: controller.workspaceManager,
-                focusWindowAction: { [weak controller] handle in controller?.focusWindow(handle) }
-            )
+            controller.ensureFocusedHandleValid(in: focusedWorkspaceId)
         }
 
         layoutState.hasCompletedInitialRefresh = true

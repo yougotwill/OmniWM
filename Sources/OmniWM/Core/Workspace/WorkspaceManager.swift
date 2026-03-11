@@ -115,15 +115,6 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func setPreviousInteractionMonitor(_ monitorId: Monitor.ID?) -> Bool {
-        let normalizedMonitorId = monitorId.flatMap { self.monitor(byId: $0)?.id }
-        guard sessionState.previousInteractionMonitorId != normalizedMonitorId else { return false }
-        sessionState.previousInteractionMonitorId = normalizedMonitorId
-        notifySessionStateChanged()
-        return true
-    }
-
-    @discardableResult
     func setFocusedHandle(_ handle: WindowHandle?, in workspaceId: WorkspaceDescriptor.ID? = nil) -> Bool {
         let focusChanged = sessionState.focus.focusedHandle != handle
         sessionState.focus.focusedHandle = handle
@@ -137,6 +128,41 @@ final class WorkspaceManager {
         }
 
         return focusChanged
+    }
+
+    @discardableResult
+    func setManagedFocus(
+        _ handle: WindowHandle,
+        in workspaceId: WorkspaceDescriptor.ID,
+        onMonitor monitorId: Monitor.ID? = nil
+    ) -> Bool {
+        var changed = false
+
+        if sessionState.focus.focusedHandle != handle {
+            sessionState.focus.focusedHandle = handle
+            changed = true
+        }
+        if sessionState.focus.lastFocusedByWorkspace[workspaceId] != handle {
+            sessionState.focus.lastFocusedByWorkspace[workspaceId] = handle
+            changed = true
+        }
+        if sessionState.focus.isNonManagedFocusActive {
+            sessionState.focus.isNonManagedFocusActive = false
+            changed = true
+        }
+        if sessionState.focus.isAppFullscreenActive {
+            sessionState.focus.isAppFullscreenActive = false
+            changed = true
+        }
+        if let monitorId {
+            changed = updateInteractionMonitor(monitorId, preservePrevious: true, notify: false) || changed
+        }
+
+        if changed {
+            notifySessionStateChanged()
+        }
+
+        return changed
     }
 
     @discardableResult
@@ -157,6 +183,48 @@ final class WorkspaceManager {
         sessionState.focus.lastFocusedByWorkspace[workspaceId]
     }
 
+    func resolveWorkspaceFocus(in workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
+        if let remembered = sessionState.focus.lastFocusedByWorkspace[workspaceId],
+           entry(for: remembered)?.workspaceId == workspaceId
+        {
+            return remembered
+        }
+        return entries(in: workspaceId).first?.handle
+    }
+
+    @discardableResult
+    func resolveAndSetWorkspaceFocus(
+        in workspaceId: WorkspaceDescriptor.ID,
+        onMonitor monitorId: Monitor.ID? = nil
+    ) -> WindowHandle? {
+        if let handle = resolveWorkspaceFocus(in: workspaceId) {
+            _ = setManagedFocus(handle, in: workspaceId, onMonitor: monitorId)
+            return handle
+        }
+
+        var changed = false
+        if sessionState.focus.focusedHandle != nil {
+            sessionState.focus.focusedHandle = nil
+            changed = true
+        }
+        if sessionState.focus.isNonManagedFocusActive {
+            sessionState.focus.isNonManagedFocusActive = false
+            changed = true
+        }
+        if sessionState.focus.isAppFullscreenActive {
+            sessionState.focus.isAppFullscreenActive = false
+            changed = true
+        }
+        if let monitorId {
+            changed = updateInteractionMonitor(monitorId, preservePrevious: true, notify: false) || changed
+        }
+        if changed {
+            notifySessionStateChanged()
+        }
+
+        return nil
+    }
+
     @discardableResult
     func clearFocus() -> Bool {
         guard sessionState.focus.focusedHandle != nil else { return false }
@@ -165,12 +233,35 @@ final class WorkspaceManager {
         return true
     }
 
-    func setNonManagedFocus(active: Bool) {
-        sessionState.focus.isNonManagedFocusActive = active
+    @discardableResult
+    func enterNonManagedFocus(appFullscreen: Bool) -> Bool {
+        var changed = false
+
+        if sessionState.focus.focusedHandle != nil {
+            sessionState.focus.focusedHandle = nil
+            changed = true
+        }
+        if !sessionState.focus.isNonManagedFocusActive {
+            sessionState.focus.isNonManagedFocusActive = true
+            changed = true
+        }
+        if sessionState.focus.isAppFullscreenActive != appFullscreen {
+            sessionState.focus.isAppFullscreenActive = appFullscreen
+            changed = true
+        }
+
+        if changed {
+            notifySessionStateChanged()
+        }
+
+        return changed
     }
 
-    func setAppFullscreen(active: Bool) {
+    @discardableResult
+    func setAppFullscreen(active: Bool) -> Bool {
+        guard sessionState.focus.isAppFullscreenActive != active else { return false }
         sessionState.focus.isAppFullscreenActive = active
+        return true
     }
 
     func handleWindowRemoved(_ handle: WindowHandle, in workspaceId: WorkspaceDescriptor.ID?) {
@@ -322,16 +413,10 @@ final class WorkspaceManager {
         reconcileForcedVisibleWorkspaces()
     }
 
-    func updateMonitors(_ newMonitors: [Monitor]) {
-        let previousMonitors = monitors
-        monitors = newMonitors.isEmpty ? [Monitor.fallback()] : newMonitors
-        ensureVisibleWorkspaces(previousMonitors: previousMonitors)
-        reconcileForcedVisibleWorkspaces()
-        reconcileInteractionMonitorState()
-    }
-
-    func reconcileAfterMonitorChange() {
-        ensureVisibleWorkspaces()
+    func applyMonitorConfigurationChange(_ newMonitors: [Monitor]) {
+        let restoreSnapshots = captureVisibleWorkspaceRestoreSnapshots()
+        replaceMonitors(with: newMonitors)
+        restoreVisibleWorkspacesAfterMonitorConfigurationChange(from: restoreSnapshots)
         reconcileForcedVisibleWorkspaces()
         reconcileInteractionMonitorState()
     }
@@ -411,20 +496,32 @@ final class WorkspaceManager {
     }
 
     func removeMissing(keys activeKeys: Set<WindowModel.WindowKey>, requiredConsecutiveMisses: Int = 1) {
-        windows.removeMissing(keys: activeKeys, requiredConsecutiveMisses: requiredConsecutiveMisses)
-    }
-
-    func removeWindow(pid: pid_t, windowId: Int) {
-        windows.removeWindow(key: .init(pid: pid, windowId: windowId))
-    }
-
-    func removeWindowsForApp(pid: pid_t) {
-        for ws in workspaces {
-            let entriesToRemove = entries(in: ws.id).filter { $0.handle.pid == pid }
-            for entry in entriesToRemove {
-                removeWindow(pid: pid, windowId: entry.windowId)
-            }
+        let removedEntries = windows.removeMissing(keys: activeKeys, requiredConsecutiveMisses: requiredConsecutiveMisses)
+        for entry in removedEntries {
+            handleWindowRemoved(entry.handle, in: entry.workspaceId)
         }
+    }
+
+    @discardableResult
+    func removeWindow(pid: pid_t, windowId: Int) -> WindowModel.Entry? {
+        guard let entry = windows.entry(forPid: pid, windowId: windowId) else { return nil }
+        handleWindowRemoved(entry.handle, in: entry.workspaceId)
+        _ = windows.removeWindow(key: .init(pid: pid, windowId: windowId))
+        return entry
+    }
+
+    @discardableResult
+    func removeWindowsForApp(pid: pid_t) -> Set<WorkspaceDescriptor.ID> {
+        var affectedWorkspaces: Set<WorkspaceDescriptor.ID> = []
+        let entriesToRemove = entries(forPid: pid)
+
+        for entry in entriesToRemove {
+            affectedWorkspaces.insert(entry.workspaceId)
+            handleWindowRemoved(entry.handle, in: entry.workspaceId)
+            _ = windows.removeWindow(key: .init(pid: pid, windowId: entry.windowId))
+        }
+
+        return affectedWorkspaces
     }
 
     func setWorkspace(for handle: WindowHandle, to workspace: WorkspaceDescriptor.ID) {
@@ -823,6 +920,16 @@ final class WorkspaceManager {
         }
     }
 
+    private func captureVisibleWorkspaceRestoreSnapshots() -> [WorkspaceRestoreSnapshot] {
+        activeVisibleWorkspaceMap().compactMap { monitorId, workspaceId in
+            guard let monitor = monitor(byId: monitorId) else { return nil }
+            return WorkspaceRestoreSnapshot(
+                monitor: MonitorRestoreKey(monitor: monitor),
+                workspaceId: workspaceId
+            )
+        }
+    }
+
     private func reconcileForcedVisibleWorkspaces() {
         let assignments = settings.workspaceToMonitorAssignments()
         guard !assignments.isEmpty else { return }
@@ -850,6 +957,57 @@ final class WorkspaceManager {
         }
     }
 
+    private func restoreVisibleWorkspacesAfterMonitorConfigurationChange(
+        from snapshots: [WorkspaceRestoreSnapshot]
+    ) {
+        guard !snapshots.isEmpty else { return }
+
+        let assignments = resolveWorkspaceRestoreAssignments(
+            snapshots: snapshots,
+            monitors: monitors,
+            workspaceExists: { descriptor(for: $0) != nil }
+        )
+        guard !assignments.isEmpty else { return }
+
+        let forcedWorkspaceIds = forcedWorkspaceIdsForCurrentSettings()
+        let forcedMonitorIds = forcedMonitorIdsForCurrentSettings()
+        let sortedMonitors = Monitor.sortedByPosition(monitors)
+        var restoredWorkspaces: Set<WorkspaceDescriptor.ID> = []
+
+        for monitor in sortedMonitors {
+            guard let workspaceId = assignments[monitor.id] else { continue }
+            guard !forcedWorkspaceIds.contains(workspaceId) else { continue }
+            guard !forcedMonitorIds.contains(monitor.id) else { continue }
+            guard restoredWorkspaces.insert(workspaceId).inserted else { continue }
+            _ = setActiveWorkspaceInternal(
+                workspaceId,
+                on: monitor.id,
+                anchorPoint: monitor.workspaceAnchorPoint,
+                updateInteractionMonitor: false
+            )
+        }
+    }
+
+    private func forcedWorkspaceIdsForCurrentSettings() -> Set<WorkspaceDescriptor.ID> {
+        let assignmentNames = settings.workspaceToMonitorAssignments().keys
+        return Set(assignmentNames.compactMap { workspaceId(named: $0) })
+    }
+
+    private func forcedMonitorIdsForCurrentSettings() -> Set<Monitor.ID> {
+        let assignments = settings.workspaceToMonitorAssignments()
+        let sortedMonitors = Monitor.sortedByPosition(monitors)
+        var forcedMonitorIds: Set<Monitor.ID> = []
+
+        for descriptions in assignments.values {
+            guard let monitor = descriptions.compactMap({ $0.resolveMonitor(sortedMonitors: sortedMonitors) }).first else {
+                continue
+            }
+            forcedMonitorIds.insert(monitor.id)
+        }
+
+        return forcedMonitorIds
+    }
+
     private func ensureVisibleWorkspaces(previousMonitors: [Monitor]? = nil) {
         let currentMonitorIds = Set(monitors.map(\.id))
         let previousMonitorSessions = sessionState.monitorSessions
@@ -861,6 +1019,12 @@ final class WorkspaceManager {
                 previousMonitorSessions: previousMonitorSessions
             )
         }
+    }
+
+    private func replaceMonitors(with newMonitors: [Monitor]) {
+        let previousMonitors = monitors
+        monitors = newMonitors.isEmpty ? [Monitor.fallback()] : newMonitors
+        ensureVisibleWorkspaces(previousMonitors: previousMonitors)
     }
 
     private func rearrangeWorkspacesOnMonitors(

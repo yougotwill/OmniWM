@@ -39,19 +39,6 @@ final class WMController {
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
     let focusManager: FocusManager
-    var focusedHandle: WindowHandle? {
-        workspaceManager.focusedHandle
-    }
-
-    var activeMonitorId: Monitor.ID? {
-        get { workspaceManager.interactionMonitorId }
-        set { _ = workspaceManager.setInteractionMonitor(newValue) }
-    }
-    var previousMonitorId: Monitor.ID? {
-        get { workspaceManager.previousInteractionMonitorId }
-        set { _ = workspaceManager.setPreviousInteractionMonitor(newValue) }
-    }
-    private var suppressActiveMonitorUpdate: Bool = false
 
     var niriEngine: NiriLayoutEngine?
     var dwindleEngine: DwindleLayoutEngine?
@@ -105,7 +92,7 @@ final class WMController {
         self.settings = settings
         self.windowFocusOperations = windowFocusOperations
         workspaceManager = WorkspaceManager(settings: settings)
-        focusManager = FocusManager(workspaceManager: workspaceManager)
+        focusManager = FocusManager()
         workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
             self?.commandHandler.handleCommand(command)
@@ -115,9 +102,6 @@ final class WMController {
         }
         workspaceManager.onSessionStateChanged = { [weak self] in
             self?.focusNotificationDispatcher.notifyFocusChangesIfNeeded()
-        }
-        focusManager.onFocusedHandleChanged = { [weak self] handle in
-            self?.handleFocusedHandleChange(handle)
         }
     }
 
@@ -246,7 +230,7 @@ final class WMController {
             workspaceManager: workspaceManager,
             appInfoCache: appInfoCache,
             niriEngine: niriEngine,
-            focusedHandle: focusedHandle,
+            focusedHandle: workspaceManager.focusedHandle,
             settings: settings
         )
     }
@@ -392,31 +376,13 @@ final class WMController {
         {
             return monitor
         }
-        if let focused = focusedHandle,
+        if let focused = workspaceManager.focusedHandle,
            let workspaceId = workspaceManager.workspace(for: focused),
            let monitor = workspaceManager.monitor(for: workspaceId)
         {
             return monitor
         }
         return workspaceManager.monitors.first
-    }
-
-    private func updateActiveMonitorFromFocusedHandle(_ handle: WindowHandle?) {
-        guard !suppressActiveMonitorUpdate else { return }
-        guard let handle,
-              let workspaceId = workspaceManager.workspace(for: handle),
-              let monitorId = workspaceManager.monitor(for: workspaceId)?.id
-        else {
-            return
-        }
-
-        if activeMonitorId != monitorId {
-            activeMonitorId = monitorId
-        }
-    }
-
-    private func handleFocusedHandleChange(_ handle: WindowHandle?) {
-        updateActiveMonitorFromFocusedHandle(handle)
     }
 
     func activeWorkspace() -> WorkspaceDescriptor? {
@@ -476,9 +442,9 @@ final class WMController {
 
     @discardableResult
     func resolveAndSetWorkspaceFocus(for workspaceId: WorkspaceDescriptor.ID) -> WindowHandle? {
-        focusManager.resolveAndSetWorkspaceFocus(
-            for: workspaceId,
-            entries: workspaceManager.entries(in: workspaceId)
+        workspaceManager.resolveAndSetWorkspaceFocus(
+            in: workspaceId,
+            onMonitor: workspaceManager.monitorId(for: workspaceId)
         )
     }
 
@@ -486,12 +452,45 @@ final class WMController {
         in workspaceId: WorkspaceDescriptor.ID,
         preferredNodeId: NodeId?
     ) {
-        focusManager.recoverSourceFocusAfterMove(
+        let monitorId = workspaceManager.monitorId(for: workspaceId)
+
+        if let engine = niriEngine,
+           let preferredNodeId,
+           let node = engine.findNode(by: preferredNodeId) as? NiriWindow
+        {
+            _ = workspaceManager.setManagedFocus(node.handle, in: workspaceId, onMonitor: monitorId)
+            return
+        }
+
+        _ = workspaceManager.resolveAndSetWorkspaceFocus(in: workspaceId, onMonitor: monitorId)
+    }
+
+    func ensureFocusedHandleValid(in workspaceId: WorkspaceDescriptor.ID) {
+        if let focused = workspaceManager.focusedHandle,
+           workspaceManager.entry(for: focused)?.workspaceId == workspaceId
+        {
+            _ = workspaceManager.rememberFocus(focused, in: workspaceId)
+            if let engine = niriEngine,
+               let node = engine.findNode(for: focused)
+            {
+                workspaceManager.setSelection(node.id, for: workspaceId)
+            }
+            return
+        }
+
+        guard let nextFocus = workspaceManager.resolveAndSetWorkspaceFocus(
             in: workspaceId,
-            preferredNodeId: preferredNodeId,
-            engine: niriEngine,
-            entries: workspaceManager.entries(in: workspaceId)
-        )
+            onMonitor: workspaceManager.monitorId(for: workspaceId)
+        ) else {
+            return
+        }
+
+        if let engine = niriEngine,
+           let node = engine.findNode(for: nextFocus)
+        {
+            workspaceManager.setSelection(node.id, for: workspaceId)
+        }
+        focusWindow(nextFocus)
     }
 
     func moveMouseToWindow(_ handle: WindowHandle) {
@@ -511,12 +510,6 @@ final class WMController {
 }
 
 extension WMController {
-    func withSuppressedMonitorUpdate(_ body: () -> Void) {
-        suppressActiveMonitorUpdate = true
-        defer { suppressActiveMonitorUpdate = false }
-        body()
-    }
-
     func isFrontmostAppLockScreen() -> Bool {
         lockScreenObserver.isFrontmostAppLockScreen()
     }
@@ -541,7 +534,11 @@ extension WMController {
 
     func focusWindow(_ handle: WindowHandle) {
         guard let entry = workspaceManager.entry(for: handle) else { return }
-        focusManager.setNonManagedFocus(active: false)
+        _ = workspaceManager.setManagedFocus(
+            handle,
+            in: entry.workspaceId,
+            onMonitor: workspaceManager.monitorId(for: entry.workspaceId)
+        )
 
         let axRef = entry.axRef
         let pid = handle.pid
@@ -549,7 +546,6 @@ extension WMController {
         let moveMouseEnabled = moveMouseToFocusedWindowEnabled
         focusManager.focusWindow(
             handle,
-            workspaceId: entry.workspaceId,
             performFocus: {
                 // 1. Activate app first (brings process to front, may pick wrong key window)
                 self.windowFocusOperations.activateApp(pid)

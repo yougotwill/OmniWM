@@ -184,4 +184,56 @@ private func makeOverviewWindowItem(
         #expect(layout.allWindows.first(where: { $0.handle == h2 })?.overviewFrame == frame)
         #expect(layout.allWindows.first(where: { $0.handle == h1 })?.overviewFrame == .zero)
     }
+
+    @Test func coreSourcesDoNotUseRemovedSessionFacades() throws {
+        let fileURL = URL(fileURLWithPath: #filePath)
+        let repoRoot = fileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourcesRoot = repoRoot.appendingPathComponent("Sources/OmniWM/Core", isDirectory: true)
+
+        let forbiddenPatterns = [
+            "controller.focusedHandle",
+            "controller.activeMonitorId",
+            "controller.previousMonitorId",
+            "withSuppressedMonitorUpdate",
+            "setPreviousInteractionMonitor(",
+            "workspaceManager.updateMonitors(",
+            "workspaceManager.reconcileAfterMonitorChange(",
+            "focusManager.setFocus",
+            "focusManager.clearFocus",
+            "focusManager.updateWorkspaceFocusMemory",
+            "focusManager.clearWorkspaceFocusMemory",
+            "focusManager.setNonManagedFocus",
+            "focusManager.setAppFullscreen",
+            "focusManager.resolveWorkspaceFocus",
+            "focusManager.resolveAndSetWorkspaceFocus",
+            "focusManager.recoverSourceFocusAfterMove",
+            "focusManager.ensureFocusedHandleValid",
+            "focusManager.focusedHandle",
+            "focusManager.lastFocusedByWorkspace",
+            "focusManager.isNonManagedFocusActive",
+            "focusManager.isAppFullscreenActive",
+        ]
+
+        let enumerator = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )
+
+        var violations: [String] = []
+        while let fileURL = enumerator?.nextObject() as? URL {
+            guard fileURL.pathExtension == "swift" else { continue }
+            let contents = try String(contentsOf: fileURL, encoding: .utf8)
+            for pattern in forbiddenPatterns where contents.contains(pattern) {
+                violations.append("\(fileURL.lastPathComponent): \(pattern)")
+            }
+        }
+
+        if !violations.isEmpty {
+            Issue.record("Found removed session facade usage: \(violations.joined(separator: ", "))")
+        }
+        #expect(violations.isEmpty)
+    }
 }

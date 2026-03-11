@@ -37,13 +37,14 @@ final class FocusNotificationDispatcher {
     func notifyFocusChangesIfNeeded() {
         guard let controller else { return }
 
-        let currentMonitorId = controller.activeMonitorId ?? controller.monitorForInteraction()?.id
-        let currentWorkspaceId = controller.focusedHandle
+        let currentMonitorId = controller.workspaceManager.interactionMonitorId ?? controller.monitorForInteraction()?.id
+        let currentWorkspaceId = controller.workspaceManager.focusedHandle
             .flatMap { controller.workspaceManager.workspace(for: $0) }
             ?? currentMonitorId.flatMap { controller.workspaceManager.currentActiveWorkspace(on: $0)?.id }
 
-        let currentHandleId = controller.focusedHandle?.id
-        let currentWindowId = controller.focusedHandle.flatMap { controller.workspaceManager.entry(for: $0)?.windowId }
+        let currentHandleId = controller.workspaceManager.focusedHandle?.id
+        let currentWindowId = controller.workspaceManager.focusedHandle
+            .flatMap { controller.workspaceManager.entry(for: $0)?.windowId }
 
         if currentHandleId != lastNotifiedFocusedHandleId || currentWindowId != lastNotifiedFocusedWindowId {
             var info: [AnyHashable: Any] = [:]

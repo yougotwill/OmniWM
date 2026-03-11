@@ -337,7 +337,7 @@ final class CommandHandler {
 
     private func toggleNativeFullscreenForFocused() {
         guard let controller else { return }
-        guard let handle = controller.focusedHandle else { return }
+        guard let handle = controller.workspaceManager.focusedHandle else { return }
         guard let entry = controller.workspaceManager.entry(for: handle) else { return }
 
         let currentState = AXWindowService.isFullscreen(entry.axRef)

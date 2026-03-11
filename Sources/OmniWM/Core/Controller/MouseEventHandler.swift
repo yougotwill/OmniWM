@@ -501,7 +501,8 @@ final class MouseEventHandler {
 
     private func handleFocusFollowsMouse(at location: CGPoint) {
         guard let controller else { return }
-        guard !controller.focusManager.isNonManagedFocusActive, !controller.focusManager.isAppFullscreenActive else {
+        guard !controller.workspaceManager.isNonManagedFocusActive,
+              !controller.workspaceManager.isAppFullscreenActive else {
             return
         }
 
@@ -518,7 +519,8 @@ final class MouseEventHandler {
 
         if let tiledWindow = engine.hitTestTiled(point: location, in: wsId) {
             let handle = tiledWindow.handle
-            if handle != state.lastFocusFollowsMouseHandle, handle != controller.focusedHandle {
+            if handle != state.lastFocusFollowsMouseHandle,
+               handle != controller.workspaceManager.focusedHandle {
                 state.lastFocusFollowsMouseTime = now
                 state.lastFocusFollowsMouseHandle = handle
                 controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
@@ -705,7 +707,11 @@ final class MouseEventHandler {
                     vstate.selectedNodeId = newNode.id
 
                     if let windowNode = newNode as? NiriWindow {
-                        controller.focusManager.setFocus(windowNode.handle, in: wsId)
+                        _ = controller.workspaceManager.setManagedFocus(
+                            windowNode.handle,
+                            in: wsId,
+                            onMonitor: controller.workspaceManager.monitorId(for: wsId)
+                        )
                         engine.updateFocusTimestamp(for: windowNode.id)
                         targetWindowHandle = windowNode.handle
                     }

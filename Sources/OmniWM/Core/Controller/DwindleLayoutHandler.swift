@@ -51,7 +51,7 @@ import QuartzCore
         controller.axManager.applyFramesParallel(frameUpdates)
 
         if !engine.hasActiveAnimations(in: wsId, at: targetTime) {
-            if let focusedHandle = controller.focusedHandle,
+            if let focusedHandle = controller.workspaceManager.focusedHandle,
                let frame = animatedFrames[focusedHandle],
                let entry = controller.workspaceManager.entry(for: focusedHandle) {
                 controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
@@ -77,7 +77,7 @@ import QuartzCore
             let oldFrames = engine.currentFrames(in: wsId)
 
             let windowHandles = controller.workspaceManager.entries(in: wsId).map(\.handle)
-            let currentFocusedHandle = controller.focusedHandle
+            let currentFocusedHandle = controller.workspaceManager.focusedHandle
 
             _ = engine.syncWindows(windowHandles, in: wsId, focusedHandle: currentFocusedHandle)
 
@@ -96,13 +96,13 @@ import QuartzCore
             if let selected = engine.selectedNode(in: wsId),
                case let .leaf(handle, _) = selected.kind,
                let handle {
-                controller.focusManager.updateWorkspaceFocusMemory(handle, for: wsId)
-                if let currentFocused = controller.focusedHandle {
+                _ = controller.workspaceManager.rememberFocus(handle, in: wsId)
+                if let currentFocused = controller.workspaceManager.focusedHandle {
                     if controller.workspaceManager.workspace(for: currentFocused) == wsId {
-                        controller.focusManager.setFocus(handle, in: wsId)
+                        _ = controller.workspaceManager.setManagedFocus(handle, in: wsId, onMonitor: monitor.id)
                     }
                 } else {
-                    controller.focusManager.setFocus(handle, in: wsId)
+                    _ = controller.workspaceManager.setManagedFocus(handle, in: wsId, onMonitor: monitor.id)
                 }
             }
 
@@ -112,7 +112,7 @@ import QuartzCore
             if engine.hasActiveAnimations(in: wsId, at: now) {
                 lrc.startDwindleAnimation(for: wsId, monitor: monitor)
 
-                if let focusedHandle = controller.focusedHandle,
+                if let focusedHandle = controller.workspaceManager.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
                     controller.borderManager.updateFocusedWindow(frame: frame, windowId: entry.windowId)
@@ -128,7 +128,7 @@ import QuartzCore
 
                 controller.axManager.applyFramesParallel(frameUpdates)
 
-                if let focusedHandle = controller.focusedHandle,
+                if let focusedHandle = controller.workspaceManager.focusedHandle,
                    let frame = newFrames[focusedHandle],
                    let entry = controller.workspaceManager.entry(for: focusedHandle) {
                     controller.borderCoordinator.updateBorderIfAllowed(handle: focusedHandle, frame: frame, windowId: entry.windowId)
@@ -147,7 +147,11 @@ import QuartzCore
         guard let controller else { return }
         withDwindleContext { engine, wsId in
             if let handle = engine.moveFocus(direction: direction, in: wsId) {
-                controller.focusManager.setFocus(handle, in: wsId)
+                _ = controller.workspaceManager.setManagedFocus(
+                    handle,
+                    in: wsId,
+                    onMonitor: controller.workspaceManager.monitorId(for: wsId)
+                )
                 controller.layoutRefreshController.requestImmediateRelayout(
                     reason: .layoutCommand
                 ) { [weak controller] in
@@ -170,7 +174,11 @@ import QuartzCore
         guard let controller else { return }
         withDwindleContext { engine, wsId in
             if let handle = engine.toggleFullscreen(in: wsId) {
-                controller.focusManager.setFocus(handle, in: wsId)
+                _ = controller.workspaceManager.setManagedFocus(
+                    handle,
+                    in: wsId,
+                    onMonitor: controller.workspaceManager.monitorId(for: wsId)
+                )
                 controller.layoutRefreshController.requestImmediateRelayout(reason: .layoutCommand)
             }
         }

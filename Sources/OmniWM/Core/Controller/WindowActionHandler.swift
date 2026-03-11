@@ -206,7 +206,7 @@ final class WindowActionHandler {
         if workspaceId != currentWsId {
             let wsName = controller.workspaceManager.descriptor(for: workspaceId)?.name ?? ""
             if let result = controller.workspaceManager.focusWorkspace(named: wsName) {
-                controller.activeMonitorId = result.monitor.id
+                _ = controller.workspaceManager.setInteractionMonitor(result.monitor.id)
                 controller.syncMonitorsToNiriEngine()
             }
         }
@@ -233,7 +233,11 @@ final class WindowActionHandler {
             }
         }
 
-        controller.focusManager.setFocus(handle, in: workspaceId)
+        _ = controller.workspaceManager.setManagedFocus(
+            handle,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
         controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
             controller?.focusWindow(handle)
         }
@@ -246,12 +250,6 @@ final class WindowActionHandler {
         }
 
         guard let result = controller.workspaceManager.focusWorkspace(named: name) else { return }
-
-        let currentMonitorId = controller.activeMonitorId ?? controller.monitorForInteraction()?.id
-        if let currentMonitorId, currentMonitorId != result.monitor.id {
-            controller.previousMonitorId = currentMonitorId
-        }
-        controller.activeMonitorId = result.monitor.id
 
         let focusedHandle = controller.resolveAndSetWorkspaceFocus(for: result.workspace.id)
         controller.layoutRefreshController.commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in

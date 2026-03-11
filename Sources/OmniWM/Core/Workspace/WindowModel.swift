@@ -207,9 +207,11 @@ final class WindowModel {
         return prevKind
     }
 
-    func removeMissing(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) {
+    @discardableResult
+    func removeMissing(keys activeKeys: Set<WindowKey>, requiredConsecutiveMisses: Int = 1) -> [Entry] {
         let threshold = max(1, requiredConsecutiveMisses)
         let knownKeys = Array(keyToHandle.keys)
+        var removedEntries: [Entry] = []
 
         for key in knownKeys where activeKeys.contains(key) {
             missingDetectionCountByKey.removeValue(forKey: key)
@@ -232,6 +234,7 @@ final class WindowModel {
         for key in confirmedMissing {
             if let handle = keyToHandle[key] {
                 if let entry = entries[handle] {
+                    removedEntries.append(entry)
                     removeHandle(handle, from: entry.workspaceId)
                     windowIdToHandle.removeValue(forKey: entry.windowId)
                 }
@@ -243,18 +246,25 @@ final class WindowModel {
         if !missingDetectionCountByKey.isEmpty {
             missingDetectionCountByKey = missingDetectionCountByKey.filter { keyToHandle[$0.key] != nil }
         }
+
+        return removedEntries
     }
 
-    func removeWindow(key: WindowKey) {
+    @discardableResult
+    func removeWindow(key: WindowKey) -> Entry? {
         missingDetectionCountByKey.removeValue(forKey: key)
         if let handle = keyToHandle[key] {
             if let entry = entries[handle] {
                 removeHandle(handle, from: entry.workspaceId)
                 windowIdToHandle.removeValue(forKey: entry.windowId)
+                entries.removeValue(forKey: handle)
+                keyToHandle.removeValue(forKey: key)
+                return entry
             }
             entries.removeValue(forKey: handle)
             keyToHandle.removeValue(forKey: key)
         }
+        return nil
     }
 
     func cachedConstraints(for handle: WindowHandle, maxAge: TimeInterval = 5.0) -> WindowSizeConstraints? {
