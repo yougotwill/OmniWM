@@ -305,11 +305,11 @@ final class AppAXContext {
         }
     }
 
-    func setFramesBatch(_ frames: [(windowId: Int, frame: CGRect)]) {
+    func setFramesBatch(_ frames: [(windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]) {
         guard let thread else { return }
         nonisolated(unsafe) let appThread = thread
 
-        for (windowId, _) in frames {
+        for (windowId, _, _) in frames {
             setFrameJobs[windowId]?.cancel()
         }
 
@@ -335,20 +335,22 @@ final class AppAXContext {
                 }
             }
 
-            for (windowId, frame) in frames {
+            for (windowId, frame, currentFrameHint) in frames {
                 if job.isCancelled { break }
                 if suppression.contains(windowId) {
                     continue
                 }
-                guard let element = windows[windowId] else {
-                    continue
-                }
+                guard let element = windows[windowId] else { continue }
                 let axRef = AXWindowRef(element: element, windowId: windowId)
-                try? AXWindowService.setFrame(axRef, frame: frame)
+                try? AXWindowService.setFrame(
+                    axRef,
+                    frame: frame,
+                    currentFrameHint: currentFrameHint
+                )
             }
         }
 
-        for (windowId, _) in frames {
+        for (windowId, _, _) in frames {
             setFrameJobs[windowId] = batchJob
         }
     }

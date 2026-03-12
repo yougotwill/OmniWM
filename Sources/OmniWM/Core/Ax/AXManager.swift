@@ -18,7 +18,7 @@ final class AXManager {
     var onAppTerminated: ((pid_t) -> Void)?
     var currentWindowsAsyncOverride: (@MainActor () async -> [(AXWindowRef, pid_t, Int)])?
 
-    private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect)]] = [:]
+    private var framesByPidBuffer: [pid_t: [(windowId: Int, frame: CGRect, currentFrameHint: CGRect?)]] = [:]
     private var lastAppliedFrames: [Int: CGRect] = [:]
     private var forceApplyWindowIds: Set<Int> = []
 
@@ -84,7 +84,6 @@ final class AXManager {
 
     func forceApplyNextFrame(for windowId: Int) {
         forceApplyWindowIds.insert(windowId)
-        lastAppliedFrames.removeValue(forKey: windowId)
     }
 
     func lastAppliedFrame(for windowId: Int) -> CGRect? {
@@ -186,13 +185,14 @@ final class AXManager {
             if inactiveWorkspaceWindowIds.contains(windowId) {
                 continue
             }
+            let cachedFrame = lastAppliedFrames[windowId]
             let shouldForceApply = forceApplyWindowIds.remove(windowId) != nil
-            if let cached = lastAppliedFrames[windowId],
+            if let cached = cachedFrame,
                abs(cached.origin.x - frame.origin.x) < 0.5,
                abs(cached.origin.y - frame.origin.y) < 0.5,
                abs(cached.size.width - frame.size.width) < 0.5,
                abs(cached.size.height - frame.size.height) < 0.5,
-               !shouldForceApply {
+                !shouldForceApply {
                 continue
             }
             lastAppliedFrames[windowId] = frame
@@ -200,13 +200,11 @@ final class AXManager {
                 framesByPidBuffer[pid] = []
                 framesByPidBuffer[pid]?.reserveCapacity(8)
             }
-            framesByPidBuffer[pid]?.append((windowId, frame))
+            framesByPidBuffer[pid]?.append((windowId, frame, cachedFrame))
         }
 
         for (pid, appFrames) in framesByPidBuffer where !appFrames.isEmpty {
-            guard let context = AppAXContext.contexts[pid] else {
-                continue
-            }
+            guard let context = AppAXContext.contexts[pid] else { continue }
             context.setFramesBatch(appFrames)
         }
     }

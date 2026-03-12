@@ -157,6 +157,9 @@ extension NiriLayoutEngine {
             time: time
         )
         let canonicalFullscreenRect = workingFrame.roundedToPhysicalPixels(scale: effectiveScale)
+        let renderedFullscreenRect = canonicalFullscreenRect
+            .offsetBy(dx: workspaceOffset, dy: 0)
+            .roundedToPhysicalPixels(scale: effectiveScale)
 
         for container in containers {
             switch orientation {
@@ -228,7 +231,9 @@ extension NiriLayoutEngine {
                     orientation: orientation
                 )
                 for window in containerWindowNodes[idx] {
-                    hiddenHandles[window.token] = hideSide
+                    if window.sizingMode != .fullscreen {
+                        hiddenHandles[window.token] = hideSide
+                    }
                 }
                 renderedContainerRect = hiddenRenderedContainerRect(
                     canonicalRect: canonicalContainerRect,
@@ -246,6 +251,7 @@ extension NiriLayoutEngine {
                 canonicalContainerRect: canonicalContainerRect,
                 renderedContainerRect: renderedContainerRect,
                 fullscreenRect: canonicalFullscreenRect,
+                renderedFullscreenRect: renderedFullscreenRect,
                 secondaryGap: secondaryGap,
                 scale: effectiveScale,
                 animationTime: time,
@@ -391,6 +397,7 @@ extension NiriLayoutEngine {
         canonicalContainerRect: CGRect,
         renderedContainerRect: CGRect,
         fullscreenRect: CGRect,
+        renderedFullscreenRect: CGRect,
         secondaryGap: CGFloat,
         scale: CGFloat,
         animationTime: TimeInterval? = nil,
@@ -441,9 +448,16 @@ extension NiriLayoutEngine {
             let sizingMode = sizingModes[i]
 
             let frame: CGRect
+            let renderedBaseFrame: CGRect
+            let resolvedSpan: CGFloat
             switch sizingMode {
             case .fullscreen:
                 frame = fullscreenRect.roundedToPhysicalPixels(scale: scale)
+                renderedBaseFrame = renderedFullscreenRect
+                resolvedSpan = switch orientation {
+                case .horizontal: frame.height
+                case .vertical: frame.width
+                }
             case .normal:
                 switch orientation {
                 case .horizontal:
@@ -461,23 +475,31 @@ extension NiriLayoutEngine {
                         height: contentRect.height
                     ).roundedToPhysicalPixels(scale: scale)
                 }
+                renderedBaseFrame = frame.offsetBy(
+                    dx: renderedContainerRect.origin.x - canonicalContainerRect.origin.x,
+                    dy: renderedContainerRect.origin.y - canonicalContainerRect.origin.y
+                )
+                .roundedToPhysicalPixels(scale: scale)
+                resolvedSpan = span
             }
 
             windows[i].frame = frame
             switch orientation {
             case .horizontal:
-                windows[i].resolvedHeight = span
+                windows[i].resolvedHeight = resolvedSpan
             case .vertical:
-                windows[i].resolvedWidth = span
+                windows[i].resolvedWidth = resolvedSpan
             }
 
-            let windowOffset = windowRenderOffsets[i]
-            let renderTranslation = CGPoint(
-                x: renderedContainerRect.origin.x - canonicalContainerRect.origin.x + windowOffset.x,
-                y: renderedContainerRect.origin.y - canonicalContainerRect.origin.y + windowOffset.y
-            )
-            let animatedFrame = frame.offsetBy(dx: renderTranslation.x, dy: renderTranslation.y)
-                .roundedToPhysicalPixels(scale: scale)
+            let animatedFrame: CGRect
+            switch sizingMode {
+            case .fullscreen:
+                animatedFrame = renderedBaseFrame.roundedToPhysicalPixels(scale: scale)
+            case .normal:
+                let windowOffset = windowRenderOffsets[i]
+                animatedFrame = renderedBaseFrame.offsetBy(dx: windowOffset.x, dy: windowOffset.y)
+                    .roundedToPhysicalPixels(scale: scale)
+            }
             windows[i].renderedFrame = animatedFrame
             result[windowTokens[i]] = animatedFrame
 

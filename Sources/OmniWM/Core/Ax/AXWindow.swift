@@ -34,6 +34,11 @@ enum AXErrorWrapper: Error {
     case cannotGetWindowId
 }
 
+enum AXFrameWriteOrder {
+    case sizeThenPosition
+    case positionThenSize
+}
+
 enum AXWindowService {
     @MainActor
     static func titlePreferFast(windowId: UInt32) -> String? {
@@ -73,15 +78,43 @@ enum AXWindowService {
         fastFrame(window)
     }
 
-    static func setFrame(_ window: AXWindowRef, frame: CGRect) throws(AXErrorWrapper) {
+    static func frameWriteOrder(currentFrame: CGRect?, targetFrame: CGRect) -> AXFrameWriteOrder {
+        guard let currentFrame else {
+            return .sizeThenPosition
+        }
+        if targetFrame.width > currentFrame.width + 0.5 || targetFrame.height > currentFrame.height + 0.5 {
+            return .positionThenSize
+        }
+        return .sizeThenPosition
+    }
+
+    static func setFrame(
+        _ window: AXWindowRef,
+        frame: CGRect,
+        currentFrameHint: CGRect? = nil
+    ) throws(AXErrorWrapper) {
+        let writeOrder = frameWriteOrder(
+            currentFrame: currentFrameHint ?? (try? self.frame(window)),
+            targetFrame: frame
+        )
         let axFrame = convertToAX(frame)
         var position = CGPoint(x: axFrame.origin.x, y: axFrame.origin.y)
         var size = CGSize(width: axFrame.size.width, height: axFrame.size.height)
         guard let positionValue = AXValueCreate(.cgPoint, &position),
-              let sizeValue = AXValueCreate(.cgSize, &size) else { throw .cannotSetFrame }
-        let err1 = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
-        let err2 = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
-        guard err1 == .success, err2 == .success else { throw .cannotSetFrame }
+              let sizeValue = AXValueCreate(.cgSize, &size)
+        else { throw .cannotSetFrame }
+
+        let positionError: AXError
+        let sizeError: AXError
+        switch writeOrder {
+        case .sizeThenPosition:
+            sizeError = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
+            positionError = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
+        case .positionThenSize:
+            positionError = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, positionValue)
+            sizeError = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
+        }
+        guard sizeError == .success, positionError == .success else { throw .cannotSetFrame }
     }
 
     private static func convertFromAX(_ rect: CGRect) -> CGRect {

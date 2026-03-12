@@ -105,6 +105,89 @@ private func hasAnyVisibilityChange(
 }
 
 @Suite struct NiriLayoutEngineTests {
+    private func makeVisibleColumnFixture(
+        visibleCount: Int,
+        extraColumns: Int = 2,
+        width: CGFloat = 1600,
+        height: CGFloat = 900
+    ) -> (
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
+        windows: [NiriWindow],
+        monitor: Monitor,
+        gap: CGFloat,
+        gaps: LayoutGaps,
+        area: WorkingAreaContext
+    ) {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: visibleCount)
+        engine.centerFocusedColumn = .never
+
+        let workspaceId = UUID()
+        var windows: [NiriWindow] = []
+        var previousSelection: NodeId?
+
+        for index in 0 ..< (visibleCount + extraColumns) {
+            let handle = makeTestHandle(pid: pid_t(200 + index))
+            let window = engine.addWindow(
+                handle: handle,
+                to: workspaceId,
+                afterSelection: previousSelection
+            )
+            windows.append(window)
+            previousSelection = window.id
+        }
+
+        let monitor = makeLayoutPlanTestMonitor(width: width, height: height)
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: monitor.visibleFrame,
+            viewFrame: monitor.frame,
+            scale: 2.0
+        )
+        let fixedWidth = (monitor.visibleFrame.width - gap * CGFloat(visibleCount - 1)) / CGFloat(visibleCount)
+
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        return (engine, workspaceId, windows, monitor, gap, gaps, area)
+    }
+
+    private func makeViewportStateForVisibleColumn(
+        targetWindow: NiriWindow,
+        engine: NiriLayoutEngine,
+        workspaceId: WorkspaceDescriptor.ID,
+        workingFrame: CGRect,
+        gap: CGFloat
+    ) -> ViewportState {
+        var state = ViewportState()
+        state.animationClock = engine.animationClock
+        state.selectedNodeId = targetWindow.id
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+        engine.ensureSelectionVisible(
+            node: targetWindow,
+            in: workspaceId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: gap,
+            alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
+        )
+        return state
+    }
+
+    private func settledLayoutState(
+        from state: ViewportState,
+        column: NiriContainer?,
+        settleTime: TimeInterval
+    ) -> ViewportState {
+        var settledState = state
+        _ = settledState.advanceAnimations(at: settleTime)
+        _ = column?.tickWidthAnimation(at: settleTime)
+        return settledState
+    }
 
     @Test func selectionFallbackAfterRemoval_sameSibling() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3)
@@ -520,6 +603,85 @@ private func hasAnyVisibilityChange(
         #expect(!hiddenVisibilitySides(plan.diff.visibilityChanges).isEmpty)
     }
 
+    @Test @MainActor func snapshotPlanDoesNotHideFullscreenTokenOnRightVisibleColumn() async throws {
+        let monitor = makeLayoutPlanTestMonitor(width: 1600, height: 900)
+        let controller = makeLayoutPlanTestController(monitors: [monitor])
+        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing active workspace for fullscreen hide-diff regression test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for fullscreen hide-diff regression test")
+            return
+        }
+
+        engine.maxVisibleColumns = 3
+        engine.centerFocusedColumn = .never
+
+        for windowId in 511 ... 515 {
+            _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: windowId)
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let workingFrame = controller.insetWorkingFrame(for: monitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let fixedWidth = (workingFrame.width - gap * CGFloat(engine.maxVisibleColumns - 1)) / CGFloat(engine.maxVisibleColumns)
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(fixedWidth)
+            column.cachedWidth = fixedWidth
+        }
+
+        let columns = engine.columns(in: workspaceId)
+        guard columns.indices.contains(engine.maxVisibleColumns - 1),
+              let targetWindow = columns[engine.maxVisibleColumns - 1].windowNodes.first
+        else {
+            Issue.record("Expected a right visible-column target for fullscreen hide-diff regression test")
+            return
+        }
+
+        var state = makeViewportStateForVisibleColumn(
+            targetWindow: targetWindow,
+            engine: engine,
+            workspaceId: workspaceId,
+            workingFrame: workingFrame,
+            gap: gap
+        )
+        _ = controller.workspaceManager.setManagedFocus(targetWindow.token, in: workspaceId, onMonitor: monitor.id)
+        engine.toggleFullscreen(targetWindow, state: &state)
+        controller.workspaceManager.updateNiriViewportState(state, for: workspaceId)
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected a fullscreen Niri layout plan for hide-diff regression test")
+            return
+        }
+
+        let expectedFullscreenFrame = workingFrame.roundedToPhysicalPixels(
+            scale: controller.layoutRefreshController.backingScale(for: monitor)
+        )
+        #expect(!hasHideVisibilityChange(plan.diff.visibilityChanges, token: targetWindow.token))
+
+        guard let frameChange = plan.diff.frameChanges.first(where: { $0.token == targetWindow.token }) else {
+            Issue.record("Expected a frame change for the fullscreen token in hide-diff regression test")
+            return
+        }
+
+        #expect(frameChange.forceApply)
+        #expect(frameChange.frame == expectedFullscreenFrame)
+    }
+
     @Test @MainActor func offscreenLeftPlaceholderFramesUseWorkingFrameOriginOnMonitorWithoutLeftNeighbor() async throws {
         let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
         let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 2, name: "Secondary", x: 1600, width: 1600, height: 900)
@@ -658,6 +820,288 @@ private func hasAnyVisibilityChange(
         #expect(bottomWindow.resolvedHeight == canonicalBottomHeight)
         #expect(revealLayout.frames[bottomHandle.id]?.minY == canonicalBottomFrame.minY)
         #expect(revealLayout.frames[bottomHandle.id]?.height == canonicalBottomHeight)
+    }
+
+    @Test func fullscreenWindowsStayMonitorAnchoredAcrossVisibleColumns() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            let expectedFullscreenFrame = fixture.monitor.visibleFrame.roundedToPhysicalPixels(scale: fixture.area.scale)
+
+            var targetIndices = [visibleCount - 1]
+            if visibleCount > 2 {
+                targetIndices.append(1)
+            }
+
+            for targetIndex in targetIndices {
+                let targetWindow = fixture.windows[targetIndex]
+                var state = makeViewportStateForVisibleColumn(
+                    targetWindow: targetWindow,
+                    engine: fixture.engine,
+                    workspaceId: fixture.workspaceId,
+                    workingFrame: fixture.monitor.visibleFrame,
+                    gap: fixture.gap
+                )
+
+                let tiledLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                    in: fixture.workspaceId,
+                    monitor: fixture.monitor,
+                    gaps: fixture.gaps,
+                    state: state,
+                    workingArea: fixture.area,
+                    animationTime: nil
+                )
+
+                guard let tiledFrame = tiledLayout.frames[targetWindow.token] else {
+                    Issue.record("Expected tiled frame for visibleCount=\(visibleCount) targetIndex=\(targetIndex)")
+                    continue
+                }
+
+                #expect(tiledLayout.hiddenHandles[targetWindow.token] == nil)
+
+                fixture.engine.toggleFullscreen(targetWindow, state: &state)
+                let fullscreenLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                    in: fixture.workspaceId,
+                    monitor: fixture.monitor,
+                    gaps: fixture.gaps,
+                    state: state,
+                    workingArea: fixture.area,
+                    animationTime: nil
+                )
+
+                #expect(fullscreenLayout.hiddenHandles[targetWindow.token] == nil)
+                #expect(fullscreenLayout.frames[targetWindow.token] == expectedFullscreenFrame)
+                #expect(targetWindow.renderedFrame == expectedFullscreenFrame)
+
+                fixture.engine.toggleFullscreen(targetWindow, state: &state)
+                let restoredLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                    in: fixture.workspaceId,
+                    monitor: fixture.monitor,
+                    gaps: fixture.gaps,
+                    state: state,
+                    workingArea: fixture.area,
+                    animationTime: nil
+                )
+
+                #expect(restoredLayout.frames[targetWindow.token] == tiledFrame)
+            }
+        }
+    }
+
+    @Test func fullscreenBottomTileUsesFullMonitorHeightWithoutCarryoverOffset() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 1)
+        engine.animationClock = AnimationClock()
+        let wsId = UUID()
+
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let column = NiriContainer()
+        root.appendChild(column)
+
+        let topHandle = makeTestHandle(pid: 71)
+        let bottomHandle = makeTestHandle(pid: 72)
+        let topWindow = NiriWindow(handle: topHandle)
+        let bottomWindow = NiriWindow(handle: bottomHandle)
+
+        topWindow.height = .auto(weight: 1.0)
+        bottomWindow.height = .fixed(280)
+
+        column.appendChild(topWindow)
+        column.appendChild(bottomWindow)
+        engine.tokenToNode[topHandle.id] = topWindow
+        engine.tokenToNode[bottomHandle.id] = bottomWindow
+
+        let monitor = makeLayoutPlanTestMonitor(width: 1200, height: 900)
+        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
+        let area = WorkingAreaContext(
+            workingFrame: monitor.visibleFrame,
+            viewFrame: monitor.frame,
+            scale: 2.0
+        )
+
+        var state = ViewportState()
+        state.selectedNodeId = bottomWindow.id
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+
+        let tiledLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: nil
+        )
+
+        guard let tiledFrame = tiledLayout.frames[bottomHandle.id],
+              let tiledHeight = bottomWindow.resolvedHeight
+        else {
+            Issue.record("Expected tiled frame for bottom-tile fullscreen regression test")
+            return
+        }
+
+        bottomWindow.animateMoveFrom(
+            displacement: CGPoint(x: 0, y: -220),
+            clock: engine.animationClock,
+            config: engine.windowMovementAnimationConfig,
+            displayRefreshRate: engine.displayRefreshRate
+        )
+
+        engine.toggleFullscreen(bottomWindow, state: &state)
+        let fullscreenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: engine.animationClock?.now()
+        )
+
+        let expectedFullscreenFrame = monitor.visibleFrame.roundedToPhysicalPixels(scale: area.scale)
+        #expect(fullscreenLayout.frames[bottomHandle.id] == expectedFullscreenFrame)
+        #expect(bottomWindow.resolvedHeight == monitor.visibleFrame.height)
+        #expect(bottomWindow.hasMoveAnimationsRunning == false)
+
+        engine.toggleFullscreen(bottomWindow, state: &state)
+        let restoredLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: nil
+        )
+
+        #expect(restoredLayout.frames[bottomHandle.id] == tiledFrame)
+        #expect(bottomWindow.resolvedHeight == tiledHeight)
+    }
+
+    @Test func toggleFullWidthKeepsRightVisibleColumnInViewport() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            fixture.engine.animationClock = AnimationClock()
+            let targetWindow = fixture.windows[visibleCount - 1]
+            guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+                Issue.record("Expected a target column for full-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            var state = makeViewportStateForVisibleColumn(
+                targetWindow: targetWindow,
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                workingFrame: fixture.monitor.visibleFrame,
+                gap: fixture.gap
+            )
+            let originalTargetOffset = state.viewOffsetPixels.target()
+
+            fixture.engine.toggleFullWidth(
+                targetColumn,
+                in: fixture.workspaceId,
+                state: &state,
+                workingFrame: fixture.monitor.visibleFrame,
+                gaps: fixture.gap
+            )
+
+            let widenedTargetOffset = state.viewOffsetPixels.target()
+            #expect(widenedTargetOffset != originalTargetOffset)
+
+            guard let settleBaseTime = fixture.engine.animationClock?.now() else {
+                Issue.record("Expected animation clock for full-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+            let settleTime = settleBaseTime + 2.0
+            let settledState = settledLayoutState(from: state, column: targetColumn, settleTime: settleTime)
+            let settledLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: settledState,
+                workingArea: fixture.area,
+                animationTime: settleTime
+            )
+
+            guard let fullscreenWidthFrame = settledLayout.frames[targetWindow.token] else {
+                Issue.record("Expected settled frame for full-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            #expect(settledLayout.hiddenHandles[targetWindow.token] == nil)
+            #expect(abs(fullscreenWidthFrame.minX - fixture.monitor.visibleFrame.minX) < 1.0)
+            #expect(abs(fullscreenWidthFrame.maxX - fixture.monitor.visibleFrame.maxX) < 1.0)
+        }
+    }
+
+    @Test func toggleColumnWidthKeepsRightVisibleColumnInViewport() {
+        for visibleCount in 2 ... 5 {
+            let fixture = makeVisibleColumnFixture(visibleCount: visibleCount)
+            fixture.engine.animationClock = AnimationClock()
+            let targetWindow = fixture.windows[visibleCount - 1]
+            guard let targetColumn = fixture.engine.column(of: targetWindow) else {
+                Issue.record("Expected a target column for cycle-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            fixture.engine.presetColumnWidths = [
+                .fixed(targetColumn.cachedWidth),
+                .fixed(targetColumn.cachedWidth * 1.5)
+            ]
+
+            var state = makeViewportStateForVisibleColumn(
+                targetWindow: targetWindow,
+                engine: fixture.engine,
+                workspaceId: fixture.workspaceId,
+                workingFrame: fixture.monitor.visibleFrame,
+                gap: fixture.gap
+            )
+            let originalLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: state,
+                workingArea: fixture.area,
+                animationTime: nil
+            )
+            let originalTargetOffset = state.viewOffsetPixels.target()
+
+            fixture.engine.toggleColumnWidth(
+                targetColumn,
+                forwards: true,
+                in: fixture.workspaceId,
+                state: &state,
+                workingFrame: fixture.monitor.visibleFrame,
+                gaps: fixture.gap
+            )
+
+            let widenedTargetOffset = state.viewOffsetPixels.target()
+            #expect(widenedTargetOffset != originalTargetOffset)
+
+            guard let settleBaseTime = fixture.engine.animationClock?.now() else {
+                Issue.record("Expected animation clock for cycle-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+            let settleTime = settleBaseTime + 2.0
+            let settledState = settledLayoutState(from: state, column: targetColumn, settleTime: settleTime)
+            let settledLayout = fixture.engine.calculateCombinedLayoutUsingPools(
+                in: fixture.workspaceId,
+                monitor: fixture.monitor,
+                gaps: fixture.gaps,
+                state: settledState,
+                workingArea: fixture.area,
+                animationTime: settleTime
+            )
+
+            guard let originalFrame = originalLayout.frames[targetWindow.token],
+                  let widenedFrame = settledLayout.frames[targetWindow.token]
+            else {
+                Issue.record("Expected original and widened frames for cycle-width visibility test visibleCount=\(visibleCount)")
+                continue
+            }
+
+            #expect(settledLayout.hiddenHandles[targetWindow.token] == nil)
+            #expect(widenedFrame.width > originalFrame.width)
+            #expect(widenedFrame.maxX <= fixture.monitor.visibleFrame.maxX + 1.0)
+        }
     }
 
     @Test func renderOffsetVisibilityUsesRenderedContainerFrame() {
