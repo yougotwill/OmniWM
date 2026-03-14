@@ -1017,7 +1017,8 @@ import QuartzCore
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        columnWidthPresets: [Double]? = nil
+        columnWidthPresets: [Double]? = nil,
+        defaultColumnWidth: Double?? = nil
     ) {
         guard let controller else { return }
         controller.niriEngine?.updateConfiguration(
@@ -1027,7 +1028,8 @@ import QuartzCore
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
-            presetColumnWidths: columnWidthPresets?.map { .proportion($0) }
+            presetColumnWidths: columnWidthPresets?.map { .proportion($0) },
+            defaultColumnWidth: defaultColumnWidth.map { $0.map { CGFloat($0) } }
         )
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }

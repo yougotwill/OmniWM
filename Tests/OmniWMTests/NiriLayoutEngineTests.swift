@@ -232,6 +232,41 @@ private func hasAnyVisibilityChange(
         #expect(fallbackNode != nil)
     }
 
+    @Test func firstWindowUsesBalancedWidthWhenDefaultWidthIsAuto() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        let wsId = UUID()
+
+        let window = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
+
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected claimed column for first window")
+            return
+        }
+
+        #expect(column.width == .proportion(1.0 / 3.0))
+        #expect(column.presetWidthIdx == nil)
+    }
+
+    @Test func additionalWindowUsesExplicitDefaultWidthWhenCreatingNewColumn() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = 0.6
+        let wsId = UUID()
+
+        let firstWindow = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
+        let secondWindow = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: firstWindow.id)
+
+        guard let column = engine.column(of: secondWindow) else {
+            Issue.record("Expected new column for second window")
+            return
+        }
+
+        #expect(engine.columns(in: wsId).count == 2)
+        #expect(column.width == .proportion(0.6))
+        #expect(column.presetWidthIdx == nil)
+    }
+
     @Test func selectionFallbackAfterColumnRemoval() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
         let wsId = UUID()
@@ -1005,6 +1040,35 @@ private func hasAnyVisibilityChange(
         }
     }
 
+    @Test func moveWindowToWorkspaceUsesExplicitDefaultWidthForTargetColumn() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = 0.7
+        let sourceWorkspaceId = UUID()
+        let targetWorkspaceId = UUID()
+
+        let window = engine.addWindow(handle: makeTestHandle(), to: sourceWorkspaceId, afterSelection: nil)
+        var sourceState = ViewportState()
+        var targetState = ViewportState()
+
+        let moved = engine.moveWindowToWorkspace(
+            window,
+            from: sourceWorkspaceId,
+            to: targetWorkspaceId,
+            sourceState: &sourceState,
+            targetState: &targetState
+        )
+
+        guard let targetColumn = engine.columns(in: targetWorkspaceId).first else {
+            Issue.record("Expected target column after workspace move")
+            return
+        }
+
+        #expect(moved != nil)
+        #expect(targetColumn.width == .proportion(0.7))
+        #expect(targetColumn.presetWidthIdx == nil)
+    }
+
     @Test func workspaceSwitchAnimationUsesSnapshotOrdering() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
         let monitor = makeTestMonitor(displayId: 300, name: "Main", x: 0)
@@ -1068,6 +1132,7 @@ private func hasAnyVisibilityChange(
         controller.enableNiriLayout(maxWindowsPerColumn: 1)
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
+        controller.niriEngine?.presetColumnWidths = [.proportion(1.0), .proportion(0.5)]
 
         let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 401)
         _ = controller.workspaceManager.setManagedFocus(firstToken, in: workspaceId, onMonitor: monitor.id)
@@ -1635,6 +1700,198 @@ private func hasAnyVisibilityChange(
         }
     }
 
+    @Test func splitAndExpelColumnCreationUseExplicitDefaultWidth() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = 0.7
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        root.appendChild(sourceColumn)
+
+        let movedWindow = NiriWindow(token: makeTestHandle(pid: 31).id)
+        let expelledWindow = NiriWindow(token: makeTestHandle(pid: 32).id)
+        let stationaryWindow = NiriWindow(token: makeTestHandle(pid: 33).id)
+        sourceColumn.appendChild(movedWindow)
+        sourceColumn.appendChild(expelledWindow)
+        sourceColumn.appendChild(stationaryWindow)
+        engine.tokenToNode[movedWindow.token] = movedWindow
+        engine.tokenToNode[expelledWindow.token] = expelledWindow
+        engine.tokenToNode[stationaryWindow.token] = stationaryWindow
+
+        var state = ViewportState()
+        engine.createColumnAndMove(
+            movedWindow,
+            from: sourceColumn,
+            direction: .right,
+            in: wsId,
+            state: &state,
+            gaps: 8,
+            workingAreaWidth: 1600
+        )
+
+        let columnsAfterSplit = engine.columns(in: wsId)
+        guard columnsAfterSplit.count == 2 else {
+            Issue.record("Expected split operation to create a second column")
+            return
+        }
+
+        let splitColumn = columnsAfterSplit[1]
+        #expect(splitColumn.width == .proportion(0.7))
+        #expect(splitColumn.presetWidthIdx == nil)
+
+        var expelState = ViewportState()
+        let expelled = engine.expelWindow(
+            expelledWindow,
+            to: .left,
+            in: wsId,
+            state: &expelState,
+            workingFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            gaps: 8
+        )
+
+        let columnsAfterExpel = engine.columns(in: wsId)
+        guard columnsAfterExpel.count == 3 else {
+            Issue.record("Expected expel operation to create a third column")
+            return
+        }
+
+        #expect(expelled)
+        #expect(columnsAfterExpel[0].width == .proportion(0.7))
+        #expect(columnsAfterExpel[0].presetWidthIdx == nil)
+    }
+
+    @Test func insertWindowInNewColumnUsesExplicitDefaultWidth() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
+        engine.defaultColumnWidth = 0.7
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        root.appendChild(sourceColumn)
+
+        let stationaryWindow = NiriWindow(token: makeTestHandle(pid: 41).id)
+        let movedWindow = NiriWindow(token: makeTestHandle(pid: 42).id)
+        sourceColumn.appendChild(stationaryWindow)
+        sourceColumn.appendChild(movedWindow)
+        engine.tokenToNode[stationaryWindow.token] = stationaryWindow
+        engine.tokenToNode[movedWindow.token] = movedWindow
+
+        var state = ViewportState()
+        let inserted = engine.insertWindowInNewColumn(
+            movedWindow,
+            insertIndex: 1,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            gaps: 8
+        )
+
+        let columns = engine.columns(in: wsId)
+        guard columns.count == 2 else {
+            Issue.record("Expected insert-window operation to create a second column")
+            return
+        }
+
+        #expect(inserted)
+        #expect(columns[1].width == .proportion(0.7))
+        #expect(columns[1].presetWidthIdx == nil)
+    }
+
+    @Test func toggleColumnWidthFollowsOrderedDuplicatePresetsFromExplicitDefaultMatch() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [
+            .proportion(0.85),
+            .proportion(1.0),
+            .proportion(0.85),
+            .proportion(0.5)
+        ]
+        engine.defaultColumnWidth = 0.85
+        let wsId = UUID()
+
+        let window = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected column for ordered preset cycle test")
+            return
+        }
+
+        #expect(column.width == .proportion(0.85))
+        #expect(column.presetWidthIdx == 0)
+
+        var state = ViewportState()
+        let workingFrame = CGRect(x: 0, y: 0, width: 1600, height: 900)
+
+        engine.toggleColumnWidth(
+            column,
+            forwards: true,
+            in: wsId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: 8
+        )
+        #expect(column.width == .proportion(1.0))
+        #expect(column.presetWidthIdx == 1)
+
+        engine.toggleColumnWidth(
+            column,
+            forwards: true,
+            in: wsId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: 8
+        )
+        #expect(column.width == .proportion(0.85))
+        #expect(column.presetWidthIdx == 2)
+
+        engine.toggleColumnWidth(
+            column,
+            forwards: true,
+            in: wsId,
+            state: &state,
+            workingFrame: workingFrame,
+            gaps: 8
+        )
+        #expect(column.width == .proportion(0.5))
+        #expect(column.presetWidthIdx == 3)
+    }
+
+    @Test func explicitDefaultOutsidePresetListReanchorsOnFirstResize() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        engine.presetColumnWidths = [
+            .proportion(0.5),
+            .proportion(0.85),
+            .proportion(1.0)
+        ]
+        engine.defaultColumnWidth = 0.6
+        let wsId = UUID()
+
+        let window = engine.addWindow(handle: makeTestHandle(), to: wsId, afterSelection: nil)
+        guard let column = engine.column(of: window) else {
+            Issue.record("Expected column for custom default reanchor test")
+            return
+        }
+
+        #expect(column.width == .proportion(0.6))
+        #expect(column.presetWidthIdx == nil)
+
+        var state = ViewportState()
+        engine.toggleColumnWidth(
+            column,
+            forwards: true,
+            in: wsId,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1600, height: 900),
+            gaps: 8
+        )
+
+        #expect(column.width == .proportion(0.85))
+        #expect(column.presetWidthIdx == 1)
+    }
+
     @Test func renderOffsetVisibilityUsesRenderedContainerFrame() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
         engine.animationClock = AnimationClock()
@@ -1726,10 +1983,29 @@ private func hasAnyVisibilityChange(
         await waitForLayoutPlanRefreshWork(on: controller)
         controller.syncMonitorsToNiriEngine()
 
-        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 911)
+        let firstToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 911)
         let transitioningToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 912)
 
+        _ = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        guard let engine = controller.niriEngine,
+              let firstNode = engine.findNode(for: firstToken)
+        else {
+            Issue.record("Expected first node for visibility-transition test")
+            return
+        }
+
+        let gap = CGFloat(controller.workspaceManager.gaps)
+        let columnWidth = controller.insetWorkingFrame(for: monitor).width - gap
+        for column in engine.columns(in: workspaceId) {
+            column.width = .fixed(columnWidth)
+            column.cachedWidth = columnWidth
+        }
+
         controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = firstNode.id
+            state.activeColumnIndex = 0
             state.viewOffsetPixels = .static(20)
         }
 

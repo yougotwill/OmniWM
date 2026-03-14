@@ -29,6 +29,17 @@ final class SettingsStore {
         didSet { saveNiriColumnWidthPresets() }
     }
 
+    var niriDefaultColumnWidth: Double? {
+        didSet {
+            let validated = Self.validatedDefaultColumnWidth(niriDefaultColumnWidth)
+            if validated != niriDefaultColumnWidth {
+                niriDefaultColumnWidth = validated
+                return
+            }
+            saveNiriDefaultColumnWidth()
+        }
+    }
+
     var mouseWarpMargin: Int {
         didSet { defaults.set(mouseWarpMargin, forKey: Keys.mouseWarpMargin) }
     }
@@ -343,6 +354,7 @@ final class SettingsStore {
         focusFollowsWindowToMonitor = defaults.object(forKey: Keys.focusFollowsWindowToMonitor) as? Bool ?? false
         mouseWarpMonitorOrder = Self.loadMouseWarpMonitorOrder(from: defaults)
         niriColumnWidthPresets = Self.loadNiriColumnWidthPresets(from: defaults)
+        niriDefaultColumnWidth = Self.loadNiriDefaultColumnWidth(from: defaults)
         mouseWarpMargin = defaults.object(forKey: Keys.mouseWarpMargin) as? Int ?? 2
         gapSize = defaults.object(forKey: Keys.gapSize) as? Double ?? 8
 
@@ -775,16 +787,11 @@ final class SettingsStore {
         defaults.set(data, forKey: Keys.mouseWarpMonitorOrder)
     }
 
-    static let defaultColumnWidthPresets: [Double] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
+    nonisolated static let defaultColumnWidthPresets: [Double] = NiriLayoutEngine.defaultPresetColumnWidthValues
+        .map(Double.init)
 
     static func validatedPresets(_ presets: [Double]) -> [Double] {
-        var result: [Double] = []
-        for value in presets.map({ min(1.0, max(0.05, $0)) }).sorted() {
-            if let last = result.last, abs(last - value) < 0.01 {
-                continue
-            }
-            result.append(value)
-        }
+        let result = presets.map { min(1.0, max(0.05, $0)) }
         if result.count < 2 {
             return defaultColumnWidthPresets
         }
@@ -800,9 +807,29 @@ final class SettingsStore {
         return validatedPresets(presets)
     }
 
+    static func validatedDefaultColumnWidth(_ width: Double?) -> Double? {
+        guard let width else { return nil }
+        return min(1.0, max(0.05, width))
+    }
+
+    private static func loadNiriDefaultColumnWidth(from defaults: UserDefaults) -> Double? {
+        guard let width = defaults.object(forKey: Keys.niriDefaultColumnWidth) as? NSNumber else {
+            return nil
+        }
+        return validatedDefaultColumnWidth(width.doubleValue)
+    }
+
     private func saveNiriColumnWidthPresets() {
         guard let data = try? JSONEncoder().encode(niriColumnWidthPresets) else { return }
         defaults.set(data, forKey: Keys.niriColumnWidthPresets)
+    }
+
+    private func saveNiriDefaultColumnWidth() {
+        guard let width = niriDefaultColumnWidth else {
+            defaults.removeObject(forKey: Keys.niriDefaultColumnWidth)
+            return
+        }
+        defaults.set(width, forKey: Keys.niriDefaultColumnWidth)
     }
 }
 
@@ -813,6 +840,7 @@ private enum Keys {
     static let focusFollowsWindowToMonitor = "settings.focusFollowsWindowToMonitor"
     static let mouseWarpMonitorOrder = "settings.mouseWarp.monitorOrder"
     static let niriColumnWidthPresets = "settings.niriColumnWidthPresets"
+    static let niriDefaultColumnWidth = "settings.niriDefaultColumnWidth"
     static let mouseWarpMargin = "settings.mouseWarp.margin"
     static let gapSize = "settings.gapSize"
 

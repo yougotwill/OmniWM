@@ -30,3 +30,4 @@ Frameworks/
 # Codex
 .codex-home/
 .tmp/
+.cache/

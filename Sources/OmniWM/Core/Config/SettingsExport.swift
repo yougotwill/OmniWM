@@ -23,6 +23,7 @@ struct SettingsExport: Codable {
     var niriAlwaysCenterSingleColumn: Bool
     var niriSingleWindowAspectRatio: String
     var niriColumnWidthPresets: [Double]?
+    var niriDefaultColumnWidth: Double?
 
     var workspaceConfigurations: [WorkspaceConfiguration]
     var defaultLayoutType: String
@@ -103,7 +104,8 @@ extension SettingsExport {
             niriCenterFocusedColumn: CenterFocusedColumn.never.rawValue,
             niriAlwaysCenterSingleColumn: true,
             niriSingleWindowAspectRatio: SingleWindowAspectRatio.ratio4x3.rawValue,
-            niriColumnWidthPresets: [1.0 / 3.0, 0.5, 2.0 / 3.0],
+            niriColumnWidthPresets: SettingsStore.defaultColumnWidthPresets,
+            niriDefaultColumnWidth: nil,
             workspaceConfigurations: [WorkspaceConfiguration(name: "1", monitorAssignment: .main)],
             defaultLayoutType: LayoutType.niri.rawValue,
             bordersEnabled: false,
@@ -271,6 +273,7 @@ extension SettingsStore {
             niriAlwaysCenterSingleColumn: niriAlwaysCenterSingleColumn,
             niriSingleWindowAspectRatio: niriSingleWindowAspectRatio.rawValue,
             niriColumnWidthPresets: niriColumnWidthPresets,
+            niriDefaultColumnWidth: niriDefaultColumnWidth,
             workspaceConfigurations: workspaceConfigurations,
             defaultLayoutType: defaultLayoutType.rawValue,
             bordersEnabled: bordersEnabled,
@@ -356,6 +359,7 @@ extension SettingsStore {
         if let presets = export.niriColumnWidthPresets {
             niriColumnWidthPresets = Self.validatedPresets(presets)
         }
+        niriDefaultColumnWidth = Self.validatedDefaultColumnWidth(export.niriDefaultColumnWidth)
 
         workspaceConfigurations = export.workspaceConfigurations
         defaultLayoutType = LayoutType(rawValue: export.defaultLayoutType) ?? .niri

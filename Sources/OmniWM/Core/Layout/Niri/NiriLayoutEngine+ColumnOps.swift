@@ -84,7 +84,7 @@ extension NiriLayoutEngine {
         sourceColumn.adjustActiveTileIdxForRemoval(of: node)
 
         let newColumn = NiriContainer()
-        newColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+        initializeNewColumnWidth(newColumn)
 
         if direction == .right {
             root.insertAfter(newColumn, reference: sourceColumn)
@@ -133,7 +133,7 @@ extension NiriLayoutEngine {
         sourceColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        newColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+        initializeNewColumnWidth(newColumn)
 
         let cols = columns(in: workspaceId)
         let clampedIndex = insertIndex.clamped(to: 0 ... cols.count)
@@ -463,7 +463,7 @@ extension NiriLayoutEngine {
         currentColumn.adjustActiveTileIdxForRemoval(of: window)
 
         let newColumn = NiriContainer()
-        newColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+        initializeNewColumnWidth(newColumn)
 
         if direction == .right {
             root.insertAfter(newColumn, reference: currentColumn)

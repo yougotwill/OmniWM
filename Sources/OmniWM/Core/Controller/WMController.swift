@@ -135,7 +135,8 @@ final class WMController {
             centerFocusedColumn: settings.niriCenterFocusedColumn,
             alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn,
             singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
-            columnWidthPresets: settings.niriColumnWidthPresets
+            columnWidthPresets: settings.niriColumnWidthPresets,
+            defaultColumnWidth: settings.niriDefaultColumnWidth
         )
 
         if dwindleEngine == nil {
@@ -428,7 +429,8 @@ final class WMController {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        columnWidthPresets: [Double]? = nil
+        columnWidthPresets: [Double]? = nil,
+        defaultColumnWidth: Double?? = nil
     ) {
         niriLayoutHandler.updateNiriConfig(
             maxWindowsPerColumn: maxWindowsPerColumn,
@@ -437,7 +439,8 @@ final class WMController {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowAspectRatio: singleWindowAspectRatio,
-            columnWidthPresets: columnWidthPresets
+            columnWidthPresets: columnWidthPresets,
+            defaultColumnWidth: defaultColumnWidth
         )
     }
 

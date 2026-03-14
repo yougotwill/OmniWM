@@ -33,11 +33,11 @@ extension NiriLayoutEngine {
 
         let targetColumn: NiriContainer
         if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: targetRoot) {
-            existingColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+            initializeNewColumnWidth(existingColumn)
             targetColumn = existingColumn
         } else {
             let newColumn = NiriContainer()
-            newColumn.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+            initializeNewColumnWidth(newColumn)
             targetRoot.appendChild(newColumn)
             targetColumn = newColumn
         }

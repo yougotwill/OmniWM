@@ -268,6 +268,21 @@ private struct GlobalNiriSettingsSection: View {
     @Bindable var controller: WMController
 
     var body: some View {
+        let useAutoDefaultColumnWidth = Binding(
+            get: { settings.niriDefaultColumnWidth == nil },
+            set: { useAuto in
+                settings.niriDefaultColumnWidth = useAuto ? nil : (settings.niriDefaultColumnWidth ?? 0.5)
+                controller.updateNiriConfig(defaultColumnWidth: settings.niriDefaultColumnWidth)
+            }
+        )
+        let defaultColumnWidthPercent = Binding(
+            get: { Int((settings.niriDefaultColumnWidth ?? 0.5) * 100) },
+            set: { newPercent in
+                settings.niriDefaultColumnWidth = Double(min(100, max(5, newPercent))) / 100.0
+                controller.updateNiriConfig(defaultColumnWidth: settings.niriDefaultColumnWidth)
+            }
+        )
+
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Niri Layout")
             VStack(alignment: .leading, spacing: 8) {
@@ -330,7 +345,41 @@ private struct GlobalNiriSettingsSection: View {
 
             Divider()
 
-            SectionHeader("Column Width Presets")
+            SectionHeader("Default New Column Width")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Width Mode")
+                    Picker("", selection: useAutoDefaultColumnWidth) {
+                        Text("Auto").tag(true)
+                        Text("Custom").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220)
+                }
+
+                if settings.niriDefaultColumnWidth != nil {
+                    HStack {
+                        Text("Custom Width")
+                        TextField("", value: defaultColumnWidthPercent, format: .number)
+                            .frame(width: 40)
+                            .multilineTextAlignment(.trailing)
+                        Text("%")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                }
+
+                Text(
+                    settings.niriDefaultColumnWidth == nil
+                        ? "Auto uses the balanced width for the current Visible Columns setting."
+                        : "New or claimed columns start at this width until you resize them."
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            SectionHeader("Column Width Cycle Presets")
             let presets = settings.niriColumnWidthPresets
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(presets.indices, id: \.self) { index in
@@ -340,7 +389,7 @@ private struct GlobalNiriSettingsSection: View {
                             set: { newPercent in
                                 var current = settings.niriColumnWidthPresets
                                 current[index] = Double(min(100, max(5, newPercent))) / 100.0
-                                settings.niriColumnWidthPresets = current.sorted()
+                                settings.niriColumnWidthPresets = current
                                 controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
                             }
                         ), format: .number)
@@ -365,14 +414,17 @@ private struct GlobalNiriSettingsSection: View {
                     Button("Add Preset") {
                         var presets = settings.niriColumnWidthPresets
                         presets.append(0.5)
-                        settings.niriColumnWidthPresets = presets.sorted()
+                        settings.niriColumnWidthPresets = presets
                         controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
                     }
-                    Button("Reset to Default") {
+                    Button("Reset Cycle Presets") {
                         settings.niriColumnWidthPresets = SettingsStore.defaultColumnWidthPresets
                         controller.updateNiriConfig(columnWidthPresets: settings.niriColumnWidthPresets)
                     }
                 }
+                Text("Resize commands cycle through these presets in order. Duplicates are allowed.")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             .id(settings.niriColumnWidthPresets.count)
         }

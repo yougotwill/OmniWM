@@ -341,7 +341,8 @@ private func makeSettingsTestMonitor(
             niriCenterFocusedColumn: "always",
             niriAlwaysCenterSingleColumn: true,
             niriSingleWindowAspectRatio: "16:9",
-            niriColumnWidthPresets: [0.33, 0.5, 0.67],
+            niriColumnWidthPresets: [0.85, 0.5, 0.85, 1.0],
+            niriDefaultColumnWidth: 0.6,
             workspaceConfigurations: [],
             defaultLayoutType: "niri",
             bordersEnabled: true,
@@ -395,6 +396,68 @@ private func makeSettingsTestMonitor(
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: data1)
         let data2 = try encoder.encode(decoded)
         #expect(data1 == data2)
+    }
+}
+
+@Suite @MainActor struct NiriColumnWidthPresetPersistenceTests {
+    @Test func validatedPresetsPreserveOrderAndDuplicatesWhileClamping() {
+        let presets = SettingsStore.validatedPresets([0.85, 0.02, 0.85, 1.2])
+
+        #expect(presets == [0.85, 0.05, 0.85, 1.0])
+    }
+
+    @Test func validatedPresetsFallbackToDefaultsWhenTooShort() {
+        let presets = SettingsStore.validatedPresets([0.85])
+
+        #expect(presets == SettingsStore.defaultColumnWidthPresets)
+    }
+
+    @Test func settingsStoreLoadsOrderedDuplicatePresetsWithoutReordering() throws {
+        let defaults = makeTestDefaults()
+        let presets = [0.85, 0.02, 0.85, 1.2]
+        defaults.set(try JSONEncoder().encode(presets), forKey: "settings.niriColumnWidthPresets")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.niriColumnWidthPresets == [0.85, 0.05, 0.85, 1.0])
+    }
+
+    @Test func settingsStoreRoundTripsOrderedDuplicatePresets() {
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.niriColumnWidthPresets = [0.85, 0.5, 0.85, 1.0]
+
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.niriColumnWidthPresets == [0.85, 0.5, 0.85, 1.0])
+    }
+
+    @Test func validatedDefaultColumnWidthClampsAndSupportsAuto() {
+        #expect(SettingsStore.validatedDefaultColumnWidth(nil) == nil)
+        #expect(SettingsStore.validatedDefaultColumnWidth(0.02) == 0.05)
+        #expect(SettingsStore.validatedDefaultColumnWidth(1.2) == 1.0)
+    }
+
+    @Test func settingsStoreLoadsClampedDefaultColumnWidth() {
+        let defaults = makeTestDefaults()
+        defaults.set(0.02, forKey: "settings.niriDefaultColumnWidth")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.niriDefaultColumnWidth == 0.05)
+    }
+
+    @Test func settingsStoreRoundTripsOptionalDefaultColumnWidth() {
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.niriDefaultColumnWidth = 0.85
+        let reloadedCustom = SettingsStore(defaults: defaults)
+        #expect(reloadedCustom.niriDefaultColumnWidth == 0.85)
+
+        settings.niriDefaultColumnWidth = nil
+        let reloadedAuto = SettingsStore(defaults: defaults)
+        #expect(reloadedAuto.niriDefaultColumnWidth == nil)
     }
 }
 

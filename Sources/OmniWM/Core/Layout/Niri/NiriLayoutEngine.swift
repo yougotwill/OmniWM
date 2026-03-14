@@ -98,6 +98,10 @@ struct NiriRenderStyle {
 }
 
 final class NiriLayoutEngine {
+    static let defaultPresetColumnWidthValues: [CGFloat] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
+    static let defaultPresetColumnWidths: [PresetSize] = defaultPresetColumnWidthValues.map { .proportion($0) }
+    private static let presetMatchTolerance: CGFloat = 0.001
+
     var monitors: [Monitor.ID: NiriMonitor] = [:]
 
     var roots: [WorkspaceDescriptor.ID: NiriRoot] = [:]
@@ -134,11 +138,8 @@ final class NiriLayoutEngine {
     var animationClock: AnimationClock?
     var displayRefreshRate: Double = 60.0
 
-    var presetColumnWidths: [PresetSize] = [
-        .proportion(1.0 / 3.0),
-        .proportion(0.5),
-        .proportion(2.0 / 3.0)
-    ]
+    var presetColumnWidths: [PresetSize] = NiriLayoutEngine.defaultPresetColumnWidths
+    var defaultColumnWidth: CGFloat?
 
     init(maxWindowsPerColumn: Int = 3, maxVisibleColumns: Int = 3, infiniteLoop: Bool = false) {
         self.maxWindowsPerColumn = max(1, min(10, maxWindowsPerColumn))
@@ -178,6 +179,29 @@ final class NiriLayoutEngine {
         let emptyColumns = root.columns.filter(\.children.isEmpty)
         for column in emptyColumns {
             column.remove()
+        }
+    }
+
+    func initializeNewColumnWidth(_ column: NiriContainer) {
+        if let defaultColumnWidth {
+            column.width = .proportion(defaultColumnWidth)
+            column.presetWidthIdx = matchingPresetIndex(for: defaultColumnWidth)
+        } else {
+            column.width = .proportion(1.0 / CGFloat(maxVisibleColumns))
+            column.presetWidthIdx = nil
+        }
+
+        column.cachedWidth = 0
+        column.isFullWidth = false
+        column.savedWidth = nil
+        column.widthAnimation = nil
+        column.targetWidth = nil
+    }
+
+    private func matchingPresetIndex(for width: CGFloat) -> Int? {
+        presetColumnWidths.firstIndex { preset in
+            guard case let .proportion(presetWidth) = preset.kind else { return false }
+            return abs(presetWidth - width) <= Self.presetMatchTolerance
         }
     }
 
@@ -262,7 +286,8 @@ final class NiriLayoutEngine {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowAspectRatio: SingleWindowAspectRatio? = nil,
-        presetColumnWidths: [PresetSize]? = nil
+        presetColumnWidths: [PresetSize]? = nil,
+        defaultColumnWidth: CGFloat?? = nil
     ) {
         if let max = maxWindowsPerColumn {
             self.maxWindowsPerColumn = max.clamped(to: 1 ... 10)
@@ -281,6 +306,10 @@ final class NiriLayoutEngine {
         }
         if let aspectRatio = singleWindowAspectRatio {
             self.singleWindowAspectRatio = aspectRatio
+        }
+        // Double optional distinguishes "no config change" from "set Auto/nil".
+        if let defaultColumnWidth {
+            self.defaultColumnWidth = defaultColumnWidth?.clamped(to: 0.05 ... 1.0)
         }
 
         if let presets = presetColumnWidths, !presets.isEmpty {
