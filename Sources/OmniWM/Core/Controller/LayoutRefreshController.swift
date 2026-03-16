@@ -305,7 +305,10 @@ import QuartzCore
            dwindleHandler.dwindleAnimationByDisplay[displayId] == nil,
            layoutState.closingAnimationsByDisplay[displayId].map({ $0.isEmpty }) ?? true
         {
-            layoutState.displayLinksByDisplay[displayId]?.remove(from: .main, forMode: .common)
+            // Idle display links must not remain cached after teardown.
+            if let link = layoutState.displayLinksByDisplay.removeValue(forKey: displayId) {
+                link.invalidate()
+            }
         }
     }
 
