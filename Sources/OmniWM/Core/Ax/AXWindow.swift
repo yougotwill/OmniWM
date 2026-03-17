@@ -39,14 +39,38 @@ enum AXFrameWriteOrder {
     case positionThenSize
 }
 
-enum AXWindowService {
-    private static let browserPiPBundleIds: Set<String> = [
-        "org.mozilla.firefox",
-        "app.zen-browser.zen"
-    ]
-    private static let browserPiPTitle = "Picture-in-Picture"
+enum AXWindowHeuristicReason: String, Sendable {
+    case attributeFetchFailed
+    case browserPictureInPicture
+    case accessoryWithoutClose
+    case noButtonsOnNonStandardSubrole
+    case nonStandardSubrole
+    case missingFullscreenButton
+    case disabledFullscreenButton
+}
 
+struct AXWindowFacts: Equatable, Sendable {
+    let role: String?
+    let subrole: String?
+    let title: String?
+    let hasCloseButton: Bool
+    let hasFullscreenButton: Bool
+    let fullscreenButtonEnabled: Bool?
+    let hasZoomButton: Bool
+    let hasMinimizeButton: Bool
+    let appPolicy: NSApplication.ActivationPolicy?
+    let bundleId: String?
+    let attributeFetchSucceeded: Bool
+}
+
+struct AXWindowHeuristicDisposition: Equatable, Sendable {
+    let windowType: AXWindowType
+    let reasons: [AXWindowHeuristicReason]
+}
+
+enum AXWindowService {
     private enum WindowTypeAttributeIndex: Int {
+        case role
         case subrole
         case closeButton
         case fullScreenButton
@@ -188,48 +212,21 @@ enum AXWindowService {
         return frame.approximatelyEqual(to: screen.frame, tolerance: 2.0)
     }
 
-    static func shouldForceFloatForBrowserPiP(bundleId: String?, title: String?) -> Bool {
-        guard let bundleId,
-              browserPiPBundleIds.contains(bundleId),
-              let title
-        else {
-            return false
-        }
-
-        return title == browserPiPTitle
-    }
-
-    private static func shouldFetchTitleForWindowType(bundleId: String?) -> Bool {
-        guard let bundleId else { return false }
-        return browserPiPBundleIds.contains(bundleId)
-    }
-
-    private static func builtinWindowTypeOverride(bundleId: String?, title: String?) -> AXWindowType? {
-        if shouldForceFloatForBrowserPiP(bundleId: bundleId, title: title) {
-            return .floating
-        }
-
-        return nil
-    }
-
-    static func windowType(
+    static func collectWindowFacts(
         _ window: AXWindowRef,
         appPolicy: NSApplication.ActivationPolicy?,
-        bundleId: String? = nil
-    ) -> AXWindowType {
-        if DefaultFloatingApps.shouldFloat(bundleId) {
-            return .floating
-        }
-
-        let shouldFetchTitle = shouldFetchTitleForWindowType(bundleId: bundleId)
+        bundleId: String? = nil,
+        includeTitle: Bool
+    ) -> AXWindowFacts {
         var attributes: [CFString] = [
+            kAXRoleAttribute as CFString,
             kAXSubroleAttribute as CFString,
             kAXCloseButtonAttribute as CFString,
             kAXFullScreenButtonAttribute as CFString,
             kAXZoomButtonAttribute as CFString,
             kAXMinimizeButtonAttribute as CFString
         ]
-        if shouldFetchTitle {
+        if includeTitle {
             attributes.append(kAXTitleAttribute as CFString)
         }
 
@@ -245,7 +242,19 @@ enum AXWindowService {
               let valuesArray = values as? [Any?],
               valuesArray.count > WindowTypeAttributeIndex.minimizeButton.rawValue
         else {
-            return .floating
+            return AXWindowFacts(
+                role: nil,
+                subrole: nil,
+                title: nil,
+                hasCloseButton: false,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: false,
+                hasMinimizeButton: false,
+                appPolicy: appPolicy,
+                bundleId: bundleId,
+                attributeFetchSucceeded: false
+            )
         }
 
         func attributeValue(_ index: WindowTypeAttributeIndex) -> Any? {
@@ -258,50 +267,108 @@ enum AXWindowService {
             return !(value is NSError)
         }
 
-        let subroleValue = attributeValue(.subrole) as? String
-        let closeButtonValue = attributeValue(.closeButton)
         let fullscreenButtonElement = attributeValue(.fullScreenButton)
-        let zoomButtonValue = attributeValue(.zoomButton)
-        let minimizeButtonValue = attributeValue(.minimizeButton)
-        let titleValue = shouldFetchTitle ? (attributeValue(.title) as? String) : nil
-
-        if let builtinOverride = builtinWindowTypeOverride(bundleId: bundleId, title: titleValue) {
-            return builtinOverride
-        }
-
-        let hasCloseButton = hasResolvedAttribute(closeButtonValue)
         let hasFullscreenButton = hasResolvedAttribute(fullscreenButtonElement)
-        let hasZoomButton = hasResolvedAttribute(zoomButtonValue)
-        let hasMinimizeButton = hasResolvedAttribute(minimizeButtonValue)
 
-        let hasAnyButton = hasCloseButton || hasFullscreenButton || hasZoomButton || hasMinimizeButton
-
-        if appPolicy == .accessory && !hasCloseButton {
-            return .floating
-        }
-        if !hasAnyButton && subroleValue != kAXStandardWindowSubrole as String {
-            return .floating
-        }
-
-        if let subroleValue, subroleValue != (kAXStandardWindowSubrole as String) {
-            return .floating
-        }
-
-        if hasFullscreenButton, let buttonElement = fullscreenButtonElement {
+        var fullscreenButtonEnabled: Bool?
+        if hasFullscreenButton, let fullscreenButtonElement {
+            let buttonElement = fullscreenButtonElement as! AXUIElement
             var enabledValue: CFTypeRef?
             let enabledResult = AXUIElementCopyAttributeValue(
-                buttonElement as! AXUIElement,
+                buttonElement,
                 kAXEnabledAttribute as CFString,
                 &enabledValue
             )
-            if enabledResult != .success || enabledValue as? Bool != true {
-                return .floating
+            if enabledResult == .success {
+                fullscreenButtonEnabled = enabledValue as? Bool
             }
-        } else {
-            return .floating
         }
 
-        return .tiling
+        return AXWindowFacts(
+            role: attributeValue(.role) as? String,
+            subrole: attributeValue(.subrole) as? String,
+            title: includeTitle ? (attributeValue(.title) as? String) : nil,
+            hasCloseButton: hasResolvedAttribute(attributeValue(.closeButton)),
+            hasFullscreenButton: hasFullscreenButton,
+            fullscreenButtonEnabled: fullscreenButtonEnabled,
+            hasZoomButton: hasResolvedAttribute(attributeValue(.zoomButton)),
+            hasMinimizeButton: hasResolvedAttribute(attributeValue(.minimizeButton)),
+            appPolicy: appPolicy,
+            bundleId: bundleId,
+            attributeFetchSucceeded: true
+        )
+    }
+
+    static func windowType(
+        _ window: AXWindowRef,
+        appPolicy: NSApplication.ActivationPolicy?,
+        bundleId: String? = nil
+    ) -> AXWindowType {
+        let facts = collectWindowFacts(
+            window,
+            appPolicy: appPolicy,
+            bundleId: bundleId,
+            includeTitle: false
+        )
+        return heuristicDisposition(for: facts).windowType
+    }
+
+    static func heuristicDisposition(
+        for facts: AXWindowFacts,
+        overriddenWindowType: AXWindowType? = nil
+    ) -> AXWindowHeuristicDisposition {
+        if let overriddenWindowType {
+            return AXWindowHeuristicDisposition(windowType: overriddenWindowType, reasons: [])
+        }
+
+        if !facts.attributeFetchSucceeded {
+            return AXWindowHeuristicDisposition(
+                windowType: .floating,
+                reasons: [.attributeFetchFailed]
+            )
+        }
+
+        let hasAnyButton = facts.hasCloseButton
+            || facts.hasFullscreenButton
+            || facts.hasZoomButton
+            || facts.hasMinimizeButton
+
+        if facts.appPolicy == .accessory && !facts.hasCloseButton {
+            return AXWindowHeuristicDisposition(
+                windowType: .floating,
+                reasons: [.accessoryWithoutClose]
+            )
+        }
+
+        if !hasAnyButton && facts.subrole != kAXStandardWindowSubrole as String {
+            return AXWindowHeuristicDisposition(
+                windowType: .floating,
+                reasons: [.noButtonsOnNonStandardSubrole]
+            )
+        }
+
+        if let subrole = facts.subrole, subrole != (kAXStandardWindowSubrole as String) {
+            return AXWindowHeuristicDisposition(
+                windowType: .floating,
+                reasons: [.nonStandardSubrole]
+            )
+        }
+
+        if facts.hasFullscreenButton {
+            if facts.fullscreenButtonEnabled != true {
+                return AXWindowHeuristicDisposition(
+                    windowType: .floating,
+                    reasons: [.disabledFullscreenButton]
+                )
+            }
+        } else {
+            return AXWindowHeuristicDisposition(
+                windowType: .floating,
+                reasons: [.missingFullscreenButton]
+            )
+        }
+
+        return AXWindowHeuristicDisposition(windowType: .tiling, reasons: [])
     }
 
     static func sizeConstraints(_ window: AXWindowRef, currentSize: CGSize? = nil) -> WindowSizeConstraints {

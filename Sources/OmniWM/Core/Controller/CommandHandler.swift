@@ -110,6 +110,8 @@ final class CommandHandler {
             controller.openCommandPalette()
         case .raiseAllFloatingWindows:
             controller.raiseAllFloatingWindows()
+        case .toggleFocusedWindowFloating:
+            controller.toggleFocusedWindowFloating()
         case .openMenuAnywhere:
             controller.openMenuAnywhere()
         case .toggleHiddenBar:

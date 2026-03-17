@@ -82,7 +82,8 @@ struct HotkeyBinding: Codable, Equatable, Identifiable {
         case .focusMonitorLast, .focusMonitorNext, .focusMonitorPrevious,
              .swapWorkspaceWithMonitor, .moveWindowToWorkspaceOnMonitor:
             .monitor
-        case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFullscreen, .toggleNativeFullscreen,
+        case .balanceSizes, .moveToRoot, .raiseAllFloatingWindows, .toggleFocusedWindowFloating,
+             .toggleFullscreen, .toggleNativeFullscreen,
              .toggleSplit, .swapSplit, .resizeInDirection, .preselect, .preselectClear, .toggleWorkspaceLayout:
             .layout
         case .cycleColumnWidthBackward, .cycleColumnWidthForward, .moveColumn, .toggleColumnFullWidth,

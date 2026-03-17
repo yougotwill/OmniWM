@@ -1,4 +1,5 @@
 import CoreGraphics
+import ApplicationServices
 import Carbon
 import Foundation
 import Testing
@@ -251,6 +252,46 @@ private func makeSettingsTestMonitor(
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(MonitorDwindleSettings.self, from: data)
+        #expect(decoded == original)
+    }
+
+    @Test func appRuleDecodesLegacyAlwaysFloatWithoutNewFields() throws {
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000031",
+            "bundleId": "com.example.legacy",
+            "alwaysFloat": true
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppRule.self, from: Data(json.utf8))
+
+        #expect(decoded.bundleId == "com.example.legacy")
+        #expect(decoded.alwaysFloat == true)
+        #expect(decoded.manage == nil)
+        #expect(decoded.layout == nil)
+        #expect(decoded.effectiveLayoutAction == .float)
+    }
+
+    @Test func appRuleEncodeDecodeRoundTripPreservesAdvancedFields() throws {
+        let original = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000032")!,
+            bundleId: "com.example.advanced",
+            appNameSubstring: "Example",
+            titleSubstring: "Chooser",
+            titleRegex: "^Chooser$",
+            axRole: kAXWindowRole as String,
+            axSubrole: kAXStandardWindowSubrole as String,
+            manage: .off,
+            layout: .float,
+            assignToWorkspace: "2",
+            minWidth: 800,
+            minHeight: 600
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(AppRule.self, from: data)
+
         #expect(decoded == original)
     }
 }

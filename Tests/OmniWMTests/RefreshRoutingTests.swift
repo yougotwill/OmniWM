@@ -33,6 +33,29 @@ private func makeRefreshTestWindow(windowId: Int = 101) -> AXWindowRef {
     AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: windowId)
 }
 
+private func makeRefreshTestWindowFacts(
+    bundleId: String = "com.example.refresh",
+    title: String? = nil,
+    attributeFetchSucceeded: Bool = true
+) -> WindowRuleFacts {
+    WindowRuleFacts(
+        appName: "Refresh Test App",
+        ax: AXWindowFacts(
+            role: kAXWindowRole as String,
+            subrole: kAXStandardWindowSubrole as String,
+            title: title,
+            hasCloseButton: true,
+            hasFullscreenButton: true,
+            fullscreenButtonEnabled: true,
+            hasZoomButton: true,
+            hasMinimizeButton: true,
+            appPolicy: .regular,
+            bundleId: bundleId,
+            attributeFetchSucceeded: attributeFetchSucceeded
+        )
+    )
+}
+
 @MainActor
 private func makeRefreshTestController(
     workspaceConfigurations: [WorkspaceConfiguration] = [
@@ -53,6 +76,9 @@ private func makeRefreshTestController(
     )
     let monitor = makeRefreshTestMonitor()
     controller.workspaceManager.applyMonitorConfigurationChange([monitor])
+    controller.axEventHandler.windowFactsProvider = { _, _ in
+        makeRefreshTestWindowFacts()
+    }
     return controller
 }
 
@@ -364,6 +390,7 @@ private func prepareNiriState(
         ))
         #expect(RefreshReason.gapsChanged.relayoutSchedulingPolicy == .plain)
         #expect(RefreshReason.workspaceTransition.relayoutSchedulingPolicy == .plain)
+        #expect(RefreshReason.windowRuleReevaluation.relayoutSchedulingPolicy == .plain)
     }
 
     @Test func refreshRoutesAreExplicit() {
@@ -373,6 +400,7 @@ private func prepareNiriState(
         #expect(RefreshReason.appHidden.requestRoute == .visibilityRefresh)
         #expect(RefreshReason.appUnhidden.requestRoute == .visibilityRefresh)
         #expect(RefreshReason.windowDestroyed.requestRoute == .windowRemoval)
+        #expect(RefreshReason.windowRuleReevaluation.requestRoute == .relayout)
     }
 
     @Test @MainActor func workspaceBarRefreshRequestsCoalesceOnNextMainTurn() async {
@@ -1429,6 +1457,7 @@ private func prepareNiriState(
 
     @Test @MainActor func immediateRelayoutSupersedesPendingDebouncedRelayout() async {
         let controller = makeRefreshTestController()
+        controller.layoutRefreshController.resetDebugState()
 
         controller.layoutRefreshController.requestRelayout(reason: .axWindowCreated)
         controller.layoutRefreshController.requestImmediateRelayout(reason: .workspaceTransition)

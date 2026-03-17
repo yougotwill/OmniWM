@@ -91,13 +91,11 @@ final class WindowActionHandler {
                       windowIdSet.contains(UInt32(axRef.windowId)) else { continue }
                 let windowId = axRef.windowId
 
-                let hasAlwaysFloatRule = appInfo.bundleId.flatMap { controller.appRulesByBundleId[$0]?.alwaysFloat } == true
-                let windowType = AXWindowService.windowType(
-                    axRef,
-                    appPolicy: appInfo.activationPolicy,
-                    bundleId: appInfo.bundleId
+                let decision = controller.decideWindowDisposition(
+                    axRef: axRef,
+                    pid: pid
                 )
-                guard windowType == .floating || hasAlwaysFloatRule else { continue }
+                guard decision.disposition == WindowDecisionDisposition.floating else { continue }
 
                 SkyLight.shared.orderWindow(UInt32(windowId), relativeTo: 0, order: .above)
 

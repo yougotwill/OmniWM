@@ -39,14 +39,16 @@ struct AppRulesView: View {
                 .id(ruleId)
                 .omniBackgroundExtensionEffect()
             } else {
-                AppRulesEmptyState(onAdd: { isAddingNew = true })
+                AppRulesEmptyState(
+                    controller: controller,
+                    onAdd: { isAddingNew = true }
+                )
                     .omniBackgroundExtensionEffect()
             }
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $isAddingNew) {
             AppRuleAddSheet(
-                existingBundleIds: existingBundleIds,
                 workspaceNames: workspaceNames,
                 controller: controller,
                 onSave: { newRule in
@@ -63,10 +65,6 @@ struct AppRulesView: View {
 
     private var workspaceNames: [String] {
         settings.workspaceConfigurations.map(\.name)
-    }
-
-    private var existingBundleIds: Set<String> {
-        Set(settings.appRules.map(\.bundleId))
     }
 
     private func deleteRule(_ rule: AppRule) {
@@ -121,14 +119,25 @@ struct AppRuleSidebarRow: View {
                 .lineLimit(1)
 
             HStack(spacing: 4) {
-                if rule.alwaysFloat == true {
+                switch rule.effectiveLayoutAction {
+                case .float:
                     RuleBadge(text: "Float", color: .blue)
+                case .tile:
+                    RuleBadge(text: "Tile", color: .teal)
+                case .auto:
+                    EmptyView()
+                }
+                if rule.effectiveManageAction == .off {
+                    RuleBadge(text: "Ignore", color: .red)
                 }
                 if rule.assignToWorkspace != nil {
                     RuleBadge(text: "WS", color: .green)
                 }
                 if rule.minWidth != nil || rule.minHeight != nil {
                     RuleBadge(text: "Size", color: .orange)
+                }
+                if rule.hasAdvancedMatchers {
+                    RuleBadge(text: "Advanced", color: .purple)
                 }
             }
         }
@@ -137,23 +146,30 @@ struct AppRuleSidebarRow: View {
 }
 
 struct AppRulesEmptyState: View {
+    let controller: WMController
     let onAdd: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "app.badge.checkmark")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            Text("No App Rule Selected")
-                .font(.headline)
-            Text("Select an app rule from the sidebar to edit it,\nor add a new rule to get started.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Add Rule", action: onAdd)
-                .buttonStyle(.borderedProminent)
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "app.badge.checkmark")
+                    .font(.system(size: 48))
+                    .foregroundColor(.secondary)
+                Text("No App Rule Selected")
+                    .font(.headline)
+                Text("Select an app rule from the sidebar to edit it,\nor add a new rule to get started.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Add Rule", action: onAdd)
+                    .buttonStyle(.borderedProminent)
+
+                FocusedWindowInspectorView(controller: controller)
+                    .frame(maxWidth: 560)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -163,7 +179,6 @@ struct AppRuleDetailView: View {
     let controller: WMController
     let onDelete: () -> Void
 
-    @State private var alwaysFloatEnabled: Bool
     @State private var workspaceEnabled: Bool
     @State private var minWidthEnabled: Bool
     @State private var minHeightEnabled: Bool
@@ -178,10 +193,40 @@ struct AppRuleDetailView: View {
         self.workspaceNames = workspaceNames
         self.controller = controller
         self.onDelete = onDelete
-        _alwaysFloatEnabled = State(initialValue: rule.wrappedValue.alwaysFloat == true)
         _workspaceEnabled = State(initialValue: rule.wrappedValue.assignToWorkspace != nil)
         _minWidthEnabled = State(initialValue: rule.wrappedValue.minWidth != nil)
         _minHeightEnabled = State(initialValue: rule.wrappedValue.minHeight != nil)
+    }
+
+    private var manageBinding: Binding<WindowRuleManageAction> {
+        Binding(
+            get: { rule.effectiveManageAction },
+            set: { newValue in
+                rule.manage = newValue == .auto ? nil : newValue
+                controller.updateAppRules()
+            }
+        )
+    }
+
+    private var layoutBinding: Binding<WindowRuleLayoutAction> {
+        Binding(
+            get: { rule.effectiveLayoutAction },
+            set: { newValue in
+                rule.layout = newValue == .auto ? nil : newValue
+                rule.alwaysFloat = nil
+                controller.updateAppRules()
+            }
+        )
+    }
+
+    private func textBinding(_ keyPath: WritableKeyPath<AppRule, String?>) -> Binding<String> {
+        Binding(
+            get: { rule[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                rule[keyPath: keyPath] = newValue.isEmpty ? nil : newValue
+                controller.updateAppRules()
+            }
+        )
     }
 
     var body: some View {
@@ -196,11 +241,18 @@ struct AppRuleDetailView: View {
                 }
 
                 Section("Window Behavior") {
-                    Toggle("Always Float", isOn: $alwaysFloatEnabled)
-                        .onChange(of: alwaysFloatEnabled) { _, enabled in
-                            rule.alwaysFloat = enabled ? true : nil
-                            controller.updateAppRules()
+                    Picker("Manage", selection: manageBinding) {
+                        ForEach(WindowRuleManageAction.allCases) { action in
+                            Text(action.displayName).tag(action)
                         }
+                    }
+
+                    Picker("Layout", selection: layoutBinding) {
+                        ForEach(WindowRuleLayoutAction.allCases) { action in
+                            Text(action.displayName).tag(action)
+                        }
+                    }
+                    .disabled(rule.effectiveManageAction == .off)
 
                     Toggle("Assign to Workspace", isOn: $workspaceEnabled)
                         .onChange(of: workspaceEnabled) { _, enabled in
@@ -284,6 +336,42 @@ struct AppRuleDetailView: View {
                         .foregroundColor(.secondary)
                 }
 
+                if rule.hasAdvancedMatchers || controller.windowRuleEngine.invalidRegexMessagesByRuleId[rule.id] != nil {
+                    Section("Advanced Matchers") {
+                        Text("Advanced matchers are preserved but hidden in this compatibility editor during the admission rewrite rollout.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        if let appNameSubstring = rule.appNameSubstring, !appNameSubstring.isEmpty {
+                            LabeledContent("App Name Contains") { Text(appNameSubstring) }
+                        }
+                        if let titleSubstring = rule.titleSubstring, !titleSubstring.isEmpty {
+                            LabeledContent("Title Contains") { Text(titleSubstring) }
+                        }
+                        if let titleRegex = rule.titleRegex, !titleRegex.isEmpty {
+                            LabeledContent("Title Regex") {
+                                Text(titleRegex)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        if let axRole = rule.axRole, !axRole.isEmpty {
+                            LabeledContent("AX Role") { Text(axRole) }
+                        }
+                        if let axSubrole = rule.axSubrole, !axSubrole.isEmpty {
+                            LabeledContent("AX Subrole") { Text(axSubrole) }
+                        }
+                        if let regexError = controller.windowRuleEngine.invalidRegexMessagesByRuleId[rule.id] {
+                            Text("Stored title regex is invalid: \(regexError)")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+                }
+
+                Section {
+                    FocusedWindowInspectorView(controller: controller)
+                }
+
                 Section {
                     Button(role: .destructive, action: onDelete) {
                         Label("Delete Rule", systemImage: "trash")
@@ -297,7 +385,6 @@ struct AppRuleDetailView: View {
 }
 
 struct AppRuleAddSheet: View {
-    let existingBundleIds: Set<String>
     let workspaceNames: [String]
     let controller: WMController
     let onSave: (AppRule) -> Void
@@ -305,13 +392,40 @@ struct AppRuleAddSheet: View {
 
     @State private var rule = AppRule(bundleId: "")
     @State private var bundleIdError: String?
-    @State private var alwaysFloatEnabled = false
     @State private var workspaceEnabled = false
     @State private var minWidthEnabled = false
     @State private var minHeightEnabled = false
     @State private var runningApps: [RunningAppInfo] = []
     @State private var isPickerExpanded = true
     @State private var selectedAppInfo: RunningAppInfo?
+
+    private var manageBinding: Binding<WindowRuleManageAction> {
+        Binding(
+            get: { rule.effectiveManageAction },
+            set: { newValue in
+                rule.manage = newValue == .auto ? nil : newValue
+            }
+        )
+    }
+
+    private var layoutBinding: Binding<WindowRuleLayoutAction> {
+        Binding(
+            get: { rule.effectiveLayoutAction },
+            set: { newValue in
+                rule.layout = newValue == .auto ? nil : newValue
+                rule.alwaysFloat = nil
+            }
+        )
+    }
+
+    private func textBinding(_ keyPath: WritableKeyPath<AppRule, String?>) -> Binding<String> {
+        Binding(
+            get: { rule[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                rule[keyPath: keyPath] = newValue.isEmpty ? nil : newValue
+            }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -353,7 +467,6 @@ struct AppRuleAddSheet: View {
                     }
                     .onAppear {
                         runningApps = controller.runningAppsWithWindows()
-                            .filter { !existingBundleIds.contains($0.bundleId) }
                     }
 
                     if let appInfo = selectedAppInfo {
@@ -374,10 +487,18 @@ struct AppRuleAddSheet: View {
                 }
 
                 Section("Window Behavior") {
-                    Toggle("Always Float", isOn: $alwaysFloatEnabled)
-                        .onChange(of: alwaysFloatEnabled) { _, enabled in
-                            rule.alwaysFloat = enabled ? true : nil
+                    Picker("Manage", selection: manageBinding) {
+                        ForEach(WindowRuleManageAction.allCases) { action in
+                            Text(action.displayName).tag(action)
                         }
+                    }
+
+                    Picker("Layout", selection: layoutBinding) {
+                        ForEach(WindowRuleLayoutAction.allCases) { action in
+                            Text(action.displayName).tag(action)
+                        }
+                    }
+                    .disabled(rule.effectiveManageAction == .off)
 
                     Toggle("Assign to Workspace", isOn: $workspaceEnabled)
                         .onChange(of: workspaceEnabled) { _, enabled in
@@ -478,11 +599,6 @@ struct AppRuleAddSheet: View {
             return
         }
 
-        if existingBundleIds.contains(bundleId) {
-            bundleIdError = "A rule for this bundle ID already exists"
-            return
-        }
-
         let regex = try? NSRegularExpression(pattern: "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z0-9-]+)+$")
         let range = NSRange(bundleId.startIndex..., in: bundleId)
         if regex?.firstMatch(in: bundleId, range: range) == nil {
@@ -505,6 +621,54 @@ struct AppRuleAddSheet: View {
         rule.minHeight = size.height
         minWidthEnabled = true
         minHeightEnabled = true
+    }
+}
+
+struct FocusedWindowInspectorView: View {
+    let controller: WMController
+
+    @State private var snapshot: WindowDecisionDebugSnapshot?
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Focused Window Inspector")
+                        .font(.headline)
+                    Spacer()
+                    Button("Refresh") {
+                        refreshSnapshot()
+                    }
+                }
+
+                if let snapshot {
+                    ScrollView(.vertical) {
+                        Text(snapshot.formattedDump())
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(minHeight: 140, maxHeight: 220)
+
+                    Button("Copy Debug Dump") {
+                        controller.copyDebugDump(snapshot)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Text("No focused window is available for inspection.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onAppear {
+                refreshSnapshot()
+            }
+        }
+    }
+
+    private func refreshSnapshot() {
+        snapshot = controller.focusedWindowDecisionDebugSnapshot()
     }
 }
 

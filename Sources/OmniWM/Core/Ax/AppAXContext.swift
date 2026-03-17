@@ -193,9 +193,6 @@ final class AppAXContext {
         guard let thread else { return [] }
         nonisolated(unsafe) let appThread = thread
 
-        let appPolicy = nsApp.activationPolicy
-        let bundleId = nsApp.bundleIdentifier
-
         let (results, deadWindowIds) = try await appThread.runInLoop { [
             axApp,
             windows,
@@ -240,13 +237,6 @@ final class AppAXContext {
                       role == kAXWindowRole as String else { continue }
 
                 let axRef = AXWindowRef(element: element, windowId: windowId)
-                let windowType = AXWindowService.windowType(
-                    axRef,
-                    appPolicy: appPolicy,
-                    bundleId: bundleId
-                )
-                guard windowType == .tiling else { continue }
-
                 newWindows[windowId] = element
                 seenIds.insert(windowId)
                 results.append((axRef, windowId))

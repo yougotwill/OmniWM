@@ -31,6 +31,14 @@ final class WMController {
         var isQueued: Bool = false
     }
 
+    struct WindowDecisionEvaluation {
+        let token: WindowToken
+        let facts: WindowRuleFacts
+        let decision: WindowDecision
+        let appFullscreen: Bool
+        let manualOverride: ManualWindowOverride?
+    }
+
     var isEnabled: Bool = true
     var hotkeysEnabled: Bool = true
     private(set) var focusFollowsMouseEnabled: Bool = false
@@ -45,6 +53,7 @@ final class WMController {
     let axManager = AXManager()
     let appInfoCache = AppInfoCache()
     let focusCoordinator: FocusOperationCoordinator
+    let windowRuleEngine = WindowRuleEngine()
 
     var niriEngine: NiriLayoutEngine?
     var dwindleEngine: DwindleLayoutEngine?
@@ -65,8 +74,6 @@ final class WMController {
 
     var isTransferringWindow: Bool = false
     var hiddenAppPIDs: Set<pid_t> = []
-
-    private(set) var appRulesByBundleId: [String: AppRule] = [:]
 
     @ObservationIgnored
     private(set) lazy var mouseEventHandler = MouseEventHandler(controller: self)
@@ -415,10 +422,7 @@ final class WMController {
     }
 
     func rebuildAppRulesCache() {
-        appRulesByBundleId = Dictionary(
-            settings.appRules.map { ($0.bundleId, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        windowRuleEngine.rebuild(rules: settings.appRules)
     }
 
     func updateAppRules() {
@@ -560,13 +564,12 @@ final class WMController {
     }
 
     func resolveWorkspaceForNewWindow(
+        workspaceName: String? = nil,
         axRef: AXWindowRef,
         pid: pid_t,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?
     ) -> WorkspaceDescriptor.ID {
-        if let bundleId = appInfoCache.bundleId(for: pid),
-           let rule = appRulesByBundleId[bundleId],
-           let wsName = rule.assignToWorkspace,
+        if let wsName = workspaceName,
            let wsId = workspaceManager.workspaceId(for: wsName, createIfMissing: false)
         {
             return wsId
@@ -596,6 +599,244 @@ final class WMController {
             return createdWorkspaceId
         }
         fatalError("resolveWorkspaceForNewWindow: no workspaces exist")
+    }
+
+    private func resolvedAppInfo(for pid: pid_t) -> AppInfoCache.AppInfo? {
+        appInfoCache.info(for: pid) ?? NSRunningApplication(processIdentifier: pid).map {
+            AppInfoCache.AppInfo(
+                name: $0.localizedName,
+                bundleId: $0.bundleIdentifier,
+                icon: $0.icon,
+                activationPolicy: $0.activationPolicy
+            )
+        }
+    }
+
+    func evaluateWindowDisposition(
+        axRef: AXWindowRef,
+        pid: pid_t,
+        appFullscreen: Bool? = nil
+    ) -> WindowDecisionEvaluation {
+        let appInfo = resolvedAppInfo(for: pid)
+        let facts = axEventHandler.windowFactsProvider?(axRef, pid) ?? WindowRuleFacts(
+            appName: appInfo?.name,
+            ax: AXWindowService.collectWindowFacts(
+                axRef,
+                appPolicy: appInfo?.activationPolicy,
+                bundleId: appInfo?.bundleId,
+                includeTitle: windowRuleEngine.requiresTitle(for: appInfo?.bundleId)
+            )
+        )
+        let fullscreen = appFullscreen ?? (axEventHandler.isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef))
+        let token = WindowToken(pid: pid, windowId: axRef.windowId)
+        let decision = windowRuleEngine.decision(
+            for: facts,
+            token: token,
+            appFullscreen: fullscreen
+        )
+        return WindowDecisionEvaluation(
+            token: token,
+            facts: facts,
+            decision: decision,
+            appFullscreen: fullscreen,
+            manualOverride: windowRuleEngine.manualOverride(for: token)
+        )
+    }
+
+    func decideWindowDisposition(
+        axRef: AXWindowRef,
+        pid: pid_t,
+        appFullscreen: Bool? = nil
+    ) -> WindowDecision {
+        evaluateWindowDisposition(
+            axRef: axRef,
+            pid: pid,
+            appFullscreen: appFullscreen
+        ).decision
+    }
+
+    func makeWindowDecisionDebugSnapshot(
+        from evaluation: WindowDecisionEvaluation
+    ) -> WindowDecisionDebugSnapshot {
+        WindowDecisionDebugSnapshot(
+            token: evaluation.token,
+            appName: evaluation.facts.appName,
+            bundleId: evaluation.facts.ax.bundleId,
+            title: evaluation.facts.ax.title,
+            axRole: evaluation.facts.ax.role,
+            axSubrole: evaluation.facts.ax.subrole,
+            appFullscreen: evaluation.appFullscreen,
+            manualOverride: evaluation.manualOverride,
+            disposition: evaluation.decision.disposition,
+            source: evaluation.decision.source,
+            workspaceName: evaluation.decision.workspaceName,
+            minWidth: evaluation.decision.ruleEffects.minWidth,
+            minHeight: evaluation.decision.ruleEffects.minHeight,
+            matchedRuleId: evaluation.decision.ruleEffects.matchedRuleId,
+            heuristicReasons: evaluation.decision.heuristicReasons,
+            attributeFetchSucceeded: evaluation.facts.ax.attributeFetchSucceeded
+        )
+    }
+
+    func windowDecisionDebugSnapshot(for token: WindowToken) -> WindowDecisionDebugSnapshot? {
+        let axRef = workspaceManager.entry(for: token)?.axRef
+            ?? AXWindowService.axWindowRef(for: UInt32(token.windowId), pid: token.pid)
+        guard let axRef else { return nil }
+        let evaluation = evaluateWindowDisposition(axRef: axRef, pid: token.pid)
+        return makeWindowDecisionDebugSnapshot(from: evaluation)
+    }
+
+    func focusedWindowDecisionDebugSnapshot() -> WindowDecisionDebugSnapshot? {
+        let managedToken = workspaceManager.focusedToken
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let token = managedToken ?? frontmostPid.flatMap { axEventHandler.focusedWindowToken(for: $0) }
+        guard let token else { return nil }
+        return windowDecisionDebugSnapshot(for: token)
+    }
+
+    func copyDebugDump(_ snapshot: WindowDecisionDebugSnapshot) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(snapshot.formattedDump(), forType: .string)
+    }
+
+    func logWindowDecision(event: String, evaluation: WindowDecisionEvaluation) {
+        print(makeWindowDecisionDebugSnapshot(from: evaluation).structuredLogLine(event: event))
+    }
+
+    func clearManualWindowOverride(for token: WindowToken) {
+        windowRuleEngine.clearManualOverride(for: token)
+    }
+
+    private func resolveAXWindowRef(for token: WindowToken) -> AXWindowRef? {
+        workspaceManager.entry(for: token)?.axRef
+            ?? AXWindowService.axWindowRef(for: UInt32(token.windowId), pid: token.pid)
+    }
+
+    @discardableResult
+    func reevaluateWindowRules(
+        for targets: Set<WindowRuleReevaluationTarget>
+    ) async -> Bool {
+        guard !targets.isEmpty else { return false }
+
+        var liveWindowsByToken: [WindowToken: AXWindowRef] = [:]
+        var tokensToReevaluate: Set<WindowToken> = []
+        var pidTargets: Set<pid_t> = []
+
+        for target in targets {
+            switch target {
+            case let .window(token):
+                tokensToReevaluate.insert(token)
+                if let axRef = resolveAXWindowRef(for: token) {
+                    liveWindowsByToken[token] = axRef
+                }
+            case let .pid(pid):
+                pidTargets.insert(pid)
+            }
+        }
+
+        for pid in pidTargets {
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                let windows = await axManager.windowsForApp(app)
+                for (axRef, _, windowId) in windows {
+                    let token = WindowToken(pid: pid, windowId: windowId)
+                    tokensToReevaluate.insert(token)
+                    liveWindowsByToken[token] = axRef
+                }
+            }
+
+            for entry in workspaceManager.entries(forPid: pid) {
+                tokensToReevaluate.insert(entry.token)
+            }
+        }
+
+        var relayoutNeeded = false
+
+        for token in tokensToReevaluate.sorted(by: {
+            if $0.pid == $1.pid {
+                return $0.windowId < $1.windowId
+            }
+            return $0.pid < $1.pid
+        }) {
+            let existingEntry = workspaceManager.entry(for: token)
+            let axRef = liveWindowsByToken[token] ?? existingEntry?.axRef
+            guard let axRef else { continue }
+
+            let evaluation = evaluateWindowDisposition(axRef: axRef, pid: token.pid)
+            logWindowDecision(event: "reevaluate", evaluation: evaluation)
+
+            if let existingEntry, !evaluation.decision.isResolved {
+                _ = workspaceManager.addWindow(
+                    axRef,
+                    pid: token.pid,
+                    windowId: token.windowId,
+                    to: existingEntry.workspaceId,
+                    ruleEffects: existingEntry.ruleEffects
+                )
+                continue
+            }
+
+            if evaluation.decision.managesWindow {
+                let oldEffects = existingEntry?.ruleEffects ?? .none
+                let workspaceId = existingEntry?.workspaceId ?? resolveWorkspaceForNewWindow(
+                    workspaceName: evaluation.decision.workspaceName,
+                    axRef: axRef,
+                    pid: token.pid,
+                    fallbackWorkspaceId: activeWorkspace()?.id
+                )
+
+                _ = workspaceManager.addWindow(
+                    axRef,
+                    pid: token.pid,
+                    windowId: token.windowId,
+                    to: workspaceId,
+                    ruleEffects: evaluation.decision.ruleEffects
+                )
+
+                if existingEntry == nil || oldEffects != evaluation.decision.ruleEffects {
+                    relayoutNeeded = true
+                }
+                continue
+            }
+
+            if existingEntry != nil {
+                _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+                relayoutNeeded = true
+            }
+        }
+
+        if relayoutNeeded {
+            layoutRefreshController.requestRelayout(reason: .windowRuleReevaluation)
+        }
+
+        return relayoutNeeded
+    }
+
+    func toggleFocusedWindowFloating() {
+        let managedToken = workspaceManager.focusedToken
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let token = managedToken ?? frontmostPid.flatMap { axEventHandler.focusedWindowToken(for: $0) }
+        guard let token else { return }
+
+        if windowRuleEngine.manualOverride(for: token) != nil {
+            windowRuleEngine.setManualOverride(nil, for: token)
+        } else if let axRef = resolveAXWindowRef(for: token) {
+            let evaluation = evaluateWindowDisposition(axRef: axRef, pid: token.pid)
+            let nextOverride: ManualWindowOverride = evaluation.decision.managesWindow ? .forceFloat : .forceTile
+            windowRuleEngine.setManualOverride(nextOverride, for: token)
+        } else if workspaceManager.entry(for: token) != nil {
+            windowRuleEngine.setManualOverride(.forceFloat, for: token)
+        } else {
+            return
+        }
+
+        if let snapshot = windowDecisionDebugSnapshot(for: token) {
+            print(snapshot.structuredLogLine(event: "toggle"))
+        }
+
+        Task { @MainActor [weak self] in
+            _ = await self?.reevaluateWindowRules(for: [.window(token)])
+        }
     }
 
     func workspaceAssignment(pid: pid_t, windowId: Int) -> WorkspaceDescriptor.ID? {
@@ -751,7 +992,10 @@ extension WMController {
 
     func focusWindow(_ token: WindowToken) {
         guard let entry = workspaceManager.entry(for: token) else { return }
-        guard !(isFrontmostAppLockScreen() || isLockScreenActive) else { return }
+        guard !isLockScreenActive else { return }
+        if hasStartedServices {
+            guard !isFrontmostAppLockScreen() else { return }
+        }
         guard !isManagedWindowSuspendedForNativeFullscreen(token) else { return }
 
         _ = workspaceManager.beginManagedFocusRequest(

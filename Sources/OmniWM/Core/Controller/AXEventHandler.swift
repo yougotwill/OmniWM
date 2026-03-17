@@ -14,6 +14,7 @@ final class AXEventHandler: CGSEventDelegate {
         let bundleId: String?
         let axRef: AXWindowRef
         let workspaceId: WorkspaceDescriptor.ID
+        let ruleEffects: ManagedWindowRuleEffects
     }
 
     private struct PreparedDestroy {
@@ -83,13 +84,15 @@ final class AXEventHandler: CGSEventDelegate {
     private var pendingGhosttyReplacementBursts: [GhosttyReplacementKey: PendingGhosttyReplacementBurst] = [:]
     private var pendingGhosttyReplacementTasks: [GhosttyReplacementKey: Task<Void, Never>] = [:]
     private var pendingNativeFullscreenReplacementTasks: [WindowToken: Task<Void, Never>] = [:]
+    private var pendingWindowRuleReevaluationTask: Task<Void, Never>?
+    private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var nextGhosttyEventSequence: UInt64 = 0
     var windowInfoProvider: ((UInt32) -> WindowServerInfo?)?
     var axWindowRefProvider: ((UInt32, pid_t) -> AXWindowRef?)?
     var bundleIdProvider: ((pid_t) -> String?)?
     var windowSubscriptionHandler: (([UInt32]) -> Void)?
     var focusedWindowValueProvider: ((pid_t) -> CFTypeRef?)?
-    var windowTypeProvider: ((AXWindowRef, pid_t) -> AXWindowType)?
+    var windowFactsProvider: ((AXWindowRef, pid_t) -> WindowRuleFacts?)?
     var frameProvider: ((AXWindowRef) -> CGRect?)?
     var fastFrameProvider: ((AXWindowRef) -> CGRect?)?
     var isFullscreenProvider: ((AXWindowRef) -> Bool)?
@@ -109,6 +112,9 @@ final class AXEventHandler: CGSEventDelegate {
     func cleanup() {
         resetGhosttyReplacementState()
         resetNativeFullscreenReplacementState()
+        pendingWindowRuleReevaluationTask?.cancel()
+        pendingWindowRuleReevaluationTask = nil
+        pendingWindowRuleReevaluationTargets.removeAll()
         CGSEventObserver.shared.delegate = nil
         CGSEventObserver.shared.stop()
     }
@@ -132,8 +138,32 @@ final class AXEventHandler: CGSEventDelegate {
         case let .frontAppChanged(pid):
             handleAppActivation(pid: pid)
 
-        case .titleChanged:
+        case let .titleChanged(windowId):
             controller.requestWorkspaceBarRefresh()
+            if let token = resolveWindowToken(windowId) ?? resolveTrackedToken(windowId) {
+                scheduleWindowRuleReevaluationIfNeeded(targets: [.window(token)])
+            }
+        }
+    }
+
+    private func scheduleWindowRuleReevaluationIfNeeded(
+        targets: Set<WindowRuleReevaluationTarget>
+    ) {
+        guard let controller,
+              controller.windowRuleEngine.needsWindowReevaluation,
+              !targets.isEmpty
+        else {
+            return
+        }
+
+        pendingWindowRuleReevaluationTargets.formUnion(targets)
+        pendingWindowRuleReevaluationTask?.cancel()
+        pendingWindowRuleReevaluationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(25))
+            guard let self, let controller = self.controller else { return }
+            let targets = self.pendingWindowRuleReevaluationTargets
+            self.pendingWindowRuleReevaluationTargets.removeAll()
+            _ = await controller.reevaluateWindowRules(for: targets)
         }
     }
 
@@ -152,10 +182,14 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        let windowInfo = resolveWindowInfo(windowId)
         guard let candidate = prepareCreateCandidate(
             windowId: windowId,
-            windowInfo: resolveWindowInfo(windowId)
+            windowInfo: windowInfo
         ) else {
+            if let windowInfo {
+                scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(pid_t(windowInfo.pid))])
+            }
             return
         }
 
@@ -171,6 +205,9 @@ final class AXEventHandler: CGSEventDelegate {
         debugCounters = .init()
         resetGhosttyReplacementState()
         resetNativeFullscreenReplacementState()
+        pendingWindowRuleReevaluationTask?.cancel()
+        pendingWindowRuleReevaluationTask = nil
+        pendingWindowRuleReevaluationTargets.removeAll()
     }
 
     private func handleFrameChanged(windowId: UInt32) {
@@ -272,7 +309,8 @@ final class AXEventHandler: CGSEventDelegate {
             candidate.axRef,
             pid: candidate.token.pid,
             windowId: candidate.token.windowId,
-            to: candidate.workspaceId
+            to: candidate.workspaceId,
+            ruleEffects: candidate.ruleEffects
         )
 
         Task { @MainActor [weak self] in
@@ -283,6 +321,7 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         controller.layoutRefreshController.requestRelayout(reason: .axWindowCreated)
+        scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(candidate.token.pid)])
     }
 
     func handleRemoved(pid: pid_t, winId: Int) {
@@ -339,6 +378,7 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
+        controller.clearManualWindowOverride(for: token)
 
         if let wsId = affectedWorkspaceId {
             controller.layoutRefreshController.requestWindowRemoval(
@@ -349,6 +389,7 @@ final class AXEventHandler: CGSEventDelegate {
                 shouldRecoverFocus: shouldRecoverFocus
             )
         }
+        scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(token.pid)])
     }
 
     func handleAppActivation(pid: pid_t) {
@@ -654,15 +695,20 @@ final class AXEventHandler: CGSEventDelegate {
 
         let app = NSRunningApplication(processIdentifier: token.pid)
         let bundleId = resolveBundleId(token.pid) ?? app?.bundleIdentifier
-        let appPolicy = app?.activationPolicy
-        let windowType = windowTypeProvider?(axRef, token.pid)
-            ?? AXWindowService.windowType(axRef, appPolicy: appPolicy, bundleId: bundleId)
-
-        guard windowType == .tiling else { return nil }
-
-        if let bundleId, controller.appRulesByBundleId[bundleId]?.alwaysFloat == true { return nil }
+        let appFullscreen = isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef)
+        let evaluation = controller.evaluateWindowDisposition(
+            axRef: axRef,
+            pid: token.pid,
+            appFullscreen: appFullscreen
+        )
+        controller.logWindowDecision(
+            event: evaluation.decision.managesWindow ? "create-admit" : "create-reject",
+            evaluation: evaluation
+        )
+        guard evaluation.decision.managesWindow else { return nil }
 
         let workspaceId = controller.resolveWorkspaceForNewWindow(
+            workspaceName: evaluation.decision.workspaceName,
             axRef: axRef,
             pid: token.pid,
             fallbackWorkspaceId: controller.activeWorkspace()?.id
@@ -673,7 +719,8 @@ final class AXEventHandler: CGSEventDelegate {
             token: token,
             bundleId: bundleId,
             axRef: axRef,
-            workspaceId: workspaceId
+            workspaceId: workspaceId,
+            ruleEffects: evaluation.decision.ruleEffects
         )
     }
 
@@ -705,7 +752,21 @@ final class AXEventHandler: CGSEventDelegate {
         windowId: UInt32,
         pidHint: pid_t?
     ) {
-        guard let candidate = prepareDestroyCandidate(windowId: windowId, pidHint: pidHint) else { return }
+        let resolvedToken = resolveWindowToken(windowId)
+            ?? resolveTrackedToken(windowId)
+            ?? pidHint.map { WindowToken(pid: $0, windowId: Int(windowId)) }
+        if let resolvedToken {
+            controller?.clearManualWindowOverride(for: resolvedToken)
+        }
+
+        guard let candidate = prepareDestroyCandidate(windowId: windowId, pidHint: pidHint) else {
+            if let resolvedToken {
+                scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(resolvedToken.pid)])
+            } else if let pid = pidHint ?? resolveWindowInfo(windowId)?.pid {
+                scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(pid_t(pid))])
+            }
+            return
+        }
 
         if shouldDelayGhosttyLifecycle(for: candidate.token.pid, bundleId: candidate.bundleId) {
             enqueueGhosttyDestroy(candidate)

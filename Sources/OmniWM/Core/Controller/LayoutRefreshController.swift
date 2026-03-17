@@ -458,14 +458,11 @@ import QuartzCore
             }
 
             var mergedConstraints = constraints
-            if resolveConstraints,
-               let bundleId = controller.appInfoCache.bundleId(for: entry.handle.pid),
-               let rule = controller.appRulesByBundleId[bundleId]
-            {
-                if let minW = rule.minWidth {
+            if resolveConstraints {
+                if let minW = entry.ruleEffects.minWidth {
                     mergedConstraints.minSize.width = max(mergedConstraints.minSize.width, minW)
                 }
-                if let minH = rule.minHeight {
+                if let minH = entry.ruleEffects.minHeight {
                     mergedConstraints.minSize.height = max(mergedConstraints.minSize.height, minH)
                 }
             }
@@ -980,6 +977,7 @@ import QuartzCore
         let windows = await controller.axManager.currentWindowsAsync()
         try Task.checkCancellation()
         var seenKeys: Set<WindowModel.WindowKey> = []
+        var decisionBasedRemovals: [WindowToken] = []
         let focusedWorkspaceId = controller.activeWorkspace()?.id
 
         for (ax, pid, winId) in windows {
@@ -989,14 +987,47 @@ import QuartzCore
                 if bundleId == LockScreenObserver.lockScreenAppBundleId {
                     continue
                 }
-                if controller.appRulesByBundleId[bundleId]?.alwaysFloat == true {
-                    continue
-                }
             }
 
             let token = WindowToken(pid: pid, windowId: winId)
             let appFullscreen = controller.axEventHandler.isFullscreenProvider?(ax) ?? AXWindowService.isFullscreen(ax)
+            let evaluation = controller.evaluateWindowDisposition(
+                axRef: ax,
+                pid: pid,
+                appFullscreen: appFullscreen
+            )
+            let decision = evaluation.decision
+            let existingEntry = controller.workspaceManager.entry(for: token)
+
+            if let existingEntry, !decision.isResolved {
+                if appFullscreen {
+                    _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
+                } else if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil
+                    || existingEntry.layoutReason == .nativeFullscreen
+                {
+                    _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
+                }
+
+                _ = controller.workspaceManager.addWindow(
+                    ax,
+                    pid: pid,
+                    windowId: winId,
+                    to: existingEntry.workspaceId,
+                    ruleEffects: existingEntry.ruleEffects
+                )
+                seenKeys.insert(token)
+                continue
+            }
+
+            guard decision.managesWindow else {
+                if existingEntry != nil {
+                    decisionBasedRemovals.append(token)
+                }
+                continue
+            }
+
             let defaultWorkspace = controller.resolveWorkspaceForNewWindow(
+                workspaceName: decision.workspaceName,
                 axRef: ax,
                 pid: pid,
                 fallbackWorkspaceId: focusedWorkspaceId
@@ -1011,7 +1042,7 @@ import QuartzCore
                 )
             }
 
-            if let existingEntry = controller.workspaceManager.entry(forPid: pid, windowId: winId) {
+            if let existingEntry {
                 if appFullscreen {
                     _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
                 } else if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil
@@ -1023,8 +1054,18 @@ import QuartzCore
             let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
             let wsForWindow = existingAssignment ?? defaultWorkspace
 
-            _ = controller.workspaceManager.addWindow(ax, pid: pid, windowId: winId, to: wsForWindow)
+            _ = controller.workspaceManager.addWindow(
+                ax,
+                pid: pid,
+                windowId: winId,
+                to: wsForWindow,
+                ruleEffects: decision.ruleEffects
+            )
             seenKeys.insert(token)
+        }
+
+        for token in decisionBasedRemovals {
+            _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         }
 
         for entry in controller.workspaceManager.allEntries()

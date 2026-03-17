@@ -67,6 +67,38 @@ private func currentTestBundleId() -> String {
     "com.mitchellh.ghostty"
 }
 
+private func makeAXEventWindowRuleFacts(
+    bundleId: String = "com.example.app",
+    appName: String? = nil,
+    title: String? = nil,
+    role: String? = kAXWindowRole as String,
+    subrole: String? = kAXStandardWindowSubrole as String,
+    hasCloseButton: Bool = true,
+    hasFullscreenButton: Bool = true,
+    fullscreenButtonEnabled: Bool? = true,
+    hasZoomButton: Bool = true,
+    hasMinimizeButton: Bool = true,
+    appPolicy: NSApplication.ActivationPolicy? = .regular,
+    attributeFetchSucceeded: Bool = true
+) -> WindowRuleFacts {
+    WindowRuleFacts(
+        appName: appName,
+        ax: AXWindowFacts(
+            role: role,
+            subrole: subrole,
+            title: title,
+            hasCloseButton: hasCloseButton,
+            hasFullscreenButton: hasFullscreenButton,
+            fullscreenButtonEnabled: fullscreenButtonEnabled,
+            hasZoomButton: hasZoomButton,
+            hasMinimizeButton: hasMinimizeButton,
+            appPolicy: appPolicy,
+            bundleId: bundleId,
+            attributeFetchSucceeded: attributeFetchSucceeded
+        )
+    )
+}
+
 @MainActor
 private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
     controller.borderManager.lastAppliedFocusedWindowIdForTests
@@ -75,6 +107,20 @@ private func lastAppliedBorderWindowId(on controller: WMController) -> Int? {
 @MainActor
 private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
     controller.borderManager.lastAppliedFocusedFrameForTests
+}
+
+@MainActor
+private func waitUntilAXEventTest(
+    iterations: Int = 100,
+    condition: () -> Bool
+) async {
+    for _ in 0..<iterations where !condition() {
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+
+    if !condition() {
+        Issue.record("Timed out waiting for AX event test condition")
+    }
 }
 
 @Suite(.serialized) struct AXEventHandlerTests {
@@ -105,8 +151,122 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         #expect(relayoutReasons.isEmpty)
     }
 
+    @Test @MainActor func titleChangedQueuesRuleReevaluationWhenDynamicRulesExist() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+        controller.settings.appRules = [
+            AppRule(
+                bundleId: "com.example.dynamic",
+                titleSubstring: "Chooser",
+                layout: .float
+            )
+        ]
+        var relayoutReasons: [RefreshReason] = []
+        var title = "Document"
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 812),
+            pid: getpid(),
+            windowId: 812,
+            to: workspaceId
+        )
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 812 else { return nil }
+            return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.dynamic",
+                title: title
+            )
+        }
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            if reason == .appRulesChanged {
+                return true
+            }
+            Issue.record("Unexpected full rescan reason: \(reason)")
+            return true
+        }
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+        controller.updateAppRules()
+
+        controller.resetWorkspaceBarRefreshDebugStateForTests()
+        title = "Chooser"
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .titleChanged(windowId: 812)
+        )
+
+        await controller.waitForWorkspaceBarRefreshForTests()
+        await waitUntilAXEventTest { relayoutReasons == [.windowRuleReevaluation] }
+
+        #expect(controller.workspaceBarRefreshDebugState.requestCount == 1)
+        #expect(relayoutReasons == [.windowRuleReevaluation])
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 812) == nil)
+    }
+
+    @Test @MainActor func titleChangedQueuesRuleReevaluationForBuiltInPictureInPictureRule() async {
+        let controller = makeAXEventTestController()
+        guard let workspaceId = controller.activeWorkspace()?.id else {
+            Issue.record("Missing active workspace")
+            return
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        var title = "Document"
+        _ = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 813),
+            pid: getpid(),
+            windowId: 813,
+            to: workspaceId
+        )
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 813 else { return nil }
+            return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "org.mozilla.firefox",
+                title: title
+            )
+        }
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        title = "Picture-in-Picture"
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .titleChanged(windowId: 813)
+        )
+
+        await controller.waitForWorkspaceBarRefreshForTests()
+        await waitUntilAXEventTest { relayoutReasons == [.windowRuleReevaluation] }
+
+        #expect(relayoutReasons == [.windowRuleReevaluation])
+        #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 813) == nil)
+    }
+
     @Test @MainActor func malformedActivationPayloadFallsBackToNonManagedFocus() {
         let controller = makeAXEventTestController()
+        let registry = OwnedWindowRegistry.shared
+        registry.resetForTests()
+        defer { registry.resetForTests() }
         controller.hasStartedServices = true
         guard let workspaceId = controller.activeWorkspace()?.id else {
             Issue.record("Missing active workspace")
@@ -558,7 +718,9 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         controller.axEventHandler.axWindowRefProvider = { windowId, _ in
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
         }
-        controller.axEventHandler.windowTypeProvider = { _, _ in .tiling }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.app")
+        }
         controller.axEventHandler.windowSubscriptionHandler = { windowIds in
             subscriptions.append(windowIds)
         }
@@ -652,7 +814,9 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         controller.axEventHandler.axWindowRefProvider = { windowId, _ in
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
         }
-        controller.axEventHandler.windowTypeProvider = { _, _ in .tiling }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: currentTestBundleId())
+        }
         controller.resetWorkspaceBarRefreshDebugStateForTests()
         relayoutReasons.removeAll()
         subscriptions.removeAll()
@@ -809,7 +973,9 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         controller.axEventHandler.axWindowRefProvider = { windowId, _ in
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
         }
-        controller.axEventHandler.windowTypeProvider = { _, _ in .tiling }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: currentTestBundleId())
+        }
         controller.resetWorkspaceBarRefreshDebugStateForTests()
 
         controller.axEventHandler.cgsEventObserver(
@@ -843,7 +1009,13 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         controller.axEventHandler.axWindowRefProvider = { windowId, _ in
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
         }
-        controller.axEventHandler.windowTypeProvider = { _, _ in .floating }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.example.app",
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil
+            )
+        }
         controller.axEventHandler.windowSubscriptionHandler = { windowIds in
             subscriptions.append(windowIds)
         }
@@ -862,6 +1034,69 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         #expect(controller.workspaceManager.allEntries().contains { $0.windowId == 822 } == false)
         #expect(subscriptions == [[822]])
         #expect(relayoutReasons.isEmpty)
+    }
+
+    @Test @MainActor func forceTileRuleAdmitsFloatingCreateCandidateAndCachesRuleEffects() async {
+        let controller = makeAXEventTestController(trackedGhosttyBundleId: "com.adobe.illustrator")
+        controller.settings.appRules = [
+            AppRule(
+                bundleId: "com.adobe.illustrator",
+                layout: .tile,
+                assignToWorkspace: "2",
+                minWidth: 880,
+                minHeight: 640
+            )
+        ]
+        var fullRescanReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            fullRescanReasons.append(reason)
+            return true
+        }
+        controller.updateAppRules()
+        await waitUntilAXEventTest { fullRescanReasons == [.appRulesChanged] }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+        controller.axEventHandler.axWindowRefProvider = { windowId, _ in
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
+        }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(
+                bundleId: "com.adobe.illustrator",
+                appName: "Adobe Illustrator",
+                title: "Untitled-1",
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil
+            )
+        }
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .created(windowId: 823, spaceId: 0)
+        )
+        await waitUntilAXEventTest {
+            controller.workspaceManager.entry(forPid: getpid(), windowId: 823) != nil &&
+                relayoutReasons == [.axWindowCreated]
+        }
+
+        guard let workspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false),
+              let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 823)
+        else {
+            Issue.record("Missing managed entry for force-tile admission test")
+            return
+        }
+
+        #expect(entry.workspaceId == workspaceId)
+        #expect(entry.ruleEffects.minWidth == 880)
+        #expect(entry.ruleEffects.minHeight == 640)
+        #expect(relayoutReasons == [.axWindowCreated])
     }
 
     @Test @MainActor func appHideAndUnhideUseVisibilityRouteAndPreserveModelState() async {
@@ -1022,7 +1257,9 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         controller.axEventHandler.axWindowRefProvider = { windowId, _ in
             AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: Int(windowId))
         }
-        controller.axEventHandler.windowTypeProvider = { _, _ in .tiling }
+        controller.axEventHandler.windowFactsProvider = { _, _ in
+            makeAXEventWindowRuleFacts(bundleId: "com.example.app")
+        }
 
         controller.axEventHandler.cgsEventObserver(
             CGSEventObserver.shared,
@@ -1032,6 +1269,23 @@ private func lastAppliedBorderFrame(on controller: WMController) -> CGRect? {
         #expect(controller.workspaceManager.entry(forPid: originalPid, windowId: 902) == nil)
         #expect(controller.workspaceManager.entry(forPid: refreshedPid, windowId: 902) != nil)
         #expect(controller.workspaceManager.allEntries().filter { $0.windowId == 902 }.count == 1)
+    }
+
+    @Test @MainActor func destroyClearsManualOverrideForUnmanagedWindow() {
+        let controller = makeAXEventTestController()
+        let token = WindowToken(pid: getpid(), windowId: 903)
+        controller.windowRuleEngine.setManualOverride(.forceFloat, for: token)
+        controller.axEventHandler.windowInfoProvider = { windowId in
+            guard windowId == 903 else { return nil }
+            return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .destroyed(windowId: 903, spaceId: 0)
+        )
+
+        #expect(controller.windowRuleEngine.manualOverride(for: token) == nil)
     }
 
     @Test @MainActor func axDestroyPrefersHintedPidWhenWindowIdIsReused() {

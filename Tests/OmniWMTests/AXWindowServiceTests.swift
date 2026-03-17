@@ -1,61 +1,93 @@
+import ApplicationServices
 import CoreGraphics
 import Testing
 
 @testable import OmniWM
 
 @Suite struct AXWindowServiceTests {
-    @Test func firefoxPictureInPictureForcesFloatingClassification() {
-        #expect(
-            AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "org.mozilla.firefox",
-                title: "Picture-in-Picture"
+    @Test func attributeFetchFailureProducesFloatingHeuristicReason() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: nil,
+                subrole: nil,
+                title: nil,
+                hasCloseButton: false,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: false,
+                hasMinimizeButton: false,
+                appPolicy: .regular,
+                bundleId: "com.example.app",
+                attributeFetchSucceeded: false
             )
         )
+
+        #expect(decision.windowType == AXWindowType.floating)
+        #expect(decision.reasons == [AXWindowHeuristicReason.attributeFetchFailed])
     }
 
-    @Test func zenPictureInPictureForcesFloatingClassification() {
-        #expect(
-            AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "app.zen-browser.zen",
-                title: "Picture-in-Picture"
+    @Test func missingFullscreenButtonProducesFloatingHeuristicReason() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                title: "Illustrator",
+                hasCloseButton: true,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: true,
+                hasMinimizeButton: true,
+                appPolicy: .regular,
+                bundleId: "com.adobe.illustrator",
+                attributeFetchSucceeded: true
             )
         )
+
+        #expect(decision.windowType == AXWindowType.floating)
+        #expect(decision.reasons == [AXWindowHeuristicReason.missingFullscreenButton])
     }
 
-    @Test func nonPictureInPictureFirefoxWindowDoesNotForceFloating() {
-        #expect(
-            !AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "org.mozilla.firefox",
-                title: "YouTube"
+    @Test func enabledFullscreenButtonKeepsStandardWindowTiling() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                title: "Document",
+                hasCloseButton: true,
+                hasFullscreenButton: true,
+                fullscreenButtonEnabled: true,
+                hasZoomButton: true,
+                hasMinimizeButton: true,
+                appPolicy: .regular,
+                bundleId: "com.example.app",
+                attributeFetchSucceeded: true
             )
         )
+
+        #expect(decision.windowType == AXWindowType.tiling)
+        #expect(decision.reasons.isEmpty)
     }
 
-    @Test func nonBrowserPictureInPictureWindowDoesNotForceFloating() {
-        #expect(
-            !AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "com.apple.Safari",
-                title: "Picture-in-Picture"
-            )
+    @Test func heuristicOverrideBypassesRecordedReasons() {
+        let decision = AXWindowService.heuristicDisposition(
+            for: AXWindowFacts(
+                role: kAXWindowRole as String,
+                subrole: kAXStandardWindowSubrole as String,
+                title: "Document",
+                hasCloseButton: true,
+                hasFullscreenButton: false,
+                fullscreenButtonEnabled: nil,
+                hasZoomButton: true,
+                hasMinimizeButton: true,
+                appPolicy: .regular,
+                bundleId: "com.example.app",
+                attributeFetchSucceeded: true
+            ),
+            overriddenWindowType: AXWindowType.tiling
         )
-    }
 
-    @Test func browserPictureInPictureMatchIsCaseSensitive() {
-        #expect(
-            !AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "org.mozilla.firefox",
-                title: "picture-in-picture"
-            )
-        )
-    }
-
-    @Test func browserPictureInPictureRequiresATitle() {
-        #expect(
-            !AXWindowService.shouldForceFloatForBrowserPiP(
-                bundleId: "app.zen-browser.zen",
-                title: nil
-            )
-        )
+        #expect(decision.windowType == AXWindowType.tiling)
+        #expect(decision.reasons.isEmpty)
     }
 
     @Test func fullscreenEntryFromRightColumnUsesPositionThenSize() {

@@ -1022,8 +1022,20 @@ final class WorkspaceManager {
     }
 
     @discardableResult
-    func addWindow(_ ax: AXWindowRef, pid: pid_t, windowId: Int, to workspace: WorkspaceDescriptor.ID) -> WindowToken {
-        windows.upsert(window: ax, pid: pid, windowId: windowId, workspace: workspace)
+    func addWindow(
+        _ ax: AXWindowRef,
+        pid: pid_t,
+        windowId: Int,
+        to workspace: WorkspaceDescriptor.ID,
+        ruleEffects: ManagedWindowRuleEffects = .none
+    ) -> WindowToken {
+        windows.upsert(
+            window: ax,
+            pid: pid,
+            windowId: windowId,
+            workspace: workspace,
+            ruleEffects: ruleEffects
+        )
     }
 
     @discardableResult

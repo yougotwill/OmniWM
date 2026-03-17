@@ -27,6 +27,7 @@ final class WindowModel {
         let handle: WindowHandle
         var axRef: AXWindowRef
         var workspaceId: WorkspaceDescriptor.ID
+        var ruleEffects: ManagedWindowRuleEffects = .none
         var hiddenProportionalPosition: CGPoint?
         var hiddenReferenceMonitorId: Monitor.ID?
         var hiddenByWorkspaceInactivity: Bool = false
@@ -46,11 +47,13 @@ final class WindowModel {
             handle: WindowHandle,
             axRef: AXWindowRef,
             workspaceId: WorkspaceDescriptor.ID,
+            ruleEffects: ManagedWindowRuleEffects,
             hiddenProportionalPosition: CGPoint?
         ) {
             self.handle = handle
             self.axRef = axRef
             self.workspaceId = workspaceId
+            self.ruleEffects = ruleEffects
             self.hiddenProportionalPosition = hiddenProportionalPosition
         }
     }
@@ -94,11 +97,22 @@ final class WindowModel {
     }
 
     @discardableResult
-    func upsert(window: AXWindowRef, pid: pid_t, windowId: Int, workspace: WorkspaceDescriptor.ID) -> WindowToken {
+    func upsert(
+        window: AXWindowRef,
+        pid: pid_t,
+        windowId: Int,
+        workspace: WorkspaceDescriptor.ID,
+        ruleEffects: ManagedWindowRuleEffects = .none
+    ) -> WindowToken {
         let token = WindowToken(pid: pid, windowId: windowId)
         if let entry = entries[token] {
             entry.axRef = window
             updateWorkspace(for: token, workspace: workspace)
+            if entry.ruleEffects != ruleEffects {
+                entry.ruleEffects = ruleEffects
+                entry.cachedConstraints = nil
+                entry.constraintsCacheTime = nil
+            }
             missingDetectionCountByToken.removeValue(forKey: token)
             return token
         }
@@ -108,6 +122,7 @@ final class WindowModel {
             handle: handle,
             axRef: window,
             workspaceId: workspace,
+            ruleEffects: ruleEffects,
             hiddenProportionalPosition: nil
         )
         entries[token] = entry
