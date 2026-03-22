@@ -1,5 +1,6 @@
 import ApplicationServices
 import Foundation
+import QuartzCore
 import Testing
 
 @testable import OmniWM
@@ -25,6 +26,27 @@ func makeTestMonitor(
         visibleFrame: frame,
         hasNotch: false,
         name: name
+    )
+}
+
+func makeVerticalStackedTestMonitors() -> (lower: Monitor, upper: Monitor) {
+    (
+        lower: makeLayoutPlanTestMonitor(
+            displayId: 301,
+            name: "Lower",
+            x: 0,
+            y: 0,
+            width: 900,
+            height: 1600
+        ),
+        upper: makeLayoutPlanTestMonitor(
+            displayId: 302,
+            name: "Upper",
+            x: 0,
+            y: 1600,
+            width: 900,
+            height: 1600
+        )
     )
 }
 
@@ -102,6 +124,22 @@ private func hasAnyVisibilityChange(
     token: WindowToken
 ) -> Bool {
     hasHideVisibilityChange(changes, token: token) || hasShowVisibilityChange(changes, token: token)
+}
+
+private func hiddenVisibilityTokens(_ changes: [LayoutVisibilityChange]) -> [WindowToken] {
+    changes.compactMap { change in
+        if case let .hide(token, side: _) = change {
+            return token
+        }
+        return nil
+    }
+}
+
+private func hasFrameChange(
+    _ changes: [LayoutFrameChange],
+    token: WindowToken
+) -> Bool {
+    changes.contains { $0.token == token }
 }
 
 @Suite struct NiriLayoutEngineTests {
@@ -303,6 +341,16 @@ private func hasAnyVisibilityChange(
         for (column, width) in zip(columns, widths) {
             column.width = .fixed(width)
             column.cachedWidth = width
+        }
+    }
+
+    private func assignHeights(
+        _ columns: [NiriContainer],
+        heights: [CGFloat]
+    ) {
+        for (column, height) in zip(columns, heights) {
+            column.height = .fixed(height)
+            column.cachedHeight = height
         }
     }
 
@@ -2045,6 +2093,82 @@ private func hasAnyVisibilityChange(
         }
     }
 
+    @Test @MainActor func syncMonitorsToNiriEngineRemovesStaleWorkspaceRootDuplicates() async {
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 100, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 200, name: "Secondary", x: 1600, width: 1600, height: 900)
+        let fixture = makeTwoMonitorLayoutPlanTestController(
+            primaryMonitor: primaryMonitor,
+            secondaryMonitor: secondaryMonitor
+        )
+        let controller = fixture.controller
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        guard let engine = controller.niriEngine,
+              let primaryRoot = engine.root(for: fixture.primaryWorkspaceId),
+              let secondaryRoot = engine.root(for: fixture.secondaryWorkspaceId),
+              let primaryWorkspaceMonitorId = controller.workspaceManager.monitorId(for: fixture.primaryWorkspaceId),
+              let secondaryWorkspaceMonitorId = controller.workspaceManager.monitorId(for: fixture.secondaryWorkspaceId),
+              let primaryOwningMonitor = engine.monitor(for: primaryWorkspaceMonitorId),
+              let secondaryOwningMonitor = engine.monitor(for: secondaryWorkspaceMonitorId),
+              let primaryNonOwningMonitor = engine.monitors.values.first(where: { $0.id != primaryWorkspaceMonitorId }),
+              let secondaryNonOwningMonitor = engine.monitors.values.first(where: { $0.id != secondaryWorkspaceMonitorId })
+        else {
+            Issue.record("Expected Niri engine and monitor roots for stale-root sync test")
+            return
+        }
+
+        primaryNonOwningMonitor.workspaceRoots[fixture.primaryWorkspaceId] = primaryRoot
+        secondaryNonOwningMonitor.workspaceRoots[fixture.secondaryWorkspaceId] = secondaryRoot
+        #expect(primaryOwningMonitor.workspaceRoots[fixture.primaryWorkspaceId] === primaryRoot)
+        #expect(primaryNonOwningMonitor.workspaceRoots[fixture.primaryWorkspaceId] === primaryRoot)
+        #expect(secondaryOwningMonitor.workspaceRoots[fixture.secondaryWorkspaceId] === secondaryRoot)
+        #expect(secondaryNonOwningMonitor.workspaceRoots[fixture.secondaryWorkspaceId] === secondaryRoot)
+
+        controller.syncMonitorsToNiriEngine()
+
+        #expect(engine.monitorContaining(workspace: fixture.primaryWorkspaceId) == controller.workspaceManager.monitorId(for: fixture.primaryWorkspaceId))
+        #expect(engine.monitorContaining(workspace: fixture.secondaryWorkspaceId) == controller.workspaceManager.monitorId(for: fixture.secondaryWorkspaceId))
+        #expect(engine.monitor(for: primaryWorkspaceMonitorId)?.workspaceRoots[fixture.primaryWorkspaceId] === primaryRoot)
+        #expect(primaryNonOwningMonitor.workspaceRoots[fixture.primaryWorkspaceId] == nil)
+        #expect(engine.monitor(for: secondaryWorkspaceMonitorId)?.workspaceRoots[fixture.secondaryWorkspaceId] === secondaryRoot)
+        #expect(secondaryNonOwningMonitor.workspaceRoots[fixture.secondaryWorkspaceId] == nil)
+    }
+
+    @Test func syncWorkspaceAssignmentsPreservesNoOpOwnershipWhilePruningStaleCopies() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1)
+        let monitors = makeVerticalStackedTestMonitors()
+        let lowerWorkspaceId = UUID()
+        let upperWorkspaceId = UUID()
+
+        engine.moveWorkspace(lowerWorkspaceId, to: monitors.lower.id, monitor: monitors.lower)
+        engine.moveWorkspace(upperWorkspaceId, to: monitors.upper.id, monitor: monitors.upper)
+
+        guard let lowerRoot = engine.root(for: lowerWorkspaceId),
+              let upperRoot = engine.root(for: upperWorkspaceId),
+              let lowerMonitor = engine.monitor(for: monitors.lower.id),
+              let upperMonitor = engine.monitor(for: monitors.upper.id)
+        else {
+            Issue.record("Expected existing monitor ownership before no-op sync test")
+            return
+        }
+
+        upperMonitor.workspaceRoots[lowerWorkspaceId] = lowerRoot
+        lowerMonitor.workspaceRoots[upperWorkspaceId] = upperRoot
+
+        engine.syncWorkspaceAssignments([
+            (workspaceId: lowerWorkspaceId, monitor: monitors.lower),
+            (workspaceId: upperWorkspaceId, monitor: monitors.upper),
+        ])
+
+        #expect(lowerMonitor.workspaceRoots[lowerWorkspaceId] === lowerRoot)
+        #expect(upperMonitor.workspaceRoots[upperWorkspaceId] === upperRoot)
+        #expect(lowerMonitor.workspaceRoots[upperWorkspaceId] == nil)
+        #expect(upperMonitor.workspaceRoots[lowerWorkspaceId] == nil)
+    }
+
     @Test func moveWindowToWorkspaceUsesExplicitDefaultWidthForTargetColumn() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
         engine.presetColumnWidths = [.proportion(0.85), .proportion(1.0), .proportion(0.5)]
@@ -2260,6 +2384,11 @@ private func hasAnyVisibilityChange(
 
         #expect(hasHiddenVisibilityChange(plan.diff.visibilityChanges))
         #expect(!hiddenVisibilitySides(plan.diff.visibilityChanges).isEmpty)
+        let hiddenTokens = hiddenVisibilityTokens(plan.diff.visibilityChanges)
+        #expect(!hiddenTokens.isEmpty)
+        for token in hiddenTokens {
+            #expect(!hasFrameChange(plan.diff.frameChanges, token: token))
+        }
     }
 
     @Test @MainActor func snapshotPlanDoesNotHideFullscreenTokenOnRightVisibleColumn() async throws {
@@ -2342,14 +2471,14 @@ private func hasAnyVisibilityChange(
     }
 
     @Test @MainActor func offscreenLeftPlaceholderFramesUseWorkingFrameOriginOnMonitorWithoutLeftNeighbor() async throws {
-        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
-        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 2, name: "Secondary", x: 1600, width: 1600, height: 900)
-        let controller = makeLayoutPlanTestController(monitors: [primaryMonitor, secondaryMonitor])
-        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: primaryMonitor.id)?.id
-        else {
-            Issue.record("Missing active workspace for offscreen-left placeholder test")
-            return
-        }
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 100, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 200, name: "Secondary", x: 1600, width: 1600, height: 900)
+        let fixture = makeTwoMonitorLayoutPlanTestController(
+            primaryMonitor: primaryMonitor,
+            secondaryMonitor: secondaryMonitor
+        )
+        let controller = fixture.controller
+        let workspaceId = fixture.primaryWorkspaceId
 
         controller.enableNiriLayout(maxWindowsPerColumn: 1)
         await waitForLayoutPlanRefreshWork(on: controller)
@@ -3193,31 +3322,276 @@ private func hasAnyVisibilityChange(
         }
     }
 
-    @Test func renderOffsetVisibilityUsesRenderedContainerFrame() {
+    @Test func neighboringRightMonitorKeepsPartiallyRevealedColumnHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(
+            displayId: 2,
+            name: "Secondary",
+            x: 1600,
+            width: 1600,
+            height: 900
+        )
+        attachWorkspace(
+            wsId,
+            to: primaryMonitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+        _ = engine.ensureMonitor(for: secondaryMonitor.id, monitor: secondaryMonitor)
+
+        let firstWindow = engine.addWindow(handle: makeTestHandle(pid: 51), to: wsId, afterSelection: nil)
+        let leakingWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 52),
+            to: wsId,
+            afterSelection: firstWindow.id
+        )
+        assignWidths(
+            engine.columns(in: wsId),
+            widths: [primaryMonitor.visibleFrame.width, primaryMonitor.visibleFrame.width]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: primaryMonitor.visibleFrame,
+            viewFrame: primaryMonitor.frame,
+            scale: 2.0
+        )
+
+        var hiddenState = ViewportState()
+        hiddenState.activeColumnIndex = 0
+        hiddenState.viewOffsetPixels = .static(0)
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: hiddenState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        var partialRevealState = hiddenState
+        partialRevealState.viewOffsetPixels = .static(20)
+        let partialRevealLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: partialRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        var fullRevealState = hiddenState
+        fullRevealState.viewOffsetPixels = .static(primaryMonitor.visibleFrame.width + gap)
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: fullRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame for the right-edge reveal test")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minX >= primaryMonitor.visibleFrame.minX)
+        #expect(fullyContainedFrame.maxX <= primaryMonitor.visibleFrame.maxX)
+        #expect(!fullyContainedFrame.intersects(secondaryMonitor.frame))
+    }
+
+    @Test func neighboringLeftMonitorKeepsPartiallyRevealedColumnHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(
+            displayId: 2,
+            name: "Secondary",
+            x: 1600,
+            width: 1600,
+            height: 900
+        )
+        _ = engine.ensureMonitor(for: primaryMonitor.id, monitor: primaryMonitor)
+        attachWorkspace(
+            wsId,
+            to: secondaryMonitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+
+        let leakingWindow = engine.addWindow(handle: makeTestHandle(pid: 61), to: wsId, afterSelection: nil)
+        let focusedWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 62),
+            to: wsId,
+            afterSelection: leakingWindow.id
+        )
+        assignWidths(
+            engine.columns(in: wsId),
+            widths: [secondaryMonitor.visibleFrame.width, secondaryMonitor.visibleFrame.width]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: secondaryMonitor.visibleFrame,
+            viewFrame: secondaryMonitor.frame,
+            scale: 2.0
+        )
+
+        var hiddenState = ViewportState()
+        hiddenState.activeColumnIndex = 1
+        hiddenState.selectedNodeId = focusedWindow.id
+        hiddenState.viewOffsetPixels = .static(0)
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: secondaryMonitor,
+            gaps: gaps,
+            state: hiddenState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
+
+        var partialRevealState = hiddenState
+        partialRevealState.viewOffsetPixels = .static(-20)
+        let partialRevealLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: secondaryMonitor,
+            gaps: gaps,
+            state: partialRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
+
+        var fullRevealState = hiddenState
+        fullRevealState.viewOffsetPixels = .static(-(secondaryMonitor.visibleFrame.width + gap))
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: secondaryMonitor,
+            gaps: gaps,
+            state: fullRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame for the left-edge reveal test")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minX >= secondaryMonitor.visibleFrame.minX)
+        #expect(fullyContainedFrame.maxX <= secondaryMonitor.visibleFrame.maxX)
+        #expect(!fullyContainedFrame.intersects(primaryMonitor.frame))
+    }
+
+    @Test func partialRevealRemainsVisibleWhenViewportEdgeHasNoNeighboringMonitor() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let monitor = makeLayoutPlanTestMonitor(width: 1600, height: 900)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+
+        let visibleWindow = engine.addWindow(handle: makeTestHandle(pid: 71), to: wsId, afterSelection: nil)
+        let revealedWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 72),
+            to: wsId,
+            afterSelection: visibleWindow.id
+        )
+        assignWidths(
+            engine.columns(in: wsId),
+            widths: [monitor.visibleFrame.width, monitor.visibleFrame.width]
+        )
+
+        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
+        let area = WorkingAreaContext(
+            workingFrame: monitor.visibleFrame,
+            viewFrame: monitor.frame,
+            scale: 2.0
+        )
+
+        var hiddenState = ViewportState()
+        hiddenState.activeColumnIndex = 0
+        hiddenState.viewOffsetPixels = .static(0)
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: hiddenState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(hiddenLayout.hiddenHandles[revealedWindow.token] == .right)
+
+        var partialRevealState = hiddenState
+        partialRevealState.viewOffsetPixels = .static(20)
+        let partialRevealLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: partialRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let partialFrame = partialRevealLayout.frames[revealedWindow.token] else {
+            Issue.record("Expected a partially revealed frame on the open desktop edge")
+            return
+        }
+
+        #expect(partialRevealLayout.hiddenHandles[revealedWindow.token] == nil)
+        #expect(partialFrame.minX < monitor.visibleFrame.maxX)
+        #expect(partialFrame.maxX > monitor.visibleFrame.maxX)
+    }
+
+    @Test func renderOffsetRevealRemainsVisibleWhenViewportEdgeHasNoNeighboringMonitor() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
         engine.animationClock = AnimationClock()
         let wsId = UUID()
-
-        let root = NiriRoot(workspaceId: wsId)
-        engine.roots[wsId] = root
-
-        let visibleColumn = NiriContainer()
-        let hiddenColumn = NiriContainer()
-        root.appendChild(visibleColumn)
-        root.appendChild(hiddenColumn)
-
-        let visibleHandle = makeTestHandle(pid: 51)
-        let revealedHandle = makeTestHandle(pid: 52)
-        let visibleWindow = NiriWindow(handle: visibleHandle)
-        let revealedWindow = NiriWindow(handle: revealedHandle)
-
-        visibleColumn.appendChild(visibleWindow)
-        hiddenColumn.appendChild(revealedWindow)
-
-        engine.tokenToNode[visibleHandle.id] = visibleWindow
-        engine.tokenToNode[revealedHandle.id] = revealedWindow
-
         let monitor = makeLayoutPlanTestMonitor(width: 1600, height: 900)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+
+        let visibleWindow = engine.addWindow(handle: makeTestHandle(pid: 81), to: wsId, afterSelection: nil)
+        let revealedWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 82),
+            to: wsId,
+            afterSelection: visibleWindow.id
+        )
+        assignWidths(
+            engine.columns(in: wsId),
+            widths: [monitor.visibleFrame.width, monitor.visibleFrame.width]
+        )
+
         let gaps = LayoutGaps(horizontal: 8, vertical: 8)
         let area = WorkingAreaContext(
             workingFrame: monitor.visibleFrame,
@@ -3229,10 +3603,13 @@ private func hasAnyVisibilityChange(
         state.activeColumnIndex = 0
         state.viewOffsetPixels = .static(0)
 
-        guard let baseTime = engine.animationClock?.now() else {
-            Issue.record("Expected animation clock for render-offset visibility test")
+        guard let revealedColumn = engine.columns(in: wsId).last,
+              let baseTime = engine.animationClock?.now()
+        else {
+            Issue.record("Expected revealed column and animation clock for open-edge render-offset test")
             return
         }
+
         let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
             in: wsId,
             monitor: monitor,
@@ -3241,10 +3618,9 @@ private func hasAnyVisibilityChange(
             workingArea: area,
             animationTime: baseTime
         )
+        #expect(hiddenLayout.hiddenHandles[revealedWindow.token] == .right)
 
-        #expect(hiddenLayout.hiddenHandles[revealedHandle.id] == .right)
-
-        hiddenColumn.animateMoveFrom(
+        revealedColumn.animateMoveFrom(
             displacement: CGPoint(x: -40, y: 0),
             clock: engine.animationClock,
             config: engine.windowMovementAnimationConfig,
@@ -3252,7 +3628,7 @@ private func hasAnyVisibilityChange(
         )
 
         guard let animatedTime = engine.animationClock?.now() else {
-            Issue.record("Expected animation clock after render-offset animation")
+            Issue.record("Expected animation clock after open-edge render-offset animation")
             return
         }
         let animatedLayout = engine.calculateCombinedLayoutUsingPools(
@@ -3263,12 +3639,477 @@ private func hasAnyVisibilityChange(
             workingArea: area,
             animationTime: animatedTime
         )
+        guard let partialFrame = animatedLayout.frames[revealedWindow.token] else {
+            Issue.record("Expected a partially revealed frame from render offset on the open desktop edge")
+            return
+        }
 
-        let sampledOffset = hiddenColumn.renderOffset(at: animatedTime).x
-        #expect(sampledOffset < -8)
-        #expect((hiddenColumn.frame?.minX ?? 0) + sampledOffset < monitor.visibleFrame.maxX)
-        #expect(animatedLayout.hiddenHandles[revealedHandle.id] == nil)
-        #expect(animatedLayout.frames[revealedHandle.id]?.minX ?? .greatestFiniteMagnitude < monitor.visibleFrame.maxX)
+        #expect(revealedColumn.renderOffset(at: animatedTime).x < -8)
+        #expect(animatedLayout.hiddenHandles[revealedWindow.token] == nil)
+        #expect(partialFrame.minX < monitor.visibleFrame.maxX)
+        #expect(partialFrame.maxX > monitor.visibleFrame.maxX)
+    }
+
+    @Test func neighboringRightMonitorKeepsRenderOffsetRevealHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        engine.animationClock = AnimationClock()
+        let wsId = UUID()
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(
+            displayId: 2,
+            name: "Secondary",
+            x: 1600,
+            width: 1600,
+            height: 900
+        )
+        attachWorkspace(
+            wsId,
+            to: primaryMonitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+        _ = engine.ensureMonitor(for: secondaryMonitor.id, monitor: secondaryMonitor)
+
+        let firstWindow = engine.addWindow(handle: makeTestHandle(pid: 91), to: wsId, afterSelection: nil)
+        let leakingWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 92),
+            to: wsId,
+            afterSelection: firstWindow.id
+        )
+        assignWidths(
+            engine.columns(in: wsId),
+            widths: [primaryMonitor.visibleFrame.width, primaryMonitor.visibleFrame.width]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: primaryMonitor.visibleFrame,
+            viewFrame: primaryMonitor.frame,
+            scale: 2.0
+        )
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+
+        guard let leakingColumn = engine.columns(in: wsId).last,
+              let baseTime = engine.animationClock?.now()
+        else {
+            Issue.record("Expected hidden column and animation clock for neighboring-monitor render-offset test")
+            return
+        }
+
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: baseTime
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        leakingColumn.animateMoveFrom(
+            displacement: CGPoint(x: -40, y: 0),
+            clock: engine.animationClock,
+            config: engine.windowMovementAnimationConfig,
+            displayRefreshRate: engine.displayRefreshRate
+        )
+
+        guard let partialTime = engine.animationClock?.now() else {
+            Issue.record("Expected animation clock after neighboring-monitor render-offset animation")
+            return
+        }
+        let partialLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: partialTime
+        )
+        guard let hiddenPlacementFrame = partialLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected hidden placement frame while neighboring monitor keeps render-offset reveal hidden")
+            return
+        }
+
+        #expect(leakingColumn.renderOffset(at: partialTime).x < -8)
+        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(!hiddenPlacementFrame.intersects(secondaryMonitor.frame))
+
+        leakingColumn.moveAnimation = nil
+        leakingColumn.animateMoveFrom(
+            displacement: CGPoint(x: -(primaryMonitor.visibleFrame.width + gap), y: 0),
+            clock: engine.animationClock,
+            config: engine.windowMovementAnimationConfig,
+            displayRefreshRate: engine.displayRefreshRate
+        )
+
+        guard let fullyContainedTime = engine.animationClock?.now() else {
+            Issue.record("Expected animation clock for full neighboring-monitor reveal")
+            return
+        }
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: primaryMonitor,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: fullyContainedTime
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame after render-offset reveal clears the monitor boundary")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minX >= primaryMonitor.visibleFrame.minX)
+        #expect(fullyContainedFrame.maxX <= primaryMonitor.visibleFrame.maxX)
+        #expect(!fullyContainedFrame.intersects(secondaryMonitor.frame))
+    }
+
+    @Test func neighboringUpperMonitorKeepsPartiallyRevealedRowHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let monitors = makeVerticalStackedTestMonitors()
+        attachWorkspace(
+            wsId,
+            to: monitors.lower,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+        _ = engine.ensureMonitor(for: monitors.upper.id, monitor: monitors.upper)
+
+        let firstWindow = engine.addWindow(handle: makeTestHandle(pid: 161), to: wsId, afterSelection: nil)
+        let leakingWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 162),
+            to: wsId,
+            afterSelection: firstWindow.id
+        )
+        assignHeights(
+            engine.columns(in: wsId),
+            heights: [monitors.lower.visibleFrame.height, monitors.lower.visibleFrame.height]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: monitors.lower.visibleFrame,
+            viewFrame: monitors.lower.frame,
+            scale: 2.0
+        )
+
+        var hiddenState = ViewportState()
+        hiddenState.activeColumnIndex = 0
+        hiddenState.viewOffsetPixels = .static(0)
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: hiddenState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        var partialRevealState = hiddenState
+        partialRevealState.viewOffsetPixels = .static(20)
+        let partialRevealLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: partialRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        var fullRevealState = hiddenState
+        fullRevealState.viewOffsetPixels = .static(monitors.lower.visibleFrame.height + gap)
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: fullRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame for the upper-edge reveal test")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minY >= monitors.lower.visibleFrame.minY)
+        #expect(fullyContainedFrame.maxY <= monitors.lower.visibleFrame.maxY)
+        #expect(!fullyContainedFrame.intersects(monitors.upper.frame))
+    }
+
+    @Test func neighboringLowerMonitorKeepsPartiallyRevealedRowHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let monitors = makeVerticalStackedTestMonitors()
+        _ = engine.ensureMonitor(for: monitors.lower.id, monitor: monitors.lower)
+        attachWorkspace(
+            wsId,
+            to: monitors.upper,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+
+        let leakingWindow = engine.addWindow(handle: makeTestHandle(pid: 171), to: wsId, afterSelection: nil)
+        let focusedWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 172),
+            to: wsId,
+            afterSelection: leakingWindow.id
+        )
+        assignHeights(
+            engine.columns(in: wsId),
+            heights: [monitors.upper.visibleFrame.height, monitors.upper.visibleFrame.height]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: monitors.upper.visibleFrame,
+            viewFrame: monitors.upper.frame,
+            scale: 2.0
+        )
+
+        var hiddenState = ViewportState()
+        hiddenState.activeColumnIndex = 1
+        hiddenState.selectedNodeId = focusedWindow.id
+        hiddenState.viewOffsetPixels = .static(0)
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.upper,
+            gaps: gaps,
+            state: hiddenState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
+
+        var partialRevealState = hiddenState
+        partialRevealState.viewOffsetPixels = .static(-20)
+        let partialRevealLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.upper,
+            gaps: gaps,
+            state: partialRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
+
+        var fullRevealState = hiddenState
+        fullRevealState.viewOffsetPixels = .static(-(monitors.upper.visibleFrame.height + gap))
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.upper,
+            gaps: gaps,
+            state: fullRevealState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame for the lower-edge reveal test")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minY >= monitors.upper.visibleFrame.minY)
+        #expect(fullyContainedFrame.maxY <= monitors.upper.visibleFrame.maxY)
+        #expect(!fullyContainedFrame.intersects(monitors.lower.frame))
+    }
+
+    @Test func partialRevealRemainsVisibleAtOpenVerticalEdgesWithoutNeighboringMonitor() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let monitor = makeLayoutPlanTestMonitor(width: 900, height: 1600)
+        attachWorkspace(
+            wsId,
+            to: monitor,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+
+        let lowerWindow = engine.addWindow(handle: makeTestHandle(pid: 181), to: wsId, afterSelection: nil)
+        let upperWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 182),
+            to: wsId,
+            afterSelection: lowerWindow.id
+        )
+        assignHeights(
+            engine.columns(in: wsId),
+            heights: [monitor.visibleFrame.height, monitor.visibleFrame.height]
+        )
+
+        let gaps = LayoutGaps(horizontal: 8, vertical: 8)
+        let area = WorkingAreaContext(
+            workingFrame: monitor.visibleFrame,
+            viewFrame: monitor.frame,
+            scale: 2.0
+        )
+
+        var upperEdgeState = ViewportState()
+        upperEdgeState.activeColumnIndex = 0
+        upperEdgeState.viewOffsetPixels = .static(20)
+        let upperEdgeLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: upperEdgeState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let upperPartialFrame = upperEdgeLayout.frames[upperWindow.token] else {
+            Issue.record("Expected a partially revealed upper row on the open vertical edge")
+            return
+        }
+
+        #expect(upperEdgeLayout.hiddenHandles[upperWindow.token] == nil)
+        #expect(upperPartialFrame.minY < monitor.visibleFrame.maxY)
+        #expect(upperPartialFrame.maxY > monitor.visibleFrame.maxY)
+
+        var lowerEdgeState = ViewportState()
+        lowerEdgeState.activeColumnIndex = 1
+        lowerEdgeState.selectedNodeId = upperWindow.id
+        lowerEdgeState.viewOffsetPixels = .static(-20)
+        let lowerEdgeLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitor,
+            gaps: gaps,
+            state: lowerEdgeState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let lowerPartialFrame = lowerEdgeLayout.frames[lowerWindow.token] else {
+            Issue.record("Expected a partially revealed lower row on the open vertical edge")
+            return
+        }
+
+        #expect(lowerEdgeLayout.hiddenHandles[lowerWindow.token] == nil)
+        #expect(lowerPartialFrame.minY < monitor.visibleFrame.minY)
+        #expect(lowerPartialFrame.maxY > monitor.visibleFrame.minY)
+    }
+
+    @Test func neighboringUpperMonitorKeepsAnimatedVerticalRevealHiddenUntilFullyContained() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 1, maxVisibleColumns: 1)
+        let wsId = UUID()
+        let monitors = makeVerticalStackedTestMonitors()
+        attachWorkspace(
+            wsId,
+            to: monitors.lower,
+            engine: engine,
+            resolvedSettings: resolvedSettings(
+                for: engine,
+                maxVisibleColumns: 2,
+                centerFocusedColumn: .always
+            )
+        )
+        _ = engine.ensureMonitor(for: monitors.upper.id, monitor: monitors.upper)
+
+        let firstWindow = engine.addWindow(handle: makeTestHandle(pid: 191), to: wsId, afterSelection: nil)
+        let leakingWindow = engine.addWindow(
+            handle: makeTestHandle(pid: 192),
+            to: wsId,
+            afterSelection: firstWindow.id
+        )
+        assignHeights(
+            engine.columns(in: wsId),
+            heights: [monitors.lower.visibleFrame.height, monitors.lower.visibleFrame.height]
+        )
+
+        let gap: CGFloat = 8
+        let gaps = LayoutGaps(horizontal: gap, vertical: gap)
+        let area = WorkingAreaContext(
+            workingFrame: monitors.lower.visibleFrame,
+            viewFrame: monitors.lower.frame,
+            scale: 2.0
+        )
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(0)
+        let baseTime = CACurrentMediaTime()
+
+        let hiddenLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: baseTime
+        )
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+
+        let revealTarget = monitors.lower.visibleFrame.height + gap
+        var animatingState = state
+        animatingState.viewOffsetPixels = .spring(
+            SpringAnimation(
+                from: 0,
+                to: Double(revealTarget),
+                startTime: baseTime,
+                config: .snappy,
+                displayRefreshRate: engine.displayRefreshRate
+            )
+        )
+        let partialTime = baseTime + 0.05
+        let partialLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: animatingState,
+            workingArea: area,
+            animationTime: partialTime
+        )
+        guard let hiddenPlacementFrame = partialLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected hidden placement frame while upper monitor keeps animated vertical reveal hidden")
+            return
+        }
+
+        #expect(animatingState.viewOffsetPixels.value(at: partialTime) > 8)
+        #expect(animatingState.viewOffsetPixels.value(at: partialTime) < revealTarget)
+        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(!hiddenPlacementFrame.intersects(monitors.upper.frame))
+
+        var fullyContainedState = state
+        fullyContainedState.viewOffsetPixels = .static(revealTarget)
+        let fullyContainedLayout = engine.calculateCombinedLayoutUsingPools(
+            in: wsId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: fullyContainedState,
+            workingArea: area,
+            animationTime: nil
+        )
+        guard let fullyContainedFrame = fullyContainedLayout.frames[leakingWindow.token] else {
+            Issue.record("Expected a fully contained frame after animated vertical reveal clears the monitor boundary")
+            return
+        }
+
+        #expect(fullyContainedLayout.hiddenHandles[leakingWindow.token] == nil)
+        #expect(fullyContainedFrame.minY >= monitors.lower.visibleFrame.minY)
+        #expect(fullyContainedFrame.maxY <= monitors.lower.visibleFrame.maxY)
+        #expect(!fullyContainedFrame.intersects(monitors.upper.frame))
     }
 
     @Test @MainActor func visibilityChangesOnlyEmitOnActualTransitions() async throws {
@@ -3371,15 +4212,225 @@ private func hasAnyVisibilityChange(
         #expect(!hasAnyVisibilityChange(stableVisiblePlan.diff.visibilityChanges, token: transitioningToken))
     }
 
-    @Test @MainActor func layoutHiddenPlacementMatchesLiveHideOriginForHiddenLeftColumn() async throws {
-        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 1, name: "Primary", x: 0, width: 1600, height: 900)
-        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 2, name: "Secondary", x: 1600, width: 1600, height: 900)
-        let controller = makeLayoutPlanTestController(monitors: [primaryMonitor, secondaryMonitor])
-        guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: primaryMonitor.id)?.id
-        else {
-            Issue.record("Missing workspace for hidden-placement parity test")
+    @Test @MainActor func centeredColumnsDoNotEmitPrimaryWorkspaceFramesAcrossSecondaryMonitorBoundary() async throws {
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 100, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 200, name: "Secondary", x: 1600, width: 1600, height: 900)
+        let fixture = makeTwoMonitorLayoutPlanTestController(
+            primaryMonitor: primaryMonitor,
+            secondaryMonitor: secondaryMonitor
+        )
+        let controller = fixture.controller
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1, centerFocusedColumn: .always)
+        controller.updateNiriConfig(
+            maxVisibleColumns: 2,
+            centerFocusedColumn: .always,
+            defaultColumnWidth: .some(0.85)
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        #expect(controller.workspaceManager.setActiveWorkspace(fixture.primaryWorkspaceId, on: primaryMonitor.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(fixture.secondaryWorkspaceId, on: secondaryMonitor.id))
+        #expect(controller.workspaceManager.monitorId(for: fixture.primaryWorkspaceId) == primaryMonitor.id)
+        #expect(controller.workspaceManager.monitorId(for: fixture.secondaryWorkspaceId) == secondaryMonitor.id)
+        controller.syncMonitorsToNiriEngine()
+
+        for windowId in 931 ... 934 {
+            _ = addLayoutPlanTestWindow(
+                on: controller,
+                workspaceId: fixture.primaryWorkspaceId,
+                windowId: windowId
+            )
+        }
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for cross-monitor leak regression test")
             return
         }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let primaryColumns = engine.columns(in: fixture.primaryWorkspaceId)
+        for column in primaryColumns {
+            #expect(column.width == .proportion(0.85))
+            #expect(column.presetWidthIdx == nil)
+        }
+        guard primaryColumns.count >= 3,
+              let centeredWindow = primaryColumns[1].windowNodes.first,
+              let leakingWindow = primaryColumns[2].windowNodes.first
+        else {
+            Issue.record("Expected at least three primary columns for cross-monitor leak regression test")
+            return
+        }
+
+        let workingFrame = controller.insetWorkingFrame(for: primaryMonitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+
+        func selectPrimaryWindow(_ window: NiriWindow) {
+            _ = controller.workspaceManager.setManagedFocus(
+                window.token,
+                in: fixture.primaryWorkspaceId,
+                onMonitor: primaryMonitor.id
+            )
+            _ = controller.workspaceManager.commitWorkspaceSelection(
+                nodeId: window.id,
+                focusedToken: window.token,
+                in: fixture.primaryWorkspaceId,
+                onMonitor: primaryMonitor.id
+            )
+            controller.workspaceManager.withNiriViewportState(for: fixture.primaryWorkspaceId) { state in
+                state.selectedNodeId = window.id
+                state.activeColumnIndex = 0
+                state.viewOffsetPixels = .static(0)
+                engine.ensureSelectionVisible(
+                    node: window,
+                    in: fixture.primaryWorkspaceId,
+                    state: &state,
+                    workingFrame: workingFrame,
+                    gaps: gap
+                )
+                state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
+            }
+        }
+
+        selectPrimaryWindow(leakingWindow)
+        let seededVisiblePlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(seededVisiblePlans)
+
+        selectPrimaryWindow(centeredWindow)
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        guard let primaryPlan = plans.first(where: { $0.workspaceId == fixture.primaryWorkspaceId }) else {
+            Issue.record("Expected a primary-workspace plan for cross-monitor leak regression test")
+            return
+        }
+
+        #expect(hasHideVisibilityChange(primaryPlan.diff.visibilityChanges, token: leakingWindow.token, side: .right))
+        #expect(!hasFrameChange(primaryPlan.diff.frameChanges, token: leakingWindow.token))
+        for change in primaryPlan.diff.frameChanges {
+            #expect(!change.frame.intersects(secondaryMonitor.frame))
+        }
+    }
+
+    @Test @MainActor func centeredColumnsDoNotEmitSecondaryWorkspaceFramesAcrossPrimaryMonitorBoundary() async throws {
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 100, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 200, name: "Secondary", x: 1600, width: 1600, height: 900)
+        let fixture = makeTwoMonitorLayoutPlanTestController(
+            primaryMonitor: primaryMonitor,
+            secondaryMonitor: secondaryMonitor
+        )
+        let controller = fixture.controller
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1, centerFocusedColumn: .always)
+        controller.updateNiriConfig(
+            maxVisibleColumns: 2,
+            centerFocusedColumn: .always,
+            defaultColumnWidth: .some(0.85)
+        )
+        await waitForLayoutPlanRefreshWork(on: controller)
+        #expect(controller.workspaceManager.setActiveWorkspace(fixture.primaryWorkspaceId, on: primaryMonitor.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(fixture.secondaryWorkspaceId, on: secondaryMonitor.id))
+        #expect(controller.workspaceManager.monitorId(for: fixture.primaryWorkspaceId) == primaryMonitor.id)
+        #expect(controller.workspaceManager.monitorId(for: fixture.secondaryWorkspaceId) == secondaryMonitor.id)
+        controller.syncMonitorsToNiriEngine()
+
+        for windowId in 941 ... 944 {
+            _ = addLayoutPlanTestWindow(
+                on: controller,
+                workspaceId: fixture.secondaryWorkspaceId,
+                windowId: windowId
+            )
+        }
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for secondary-workspace cross-monitor leak regression test")
+            return
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        let secondaryColumns = engine.columns(in: fixture.secondaryWorkspaceId)
+        for column in secondaryColumns {
+            #expect(column.width == .proportion(0.85))
+            #expect(column.presetWidthIdx == nil)
+        }
+        guard secondaryColumns.count >= 4,
+              let leakingWindow = secondaryColumns[0].windowNodes.first,
+              let centeredWindow = secondaryColumns[2].windowNodes.first
+        else {
+            Issue.record("Expected at least four secondary columns for cross-monitor leak regression test")
+            return
+        }
+
+        let workingFrame = controller.insetWorkingFrame(for: secondaryMonitor)
+        let gap = CGFloat(controller.workspaceManager.gaps)
+
+        func selectSecondaryWindow(_ window: NiriWindow) {
+            _ = controller.workspaceManager.setManagedFocus(
+                window.token,
+                in: fixture.secondaryWorkspaceId,
+                onMonitor: secondaryMonitor.id
+            )
+            _ = controller.workspaceManager.commitWorkspaceSelection(
+                nodeId: window.id,
+                focusedToken: window.token,
+                in: fixture.secondaryWorkspaceId,
+                onMonitor: secondaryMonitor.id
+            )
+            controller.workspaceManager.withNiriViewportState(for: fixture.secondaryWorkspaceId) { state in
+                state.selectedNodeId = window.id
+                state.activeColumnIndex = 0
+                state.viewOffsetPixels = .static(0)
+                engine.ensureSelectionVisible(
+                    node: window,
+                    in: fixture.secondaryWorkspaceId,
+                    state: &state,
+                    workingFrame: workingFrame,
+                    gaps: gap
+                )
+                state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
+            }
+        }
+
+        selectSecondaryWindow(leakingWindow)
+        let seededVisiblePlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(seededVisiblePlans)
+
+        selectSecondaryWindow(centeredWindow)
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
+        )
+        guard let secondaryPlan = plans.first(where: { $0.workspaceId == fixture.secondaryWorkspaceId }) else {
+            Issue.record("Expected a secondary-workspace plan for cross-monitor leak regression test")
+            return
+        }
+
+        #expect(hasHideVisibilityChange(secondaryPlan.diff.visibilityChanges, token: leakingWindow.token, side: .left))
+        #expect(!hasFrameChange(secondaryPlan.diff.frameChanges, token: leakingWindow.token))
+        for change in secondaryPlan.diff.frameChanges {
+            #expect(!change.frame.intersects(primaryMonitor.frame))
+        }
+    }
+
+    @Test @MainActor func layoutHiddenPlacementMatchesLiveHideOriginForHiddenLeftColumn() async throws {
+        let primaryMonitor = makeLayoutPlanTestMonitor(displayId: 100, name: "Primary", x: 0, width: 1600, height: 900)
+        let secondaryMonitor = makeLayoutPlanTestMonitor(displayId: 200, name: "Secondary", x: 1600, width: 1600, height: 900)
+        let fixture = makeTwoMonitorLayoutPlanTestController(
+            primaryMonitor: primaryMonitor,
+            secondaryMonitor: secondaryMonitor
+        )
+        let controller = fixture.controller
+        let workspaceId = fixture.primaryWorkspaceId
 
         controller.enableNiriLayout(maxWindowsPerColumn: 1)
         await waitForLayoutPlanRefreshWork(on: controller)
@@ -3436,6 +4487,97 @@ private func hasAnyVisibilityChange(
               )
         else {
             Issue.record("Expected a hidden-left column and live hide origin for parity test")
+            return
+        }
+
+        #expect(hiddenFrame.minX == liveOrigin.x)
+        #expect(hiddenFrame.minY == liveOrigin.y)
+    }
+
+    @Test @MainActor func layoutHiddenPlacementMatchesLiveHideOriginForHiddenUpperRowInVerticalLayout() async throws {
+        let monitors = makeVerticalStackedTestMonitors()
+        let controller = makeLayoutPlanTestController(
+            monitors: [monitors.lower, monitors.upper],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(
+                    name: "1",
+                    monitorAssignment: .specificDisplay(OutputId(from: monitors.lower))
+                ),
+                WorkspaceConfiguration(
+                    name: "2",
+                    monitorAssignment: .specificDisplay(OutputId(from: monitors.upper))
+                )
+            ]
+        )
+        guard let workspaceId = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let upperWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Expected explicit stacked-monitor workspaces for vertical hidden-placement parity test")
+            return
+        }
+        #expect(controller.workspaceManager.setActiveWorkspace(workspaceId, on: monitors.lower.id))
+        #expect(controller.workspaceManager.setActiveWorkspace(upperWorkspaceId, on: monitors.upper.id))
+        _ = controller.workspaceManager.setInteractionMonitor(monitors.lower.id)
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 951)
+        let upperWindow = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 952)
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for vertical hidden-placement parity test")
+            return
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        assignHeights(
+            engine.columns(in: workspaceId),
+            heights: [monitors.lower.visibleFrame.height, monitors.lower.visibleFrame.height]
+        )
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.activeColumnIndex = 0
+            state.viewOffsetPixels = .static(20)
+        }
+
+        let gaps = LayoutGaps(
+            horizontal: CGFloat(controller.workspaceManager.gaps),
+            vertical: CGFloat(controller.workspaceManager.gaps),
+            outer: controller.workspaceManager.outerGaps
+        )
+        let workingFrame = controller.insetWorkingFrame(for: monitors.lower)
+        let area = WorkingAreaContext(
+            workingFrame: workingFrame,
+            viewFrame: monitors.lower.frame,
+            scale: controller.layoutRefreshController.backingScale(for: monitors.lower)
+        )
+        let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        let (frames, hiddenHandles) = engine.calculateCombinedLayoutUsingPools(
+            in: workspaceId,
+            monitor: monitors.lower,
+            gaps: gaps,
+            state: state,
+            workingArea: area,
+            animationTime: nil
+        )
+
+        guard hiddenHandles[upperWindow] == .right,
+              let canonicalFrame = engine.findNode(for: upperWindow)?.frame,
+              let hiddenFrame = frames[upperWindow],
+              let liveOrigin = controller.layoutRefreshController.liveFrameHideOrigin(
+                  for: canonicalFrame,
+                  monitor: monitors.lower,
+                  side: .right,
+                  pid: upperWindow.pid
+              )
+        else {
+            Issue.record("Expected a hidden upper row and live hide origin for vertical parity test")
             return
         }
 

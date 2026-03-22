@@ -1734,12 +1734,18 @@ import QuartzCore
     ) -> CGPoint? {
         guard let controller else { return nil }
         let scale = backingScale(for: monitor)
+        let orientation = controller.settings.effectiveOrientation(for: monitor)
+        let orthogonalOrigin: CGFloat = switch orientation {
+        case .horizontal: frame.origin.y
+        case .vertical: frame.origin.x
+        }
         let placement = HiddenWindowPlacementResolver.placement(
             for: frame.size,
             requestedSide: side,
-            targetY: frame.origin.y,
+            orthogonalOrigin: orthogonalOrigin,
             baseReveal: Self.hiddenEdgeReveal(isZoomApp: isZoomApp(pid)),
             scale: scale,
+            orientation: orientation,
             monitor: HiddenPlacementMonitorContext(monitor),
             monitors: controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
         )

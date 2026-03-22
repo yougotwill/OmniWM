@@ -966,6 +966,8 @@ private func workspaceConfigurations(
         #expect(manager.activeWorkspace(on: oldLeft.id)?.id == ws1)
         #expect(manager.activeWorkspace(on: restoredRight.id)?.id == ws2)
         #expect(manager.monitorId(for: ws2) == restoredRight.id)
+        #expect(manager.workspaces(on: oldLeft.id).map(\.id) == [ws1])
+        #expect(manager.workspaces(on: restoredRight.id).map(\.id) == [ws2])
         #expect(manager.niriViewportState(for: ws2).activeColumnIndex == 3)
         #expect(manager.niriViewportState(for: ws2).selectedNodeId == selectedNodeId)
     }
@@ -1017,6 +1019,8 @@ private func workspaceConfigurations(
         #expect(manager.activeWorkspace(on: restoredRight.id)?.id == ws3)
         #expect(manager.monitorId(for: ws2) == restoredRight.id)
         #expect(manager.monitorId(for: ws3) == restoredRight.id)
+        #expect(manager.workspaces(on: left.id).map(\.id) == [ws1])
+        #expect(manager.workspaces(on: restoredRight.id).map(\.id) == [ws2, ws3])
         #expect(manager.niriViewportState(for: ws3).activeColumnIndex == 4)
         #expect(manager.niriViewportState(for: ws3).selectedNodeId == selectedNodeId)
     }

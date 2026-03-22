@@ -63,12 +63,30 @@ func makeTwoMonitorLayoutPlanTestController() -> (
     primaryWorkspaceId: WorkspaceDescriptor.ID,
     secondaryWorkspaceId: WorkspaceDescriptor.ID
 ) {
-    let primaryMonitor = makeLayoutPlanTestMonitor()
-    let secondaryMonitor = makeLayoutPlanTestMonitor(
-        displayId: 2,
-        name: "Secondary",
-        x: 1920
+    makeTwoMonitorLayoutPlanTestController(
+        primaryMonitor: makeLayoutPlanTestMonitor(
+            displayId: 100,
+            name: "Primary"
+        ),
+        secondaryMonitor: makeLayoutPlanTestMonitor(
+            displayId: 200,
+            name: "Secondary",
+            x: 1920
+        )
     )
+}
+
+@MainActor
+func makeTwoMonitorLayoutPlanTestController(
+    primaryMonitor: Monitor,
+    secondaryMonitor: Monitor
+) -> (
+    controller: WMController,
+    primaryMonitor: Monitor,
+    secondaryMonitor: Monitor,
+    primaryWorkspaceId: WorkspaceDescriptor.ID,
+    secondaryWorkspaceId: WorkspaceDescriptor.ID
+) {
     let controller = makeLayoutPlanTestController(
         monitors: [primaryMonitor, secondaryMonitor],
         workspaceConfigurations: [
@@ -83,7 +101,9 @@ func makeTwoMonitorLayoutPlanTestController() -> (
         fatalError("Failed to create two-monitor layout plan fixture")
     }
 
-    _ = controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id)
+    guard controller.workspaceManager.setActiveWorkspace(secondaryWorkspaceId, on: secondaryMonitor.id) else {
+        fatalError("Failed to activate secondary workspace on the secondary monitor")
+    }
     _ = controller.workspaceManager.setInteractionMonitor(primaryMonitor.id)
 
     return (controller, primaryMonitor, secondaryMonitor, primaryWorkspaceId, secondaryWorkspaceId)

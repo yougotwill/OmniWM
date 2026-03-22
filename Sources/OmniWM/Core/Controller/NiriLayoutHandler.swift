@@ -1041,10 +1041,12 @@ import QuartzCore
         let currentMonitors = controller.workspaceManager.monitors
         engine.updateMonitors(currentMonitors)
 
-        for workspace in controller.workspaceManager.workspaces {
-            guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { continue }
-            engine.moveWorkspace(workspace.id, to: monitor.id, monitor: monitor)
-        }
+        let workspaceAssignments: [(workspaceId: WorkspaceDescriptor.ID, monitor: Monitor)] =
+            controller.workspaceManager.workspaces.compactMap { workspace in
+                guard let monitor = controller.workspaceManager.monitor(for: workspace.id) else { return nil }
+                return (workspaceId: workspace.id, monitor: monitor)
+            }
+        engine.syncWorkspaceAssignments(workspaceAssignments)
 
         for monitor in currentMonitors {
             if let niriMonitor = engine.monitor(for: monitor.id) {

@@ -40,26 +40,43 @@ enum HiddenWindowPlacementResolver {
     static func placement(
         for size: CGSize,
         requestedSide: HideSide,
-        targetY: CGFloat,
+        orthogonalOrigin: CGFloat,
         baseReveal: CGFloat,
         scale: CGFloat,
+        orientation: Monitor.Orientation,
         monitor: HiddenPlacementMonitorContext,
         monitors: [HiddenPlacementMonitorContext]
     ) -> HiddenWindowPlacement {
         let reveal = baseReveal / max(1.0, scale)
 
         func origin(for side: HideSide) -> CGPoint {
-            switch side {
-            case .left:
-                return CGPoint(
-                    x: monitor.visibleFrame.minX - size.width + reveal,
-                    y: targetY
-                )
-            case .right:
-                return CGPoint(
-                    x: monitor.visibleFrame.maxX - reveal,
-                    y: targetY
-                )
+            switch orientation {
+            case .horizontal:
+                switch side {
+                case .left:
+                    return CGPoint(
+                        x: monitor.visibleFrame.minX - size.width + reveal,
+                        y: orthogonalOrigin
+                    )
+                case .right:
+                    return CGPoint(
+                        x: monitor.visibleFrame.maxX - reveal,
+                        y: orthogonalOrigin
+                    )
+                }
+            case .vertical:
+                switch side {
+                case .left:
+                    return CGPoint(
+                        x: orthogonalOrigin,
+                        y: monitor.visibleFrame.minY - size.height + reveal
+                    )
+                case .right:
+                    return CGPoint(
+                        x: orthogonalOrigin,
+                        y: monitor.visibleFrame.maxY - reveal
+                    )
+                }
             }
         }
 
