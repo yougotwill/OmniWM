@@ -43,6 +43,13 @@ A powerful tiling window manager for macOS.
       <a href="https://github.com/lgerlinski"><strong>Lukas Gerlinski</strong></a>
     </td>
     <td align="center">
+      <a href="https://github.com/zucram" title="Marcus Harlid Davin">
+        <img src="https://github.com/zucram.png?size=96" width="96" alt="Marcus Harlid Davin">
+      </a>
+      <br>
+      <a href="https://github.com/zucram"><strong>Marcus Harlid Davin</strong></a>
+    </td>
+    <td align="center">
       <a href="https://github.com/chenhaozhenss" title="Williamufo">
         <img src="https://github.com/chenhaozhenss.png?size=96" width="96" alt="Williamufo">
       </a>
