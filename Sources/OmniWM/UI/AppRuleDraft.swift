@@ -134,8 +134,8 @@ struct AppRuleDraft: Identifiable, Equatable {
 }
 
 enum AppRuleDraftValidation {
-    private static let bundleIdPattern = try! NSRegularExpression(
-        pattern: "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z0-9-]+)+$"
+    private static let appIdentifierPattern = try! NSRegularExpression(
+        pattern: "^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$"
     )
 
     static func bundleIdError(for bundleId: String) -> String? {
@@ -143,7 +143,7 @@ enum AppRuleDraftValidation {
         guard !trimmed.isEmpty else { return nil }
 
         let range = NSRange(trimmed.startIndex..., in: trimmed)
-        guard bundleIdPattern.firstMatch(in: trimmed, range: range) != nil else {
+        guard appIdentifierPattern.firstMatch(in: trimmed, range: range) != nil else {
             return "Invalid bundle ID format"
         }
         return nil

@@ -412,7 +412,7 @@ struct AppRuleAddSheet: View {
                         .buttonStyle(.bordered)
                     }
 
-                    Text("Example: com.apple.finder")
+                    Text("Examples: com.apple.finder or dentalplus-air")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
