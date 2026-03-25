@@ -40,6 +40,41 @@ import Testing
         #expect(labels.contains("Open Settings File"))
     }
 
+    @Test func exportActionReportsSuccessAlert() {
+        let controller = makeLayoutPlanTestController()
+        let builder = StatusBarMenuBuilder(settings: controller.settings, controller: controller)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+
+        builder.performSettingsMenuAction(.export(.full))
+
+        #expect(received.count == 1)
+        #expect(received.first?.0 == "Editable Config Exported")
+        #expect(received.first?.1 == SettingsStore.exportURL.path)
+    }
+
+    @Test func revealActionCreatesFileAndReportsSuccessAlert() {
+        let controller = makeLayoutPlanTestController()
+        let settings = controller.settings
+        let builder = StatusBarMenuBuilder(settings: settings, controller: controller)
+        var received: [(String, String)] = []
+        builder.infoAlertPresenter = { title, message in
+            received.append((title, message))
+        }
+        let exportURL = SettingsStore.exportURL
+        defer { try? FileManager.default.removeItem(at: exportURL) }
+        try? FileManager.default.removeItem(at: exportURL)
+
+        builder.performSettingsMenuAction(.revealSettingsFile)
+
+        #expect(settings.settingsFileExists == true)
+        #expect(received.count == 1)
+        #expect(received.first?.0 == "Settings File Created")
+        #expect(received.first?.1 == SettingsStore.exportURL.path)
+    }
+
     private func textLabels(in view: NSView) -> [String] {
         let direct = (view as? NSTextField).map(\.stringValue).map { [$0] } ?? []
         return direct + view.subviews.flatMap(textLabels(in:))

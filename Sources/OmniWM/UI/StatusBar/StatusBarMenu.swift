@@ -2,6 +2,12 @@ import AppKit
 
 private let menuWidth: CGFloat = 280
 
+enum SettingsMenuAction {
+    case export(SettingsExportMode)
+    case revealSettingsFile
+    case openSettingsFile
+}
+
 @MainActor
 private func applyCurrentAppAppearance(to view: NSView) {
     view.appearance = NSApplication.shared.appearance
@@ -11,12 +17,22 @@ private func applyCurrentAppAppearance(to view: NSView) {
 final class StatusBarMenuBuilder {
     private let settings: SettingsStore
     private weak var controller: WMController?
+    var infoAlertPresenter: (String, String) -> Void
 
     private var toggleViews: [String: MenuToggleRowView] = [:]
 
     init(settings: SettingsStore, controller: WMController) {
         self.settings = settings
         self.controller = controller
+        infoAlertPresenter = { title, message in
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            _ = alert.runModal()
+        }
     }
 
     func buildMenu() -> NSMenu {
@@ -189,7 +205,7 @@ final class StatusBarMenuBuilder {
             icon: "square.and.arrow.up",
             label: "Export Editable Config"
         ) { [weak self] in
-            self?.exportSettings(mode: .full)
+            self?.performSettingsMenuAction(.export(.full))
         }
         let exportEditableItem = NSMenuItem()
         exportEditableItem.view = exportEditableRow
@@ -199,7 +215,7 @@ final class StatusBarMenuBuilder {
             icon: "archivebox",
             label: "Export Compact Backup"
         ) { [weak self] in
-            self?.exportSettings(mode: .compact)
+            self?.performSettingsMenuAction(.export(.compact))
         }
         let exportCompactItem = NSMenuItem()
         exportCompactItem.view = exportCompactRow
@@ -209,7 +225,7 @@ final class StatusBarMenuBuilder {
             icon: "folder",
             label: "Reveal Settings File"
         ) { [weak self] in
-            self?.revealSettingsFile()
+            self?.performSettingsMenuAction(.revealSettingsFile)
         }
         let revealSettingsFileItem = NSMenuItem()
         revealSettingsFileItem.view = revealSettingsFileRow
@@ -219,16 +235,31 @@ final class StatusBarMenuBuilder {
             icon: "doc.text",
             label: "Open Settings File"
         ) { [weak self] in
-            self?.openSettingsFile()
+            self?.performSettingsMenuAction(.openSettingsFile)
         }
         let openSettingsFileItem = NSMenuItem()
         openSettingsFileItem.view = openSettingsFileRow
         menu.addItem(openSettingsFileItem)
     }
 
+    func performSettingsMenuAction(_ action: SettingsMenuAction) {
+        switch action {
+        case .export(let mode):
+            exportSettings(mode: mode)
+        case .revealSettingsFile:
+            revealSettingsFile()
+        case .openSettingsFile:
+            openSettingsFile()
+        }
+    }
+
     private func exportSettings(mode: SettingsExportMode) {
         do {
             try settings.exportSettings(mode: mode)
+            presentInfoAlert(
+                title: mode == .full ? "Editable Config Exported" : "Compact Backup Exported",
+                message: SettingsStore.exportURL.path
+            )
         } catch {
             presentInfoAlert(
                 title: "Could Not Export Settings",
@@ -237,15 +268,20 @@ final class StatusBarMenuBuilder {
         }
     }
 
-    private func ensureSettingsFileExists() throws {
-        guard !settings.settingsFileExists else { return }
+    private func ensureSettingsFileExists() throws -> Bool {
+        guard !settings.settingsFileExists else { return false }
         try settings.exportSettings(mode: .full)
+        return true
     }
 
     private func revealSettingsFile() {
         do {
-            try ensureSettingsFileExists()
+            let created = try ensureSettingsFileExists()
             NSWorkspace.shared.activateFileViewerSelecting([SettingsStore.exportURL])
+            presentInfoAlert(
+                title: created ? "Settings File Created" : "Settings File Revealed",
+                message: SettingsStore.exportURL.path
+            )
         } catch {
             presentInfoAlert(
                 title: "Could Not Reveal Settings File",
@@ -256,10 +292,14 @@ final class StatusBarMenuBuilder {
 
     private func openSettingsFile() {
         do {
-            try ensureSettingsFileExists()
+            let created = try ensureSettingsFileExists()
             guard NSWorkspace.shared.open(SettingsStore.exportURL) else {
                 throw CocoaError(.fileNoSuchFile)
             }
+            presentInfoAlert(
+                title: created ? "Settings File Created" : "Settings File Opened",
+                message: SettingsStore.exportURL.path
+            )
         } catch {
             presentInfoAlert(
                 title: "Could Not Open Settings File",
@@ -269,13 +309,7 @@ final class StatusBarMenuBuilder {
     }
 
     private func presentInfoAlert(title: String, message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        _ = alert.runModal()
+        infoAlertPresenter(title, message)
     }
 
     private func addLinksSection(to menu: NSMenu) {
