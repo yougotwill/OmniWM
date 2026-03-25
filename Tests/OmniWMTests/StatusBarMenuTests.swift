@@ -34,6 +34,7 @@ import Testing
         let menu = builder.buildMenu()
         let labels = menu.items.compactMap(\.view).flatMap(textLabels(in:))
 
+        #expect(labels.contains("CONFIG FILE"))
         #expect(labels.contains("Export Editable Config"))
         #expect(labels.contains("Export Compact Backup"))
         #expect(labels.contains("Import Settings"))

@@ -199,6 +199,8 @@ final class StatusBarMenuBuilder {
         settingsItem.view = settingsRow
         menu.addItem(settingsItem)
 
+        menu.addItem(createSectionLabel("CONFIG FILE"))
+
         let exportEditableRow = MenuActionRowView(
             icon: "square.and.arrow.up",
             label: "Export Editable Config"
