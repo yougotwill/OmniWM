@@ -406,6 +406,16 @@ import QuartzCore
         guard let controller else { return }
 
         layoutState.didExecuteRefreshExecutionPlan = true
+
+        // Rebuild the inactive-workspace window set BEFORE executing layout plans
+        // so that applyFramesParallel (inside executeLayoutPlans) uses the correct
+        // active/inactive classification. Without this, windows on a newly-active
+        // workspace are still marked inactive from the previous cycle, causing their
+        // frame writes to be silently skipped and leaving blank gaps on screen.
+        if let visibility = plan.effects.visibility {
+            rebuildInactiveWorkspaceWindowSet(activeWorkspaceIds: visibility.activeWorkspaceIds)
+        }
+
         executeLayoutPlans(plan.workspacePlans)
 
         if let visibility = plan.effects.visibility {
@@ -1659,11 +1669,28 @@ import QuartzCore
         }
     }
 
+    private func rebuildInactiveWorkspaceWindowSet(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
+        guard let controller else { return }
+        var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
+        for workspace in controller.workspaceManager.workspaces {
+            for entry in controller.workspaceManager.entries(in: workspace.id) {
+                allEntries.append((workspace.id, entry.windowId))
+            }
+        }
+        controller.axManager.updateInactiveWorkspaceWindows(
+            allEntries: allEntries,
+            activeWorkspaceIds: activeWorkspaceIds
+        )
+    }
+
     func hideInactiveWorkspaces(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
         guard let controller else { return }
         let workspaceEntries = workspaceEntriesSnapshot(on: controller)
 
-        // Rebuild the workspace-level frame suppression set (live check in applyFramesParallel)
+        // Rebuild the workspace-level frame suppression set (live check in applyFramesParallel).
+        // Note: this is also called earlier in executeRefreshExecutionPlan to unblock frame
+        // writes for newly-active workspaces. The rebuild here keeps the set consistent with
+        // the snapshot used for the hide pass below.
         var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
         allEntries.reserveCapacity(workspaceEntries.reduce(into: 0) { $0 += $1.entries.count })
         for snapshot in workspaceEntries {
