@@ -406,7 +406,7 @@ private func waitUntilAXEventTest(
         #expect(relayoutReasons == [.windowRuleReevaluation])
     }
 
-    @Test @MainActor func createdWindowWithMatchedUserRuleTracksDespiteIncompleteAxFacts() async {
+    @Test @MainActor func createdWindowWithDegradedAxFactsDefersUntilAttributesAvailable() async {
         let controller = makeAXEventTestController(trackedBundleId: "dentalplus-air")
         controller.settings.appRules = [
             AppRule(
@@ -423,7 +423,6 @@ private func waitUntilAXEventTest(
         controller.updateAppRules()
         await waitUntilAXEventTest { fullRescanReasons == [.appRulesChanged] }
 
-        var relayoutReasons: [RefreshReason] = []
         controller.axEventHandler.windowInfoProvider = { windowId in
             guard windowId == 816 else { return nil }
             return WindowServerInfo(id: windowId, pid: getpid(), level: 0, frame: .zero)
@@ -438,11 +437,6 @@ private func waitUntilAXEventTest(
                 attributeFetchSucceeded: false
             )
         }
-        controller.layoutRefreshController.resetDebugState()
-        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
-            relayoutReasons.append(reason)
-            return true
-        }
 
         controller.axEventHandler.cgsEventObserver(
             CGSEventObserver.shared,
@@ -450,16 +444,10 @@ private func waitUntilAXEventTest(
         )
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
-        guard let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 816) else {
-            Issue.record("Expected DentalPlus window to be tracked despite incomplete AX facts")
-            return
-        }
-
-        let workspaceTwoId = controller.workspaceManager.workspaceId(named: "2")
-        #expect(entry.mode == .tiling)
-        #expect(entry.workspaceId == workspaceTwoId)
-        #expect(entry.ruleEffects.matchedRuleId == controller.settings.appRules.first?.id)
-        #expect(relayoutReasons == [.axWindowCreated])
+        // Tile/auto rules with degraded AX facts are deferred to prevent
+        // tooltips and auxiliary windows from destabilizing layout.
+        let entry = controller.workspaceManager.entry(forPid: getpid(), windowId: 816)
+        #expect(entry == nil)
     }
 
     @Test @MainActor func createdWindowRetriesWhenAXWindowRefIsInitiallyUnavailableWithoutRuleReevaluation() async {

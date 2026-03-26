@@ -163,7 +163,7 @@ private func makeWindowRuleFacts(
         #expect(decision.heuristicReasons == [.attributeFetchFailed])
     }
 
-    @Test func matchedUserRuleOverridesAttributeFetchFailureFallback() {
+    @Test func tileRuleDefersWhenAttributeFetchFails() {
         let engine = WindowRuleEngine()
         let rule = AppRule(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000162")!,
@@ -182,13 +182,34 @@ private func makeWindowRuleFacts(
             appFullscreen: false
         )
 
-        #expect(decision.disposition == .managed)
-        #expect(decision.trackedMode == .tiling)
+        // Tile/auto rules defer when AX attributes are unavailable to prevent
+        // tooltips and auxiliary windows from being tiled and destabilizing layout.
+        #expect(decision.disposition == .undecided)
+        #expect(decision.deferredReason == .attributeFetchFailed)
+    }
+
+    @Test func floatRuleAppliesDespiteAttributeFetchFailure() {
+        let engine = WindowRuleEngine()
+        let rule = AppRule(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000163")!,
+            bundleId: "dentalplus-air",
+            alwaysFloat: true
+        )
+        engine.rebuild(rules: [rule])
+
+        let decision = engine.decision(
+            for: makeWindowRuleFacts(
+                bundleId: "dentalplus-air",
+                appName: "DentalPlus Client",
+                attributeFetchSucceeded: false
+            ),
+            token: nil,
+            appFullscreen: false
+        )
+
+        // Float rules still apply with degraded AX since they don't affect tiling layout.
+        #expect(decision.disposition == .floating)
         #expect(decision.source == .userRule(rule.id))
-        #expect(decision.layoutDecisionKind == .fallbackLayout)
-        #expect(decision.workspaceName == "2")
-        #expect(decision.ruleEffects.matchedRuleId == rule.id)
-        #expect(decision.heuristicReasons == [.attributeFetchFailed])
         #expect(decision.deferredReason == nil)
     }
 

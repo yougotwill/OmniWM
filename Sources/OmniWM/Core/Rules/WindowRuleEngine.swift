@@ -356,7 +356,7 @@ final class WindowRuleEngine {
         }
 
         if !facts.ax.attributeFetchSucceeded {
-            if let userRule {
+            if let userRule, userRule.rule.effectiveLayoutAction == .float {
                 return fallbackDecisionForMatchedUserRule(
                     userRule,
                     workspaceName: workspaceName,
