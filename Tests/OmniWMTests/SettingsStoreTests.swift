@@ -1555,13 +1555,13 @@ private func makeSettingsTestMonitor(
         let reboundMonitor = makeSettingsTestMonitor(displayId: 77, name: "Studio Display")
         try imported.importSettings(from: exportURL, monitors: [reboundMonitor])
 
-        #expect(imported.workspaceConfigurations.count == 1)
-        #expect(imported.workspaceConfigurations.first?.name == "2")
+        #expect(imported.workspaceConfigurations.map(\.name) == ["2", "10"])
         #expect(imported.workspaceConfigurations.first?.displayName == "Code")
         #expect(
             imported.workspaceConfigurations.first?.monitorAssignment
                 == .specificDisplay(OutputId(displayId: reboundMonitor.displayId, name: reboundMonitor.name))
         )
+        #expect(imported.workspaceConfigurations.last?.monitorAssignment == .main)
     }
 
     @Test func importClearsStaleMonitorDisplayIdsWhenNoCurrentMatchExists() throws {
@@ -1754,7 +1754,7 @@ private func makeSettingsTestMonitor(
         #expect(reloaded.workspaceToMonitorAssignments()["2"] == [.output(output)])
     }
 
-    @Test func settingsStoreNormalizesWorkspaceConfigurationsToConfiguredNumericIds() {
+    @Test func settingsStoreNormalizesWorkspaceConfigurationsToPositiveNumericIds() {
         let defaults = makeTestDefaults()
         let rawConfigurations = [
             WorkspaceConfiguration(name: "2", monitorAssignment: .main),
@@ -1766,8 +1766,22 @@ private func makeSettingsTestMonitor(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.workspaceConfigurations.map(\.name) == ["2"])
+        #expect(settings.workspaceConfigurations.map(\.name) == ["2", "10"])
         #expect(settings.workspaceConfigurations.first?.monitorAssignment == .main)
+    }
+
+    @Test func settingsStorePreservesHighWorkspaceIdsWithoutFallingBackToBuiltInDefaults() {
+        let defaults = makeTestDefaults()
+        let rawConfigurations = [
+            WorkspaceConfiguration(name: "10", monitorAssignment: .main),
+            WorkspaceConfiguration(name: "11", monitorAssignment: .secondary)
+        ]
+        defaults.set(try? JSONEncoder().encode(rawConfigurations), forKey: "settings.workspaceConfigurations")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.workspaceConfigurations.map(\.name) == ["10", "11"])
+        #expect(settings.workspaceConfigurations != BuiltInSettingsDefaults.workspaceConfigurations)
     }
 
     @Test func persistEffectiveMouseWarpMonitorOrderSeedsConnectedDisplaysWithoutDroppingStoredEntries() {

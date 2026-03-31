@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OmniWMIPC
 
 struct WorkspaceDescriptor: Identifiable, Hashable {
     typealias ID = UUID
@@ -2024,11 +2025,7 @@ final class WorkspaceManager {
         if let cached = _cachedSortedWorkspaces {
             return cached
         }
-        let sorted = workspacesById.values.sorted {
-            let a = $0.name.toLogicalSegments()
-            let b = $1.name.toLogicalSegments()
-            return a < b
-        }
+        let sorted = workspacesById.values.sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
         _cachedSortedWorkspaces = sorted
         return sorted
     }
@@ -2510,10 +2507,9 @@ final class WorkspaceManager {
     }
 
     private func createWorkspace(named name: String) -> WorkspaceDescriptor.ID? {
-        guard case let .success(parsed) = WorkspaceName.parse(name) else { return nil }
-        guard WorkspaceConfiguration.allowedNames.contains(parsed.raw) else { return nil }
-        guard configuredWorkspaceNames().contains(parsed.raw) else { return nil }
-        let workspace = WorkspaceDescriptor(name: parsed.raw)
+        guard let rawID = WorkspaceIDPolicy.normalizeRawID(name) else { return nil }
+        guard configuredWorkspaceNames().contains(rawID) else { return nil }
+        let workspace = WorkspaceDescriptor(name: rawID)
         workspacesById[workspace.id] = workspace
         workspaceIdByName[workspace.name] = workspace.id
         _cachedSortedWorkspaces = nil

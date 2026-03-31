@@ -1,6 +1,6 @@
 import Foundation
 
-enum ExternalCommandResult: Equatable, Sendable {
+enum ExternalCommandResult: Equatable, Sendable, Error {
     case executed
     case ignoredDisabled
     case ignoredOverview

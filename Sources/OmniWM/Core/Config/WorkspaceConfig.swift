@@ -1,4 +1,5 @@
 import Foundation
+import OmniWMIPC
 
 enum LayoutType: String, Codable, CaseIterable, Identifiable {
     case defaultLayout = "default"
@@ -84,8 +85,6 @@ struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
         displayName.flatMap { $0.isEmpty ? nil : $0 } ?? name
     }
 
-    static let allowedNames = Set((1 ... 9).map(String.init))
-
     init(
         id: UUID = UUID(),
         name: String,
@@ -107,6 +106,6 @@ struct WorkspaceConfiguration: Codable, Identifiable, Equatable {
     }
 
     var sortOrder: Int {
-        Int(name) ?? .max
+        WorkspaceIDPolicy.workspaceNumber(from: name) ?? .max
     }
 }

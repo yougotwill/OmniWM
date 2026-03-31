@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OmniWMIPC
 
 @MainActor
 final class WorkspaceNavigationHandler {
@@ -269,13 +270,17 @@ final class WorkspaceNavigationHandler {
     }
 
     func switchWorkspace(index: Int) {
+        guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
+        switchWorkspace(rawWorkspaceID: rawWorkspaceID)
+    }
+
+    func switchWorkspace(rawWorkspaceID: String) {
         guard let controller else { return }
         controller.borderManager.hideBorder()
 
-        let targetName = String(max(0, index) + 1)
         let currentWorkspace = controller.activeWorkspace()
         if let currentWorkspace,
-           currentWorkspace.name == targetName
+           currentWorkspace.name == rawWorkspaceID
         {
             workspaceBackAndForth()
             return
@@ -285,7 +290,7 @@ final class WorkspaceNavigationHandler {
             saveNiriViewportState(for: currentWorkspace.id)
         }
 
-        guard let targetWorkspaceId = controller.workspaceManager.workspaceId(for: targetName, createIfMissing: false),
+        guard let targetWorkspaceId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false),
               let targetMonitor = controller.workspaceManager.monitorForWorkspace(targetWorkspaceId)
         else {
             return
@@ -294,7 +299,7 @@ final class WorkspaceNavigationHandler {
         let previousWorkspaceOnTarget = controller.workspaceManager.activeWorkspace(on: targetMonitor.id)
         let targetWasVisibleBeforeSwitch = previousWorkspaceOnTarget?.id == targetWorkspaceId
 
-        guard let result = controller.workspaceManager.focusWorkspace(named: targetName) else { return }
+        guard let result = controller.workspaceManager.focusWorkspace(named: rawWorkspaceID) else { return }
 
         let workspaceSwitchAnimated = startWorkspaceSwitchAnimationIfNeeded(
             from: previousWorkspaceOnTarget,
@@ -372,13 +377,17 @@ final class WorkspaceNavigationHandler {
     }
 
     func focusWorkspaceAnywhere(index: Int) {
+        guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
+        focusWorkspaceAnywhere(rawWorkspaceID: rawWorkspaceID)
+    }
+
+    func focusWorkspaceAnywhere(rawWorkspaceID: String) {
         guard let controller else { return }
         controller.borderManager.hideBorder()
 
-        let targetName = String(max(0, index) + 1)
         let currentWorkspace = controller.activeWorkspace()
 
-        guard let targetWsId = controller.workspaceManager.workspaceId(named: targetName) else { return }
+        guard let targetWsId = controller.workspaceManager.workspaceId(named: rawWorkspaceID) else { return }
         guard let targetMonitor = controller.workspaceManager.monitorForWorkspace(targetWsId) else { return }
         let previousWorkspaceOnTarget = controller.workspaceManager.activeWorkspace(on: targetMonitor.id)
         let targetWasVisibleBeforeSwitch = previousWorkspaceOnTarget?.id == targetWsId
@@ -680,13 +689,17 @@ final class WorkspaceNavigationHandler {
     }
 
     func moveColumnToWorkspaceByIndex(index: Int) {
+        guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
+        moveColumnToWorkspace(rawWorkspaceID: rawWorkspaceID)
+    }
+
+    func moveColumnToWorkspace(rawWorkspaceID: String) {
         guard let controller else { return }
         guard let engine = controller.niriEngine else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
         guard let wsId = controller.activeWorkspace()?.id else { return }
 
-        let targetName = String(max(0, index) + 1)
-        guard let targetWsId = controller.workspaceManager.workspaceId(for: targetName, createIfMissing: false)
+        guard let targetWsId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false)
         else { return }
 
         guard targetWsId != wsId else { return }
@@ -739,10 +752,14 @@ final class WorkspaceNavigationHandler {
     }
 
     func moveFocusedWindow(toWorkspaceIndex index: Int) {
+        guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
+        moveFocusedWindow(toRawWorkspaceID: rawWorkspaceID)
+    }
+
+    func moveFocusedWindow(toRawWorkspaceID rawWorkspaceID: String) {
         guard let controller else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
-        let targetName = String(max(0, index) + 1)
-        guard let targetId = controller.workspaceManager.workspaceId(for: targetName, createIfMissing: false),
+        guard let targetId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false),
               let target = controller.workspaceManager.descriptor(for: targetId)
         else {
             return
@@ -838,6 +855,11 @@ final class WorkspaceNavigationHandler {
     }
 
     func moveWindowToWorkspaceOnMonitor(workspaceIndex: Int, monitorDirection: Direction) {
+        guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, workspaceIndex) + 1) else { return }
+        moveWindowToWorkspaceOnMonitor(rawWorkspaceID: rawWorkspaceID, monitorDirection: monitorDirection)
+    }
+
+    func moveWindowToWorkspaceOnMonitor(rawWorkspaceID: String, monitorDirection: Direction) {
         guard let controller else { return }
         guard let token = controller.workspaceManager.focusedToken else { return }
         guard let currentMonitorId = interactionMonitorId(for: controller)
@@ -849,14 +871,9 @@ final class WorkspaceNavigationHandler {
             direction: monitorDirection
         ) else { return }
 
-        let targetName = String(max(0, workspaceIndex) + 1)
-        guard let targetWsId = controller.workspaceManager.workspaceId(for: targetName, createIfMissing: false)
+        guard let targetWsId = controller.workspaceManager.workspaceId(for: rawWorkspaceID, createIfMissing: false)
         else { return }
-
-        if controller.workspaceManager.monitorId(for: targetWsId) != targetMonitor.id {
-            _ = controller.workspaceManager.moveWorkspaceToMonitor(targetWsId, to: targetMonitor.id)
-            controller.syncMonitorsToNiriEngine()
-        }
+        guard controller.workspaceManager.monitorId(for: targetWsId) == targetMonitor.id else { return }
 
         let transferResult = transferWindowFromSourceEngine(
             token: token, from: currentWorkspaceId, to: targetWsId

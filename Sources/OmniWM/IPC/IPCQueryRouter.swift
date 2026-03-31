@@ -571,8 +571,7 @@ final class IPCQueryRouter {
     }
 
     private func workspaceNumber(from rawName: String) -> Int? {
-        guard let value = Int(rawName), value > 0 else { return nil }
-        return value
+        WorkspaceIDPolicy.workspaceNumber(from: rawName)
     }
 
     private func rect(from rect: CGRect) -> IPCRect {

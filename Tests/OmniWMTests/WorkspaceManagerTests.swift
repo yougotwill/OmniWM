@@ -1324,6 +1324,33 @@ private func workspaceConfigurations(
         #expect(manager.workspaceId(named: "3") == nil)
     }
 
+    @Test @MainActor func configuredWorkspace10CanBeCreatedSortedAndFocused() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = workspaceConfigurations([
+            ("1", .main),
+            ("10", .main),
+            ("11", .main)
+        ])
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 150, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspace10 = manager.workspaceId(for: "10", createIfMissing: true),
+              let workspace11 = manager.workspaceId(for: "11", createIfMissing: true)
+        else {
+            Issue.record("Failed to create expected high workspace IDs")
+            return
+        }
+
+        #expect(manager.workspaces.map(\.name) == ["1", "10", "11"])
+        _ = workspace11
+        #expect(manager.activeWorkspace(on: monitor.id)?.name == "1")
+        #expect(manager.setActiveWorkspace(workspace10, on: monitor.id))
+        #expect(manager.activeWorkspace(on: monitor.id)?.name == "10")
+    }
+
     @Test @MainActor func applySessionPatchCommitsViewportAndRememberedFocusAtomically() {
         let defaults = makeWorkspaceManagerTestDefaults()
         let settings = SettingsStore(defaults: defaults)

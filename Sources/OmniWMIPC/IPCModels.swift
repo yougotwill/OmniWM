@@ -1337,13 +1337,48 @@ public enum IPCWorkspaceActionName: String, Codable, Equatable, Sendable {
     case focusName = "focus-name"
 }
 
-public struct IPCWorkspaceRequest: Codable, Equatable, Sendable {
+public struct IPCWorkspaceRequest: Equatable, Sendable {
     public let name: IPCWorkspaceActionName
-    public let workspaceName: String
+    public let target: WorkspaceTarget
+
+    public var workspaceName: String {
+        target.legacyValue
+    }
+
+    public init(name: IPCWorkspaceActionName, target: WorkspaceTarget) {
+        self.name = name
+        self.target = target
+    }
 
     public init(name: IPCWorkspaceActionName, workspaceName: String) {
         self.name = name
-        self.workspaceName = workspaceName
+        target = WorkspaceTarget(resolvingLegacyValue: workspaceName)
+    }
+}
+
+extension IPCWorkspaceRequest: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case workspaceName
+        case workspaceTarget
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(IPCWorkspaceActionName.self, forKey: .name)
+        if let target = try container.decodeIfPresent(WorkspaceTarget.self, forKey: .workspaceTarget) {
+            self.target = target
+        } else {
+            let workspaceName = try container.decode(String.self, forKey: .workspaceName)
+            self.target = WorkspaceTarget(resolvingLegacyValue: workspaceName)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(workspaceName, forKey: .workspaceName)
+        try container.encode(target, forKey: .workspaceTarget)
     }
 }
 

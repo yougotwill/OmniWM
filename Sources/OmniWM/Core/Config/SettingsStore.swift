@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OmniWMIPC
 
 @MainActor @Observable
 final class SettingsStore {
@@ -647,9 +648,9 @@ final class SettingsStore {
     private static func normalizedWorkspaceConfigurations(_ configs: [WorkspaceConfiguration]) -> [WorkspaceConfiguration] {
         var seen: Set<String> = []
         let normalized = configs
-            .filter { WorkspaceConfiguration.allowedNames.contains($0.name) }
+            .filter { WorkspaceIDPolicy.normalizeRawID($0.name) != nil }
             .filter { seen.insert($0.name).inserted }
-            .sorted { $0.sortOrder < $1.sortOrder }
+            .sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
 
         if normalized.isEmpty {
             return BuiltInSettingsDefaults.workspaceConfigurations

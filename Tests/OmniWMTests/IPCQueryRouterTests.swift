@@ -425,6 +425,36 @@ private func prepareIPCQueryRouterNiriState(
         #expect(capabilities.subscriptions.contains { $0.channel == .windowsChanged })
     }
 
+    @Test func workspaceQueriesAndBarProjectionIncludeHighWorkspaceIDs() throws {
+        let primaryMonitor = makeLayoutPlanPrimaryTestMonitor(name: "Primary")
+        let secondaryMonitor = makeLayoutPlanSecondaryTestMonitor(name: "Secondary", x: 1920)
+        let controller = makeLayoutPlanTestController(
+            monitors: [primaryMonitor, secondaryMonitor],
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main),
+                WorkspaceConfiguration(name: "10", monitorAssignment: .secondary)
+            ]
+        )
+        let workspace10 = try #require(controller.workspaceManager.workspaceId(for: "10", createIfMissing: false))
+        controller.appInfoCache.storeInfoForTests(pid: 9801, name: "Terminal", bundleId: "com.example.terminal")
+        _ = controller.workspaceManager.addWindow(
+            makeLayoutPlanTestWindow(windowId: 1810),
+            pid: 9801,
+            windowId: 1810,
+            to: workspace10
+        )
+
+        let router = IPCQueryRouter(controller: controller, sessionToken: ipcQueryRouterSessionToken)
+        let workspaces = router.workspacesResult(IPCQueryRequest(name: .workspaces))
+        let workspaceBar = router.workspaceBarResult()
+
+        #expect(workspaces.workspaces.contains { $0.rawName == "10" && $0.number == 10 })
+        #expect(workspaces.workspaces.contains { $0.rawName == "10" && $0.display?.name == secondaryMonitor.name })
+        #expect(workspaceBar.monitors.contains { monitor in
+            monitor.workspaces.contains { $0.rawName == "10" && $0.number == 10 }
+        })
+    }
+
     @Test func queriesQueryReturnsManifestBackedDescriptorsAndMatchesCapabilities() {
         let controller = makeLayoutPlanTestController()
         let router = IPCQueryRouter(controller: controller, sessionToken: ipcQueryRouterSessionToken)

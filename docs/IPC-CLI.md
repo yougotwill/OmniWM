@@ -278,20 +278,22 @@ omniwmctl command <command-path> [arguments...]
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command switch-workspace` | `<number>` | shared | Switch to a workspace by one-based index on the current monitor |
+| `command switch-workspace` | `<number>` | shared | Switch to a workspace by numeric workspace ID on the current monitor |
 | `command switch-workspace next` | — | shared | Switch to the next workspace |
 | `command switch-workspace prev` | — | shared | Switch to the previous workspace |
 | `command switch-workspace back-and-forth` | — | shared | Switch to the previously active workspace |
-| `command switch-workspace anywhere` | `<number>` | shared | Focus a workspace by one-based index across all monitors |
+| `command switch-workspace anywhere` | `<number>` | shared | Focus a workspace by numeric workspace ID across all monitors |
 
 ### Move to Workspace
 
 | Command | Arguments | Layout | Description |
 |---------|-----------|--------|-------------|
-| `command move-to-workspace` | `<number>` | shared | Move focused window to workspace by one-based index |
+| `command move-to-workspace` | `<number>` | shared | Move focused window to a workspace by numeric workspace ID |
 | `command move-to-workspace up` | — | shared | Move focused window to the adjacent workspace above |
 | `command move-to-workspace down` | — | shared | Move focused window to the adjacent workspace below |
-| `command move-to-workspace on-monitor` | `<number> <left\|right\|up\|down>` | shared | Move focused window to a workspace on an adjacent monitor |
+| `command move-to-workspace on-monitor` | `<number> <left\|right\|up\|down>` | shared | Move focused window to a workspace already assigned to the requested adjacent monitor |
+
+Workspace IDs are positive numeric strings. Direct hotkeys stay limited to `1-9`, but the workspace UI and IPC/CLI both support `10+`.
 
 ### Monitor Focus
 
@@ -480,7 +482,9 @@ omniwmctl workspace focus-name <name>
 
 | Action | Arguments | Description |
 |--------|-----------|-------------|
-| `focus-name` | `<name>` | Focus a workspace by raw name or configured display name |
+| `focus-name` | `<name>` | Focus a workspace by raw workspace ID or unambiguous configured display name |
+
+Numeric inputs are resolved as raw workspace IDs first. Display-name lookup is a convenience path and fails when multiple workspaces share the same display name.
 
 ---
 

@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OmniWMIPC
 
 // MARK: - SettingsExport
 
@@ -558,9 +559,9 @@ extension SettingsStore {
         }
 
         let normalized = rebound
-            .filter { WorkspaceConfiguration.allowedNames.contains($0.name) }
+            .filter { WorkspaceIDPolicy.normalizeRawID($0.name) != nil }
             .filter { seen.insert($0.name).inserted }
-            .sorted { $0.sortOrder < $1.sortOrder }
+            .sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
 
         if normalized.isEmpty {
             return BuiltInSettingsDefaults.workspaceConfigurations

@@ -4,6 +4,32 @@ import Testing
 @testable import OmniWM
 
 @Suite struct WorkspacesSettingsTabTests {
+    @Test func addPolicyProposesWorkspace10AfterNineSlotsAreUsed() {
+        let configurations = (1...9).map { WorkspaceConfiguration(name: String($0)) }
+
+        #expect(
+            WorkspaceConfigurationAddPolicy.nextAvailableWorkspaceName(in: configurations) == "10"
+        )
+    }
+
+    @Test func addPolicyReusesNumericGapsBeforeGrowingPastNine() {
+        let configurations = [
+            WorkspaceConfiguration(name: "1"),
+            WorkspaceConfiguration(name: "3"),
+            WorkspaceConfiguration(name: "10")
+        ]
+
+        #expect(
+            WorkspaceConfigurationAddPolicy.nextAvailableWorkspaceName(in: configurations) == "2"
+        )
+    }
+
+    @Test func workspaceSettingsCopyMentionsTenPlusInsteadOfNineWorkspaceCap() {
+        #expect(WorkspaceConfigurationAddPolicy.addButtonHelp.contains("9") == false)
+        #expect(WorkspaceConfigurationAddPolicy.footerText.contains("at most 9") == false)
+        #expect(WorkspaceConfigurationAddPolicy.footerText.contains("10+") == true)
+    }
+
     @Test @MainActor func floatingOnlyWorkspaceBlocksDeletion() throws {
         let controller = makeLayoutPlanTestController()
         let settings = controller.settings

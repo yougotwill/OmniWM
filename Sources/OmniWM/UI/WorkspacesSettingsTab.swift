@@ -1,4 +1,5 @@
 import SwiftUI
+import OmniWMIPC
 
 @MainActor
 enum WorkspaceConfigurationDeletePolicy {
@@ -29,6 +30,16 @@ enum WorkspaceConfigurationDeletePolicy {
             "Delete workspace" :
             "Move or close all windows in this workspace before deleting it"
     }
+}
+
+enum WorkspaceConfigurationAddPolicy {
+    static func nextAvailableWorkspaceName(in configurations: [WorkspaceConfiguration]) -> String {
+        WorkspaceIDPolicy.lowestUnusedRawID(in: configurations.map(\.name))
+    }
+
+    static let addButtonHelp = "Add the lowest unused workspace ID"
+    static let footerText =
+        "Workspace IDs use positive numeric slots. Display Name stays editable. Direct workspace hotkeys remain limited to 1-9; add 10+ here or through IPC/CLI."
 }
 
 struct WorkspacesSettingsTab: View {
@@ -80,10 +91,9 @@ struct WorkspacesSettingsTab: View {
                     }
                     .buttonStyle(.plain)
                     .help(addButtonHelp)
-                    .disabled(nextAvailableWorkspaceName() == nil)
                 }
             } footer: {
-                Text("Workspace IDs are fixed numeric slots from 1 to 9. Display Name stays editable. Every configured workspace is retained until deleted.")
+                Text(WorkspaceConfigurationAddPolicy.footerText)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -102,34 +112,28 @@ struct WorkspacesSettingsTab: View {
             )
         }
         .sheet(isPresented: $isAddingNew) {
-            if let newName = nextAvailableWorkspaceName() {
-                WorkspaceEditSheet(
-                    configuration: WorkspaceConfiguration(name: newName, monitorAssignment: .main),
-                    isNew: true,
-                    connectedMonitors: connectedMonitors,
-                    onSave: { newConfig in
-                        addConfiguration(newConfig)
-                        isAddingNew = false
-                    },
-                    onCancel: { isAddingNew = false }
-                )
-            }
+            WorkspaceEditSheet(
+                configuration: WorkspaceConfiguration(
+                    name: WorkspaceConfigurationAddPolicy.nextAvailableWorkspaceName(in: settings.workspaceConfigurations),
+                    monitorAssignment: .main
+                ),
+                isNew: true,
+                connectedMonitors: connectedMonitors,
+                onSave: { newConfig in
+                    addConfiguration(newConfig)
+                    isAddingNew = false
+                },
+                onCancel: { isAddingNew = false }
+            )
         }
     }
 
     private var sortedConfigurations: [WorkspaceConfiguration] {
-        settings.workspaceConfigurations.sorted { $0.sortOrder < $1.sortOrder }
+        settings.workspaceConfigurations.sorted { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
     }
 
     private var addButtonHelp: String {
-        nextAvailableWorkspaceName() == nil ?
-            "OmniWM supports at most 9 configured workspaces" :
-            "Add the next available workspace"
-    }
-
-    private func nextAvailableWorkspaceName() -> String? {
-        let used = Set(settings.workspaceConfigurations.map(\.name))
-        return (1 ... 9).lazy.map(String.init).first { !used.contains($0) }
+        WorkspaceConfigurationAddPolicy.addButtonHelp
     }
 
     private func canDeleteConfiguration(_ config: WorkspaceConfiguration) -> Bool {
@@ -150,14 +154,14 @@ struct WorkspacesSettingsTab: View {
 
     private func addConfiguration(_ config: WorkspaceConfiguration) {
         settings.workspaceConfigurations.append(config)
-        settings.workspaceConfigurations.sort { $0.sortOrder < $1.sortOrder }
+        settings.workspaceConfigurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
         controller.updateWorkspaceConfig()
     }
 
     private func updateConfiguration(_ config: WorkspaceConfiguration) {
         if let index = settings.workspaceConfigurations.firstIndex(where: { $0.id == config.id }) {
             settings.workspaceConfigurations[index] = config
-            settings.workspaceConfigurations.sort { $0.sortOrder < $1.sortOrder }
+            settings.workspaceConfigurations.sort { WorkspaceIDPolicy.sortsBefore($0.name, $1.name) }
             controller.updateWorkspaceConfig()
         }
     }

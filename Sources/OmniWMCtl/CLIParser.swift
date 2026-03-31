@@ -459,16 +459,31 @@ enum CLIParser {
     }
 
     private static func parseWorkspaceRequest(id: String, arguments: [String]) throws -> IPCRequest {
-        guard arguments.count == 2,
-              arguments[0] == IPCWorkspaceActionName.focusName.rawValue
-        else {
+        guard !arguments.isEmpty else {
             throw CLIParseError.usage(usageText)
         }
 
-        return IPCRequest(
-            id: id,
-            workspace: IPCWorkspaceRequest(name: .focusName, workspaceName: arguments[1])
-        )
+        for descriptor in IPCAutomationManifest.workspaceActionDescriptors(matching: arguments) {
+            let actionWords = descriptor.actionWords
+            let remainingCount = arguments.count - actionWords.count
+            guard remainingCount == descriptor.arguments.count else {
+                continue
+            }
+
+            switch descriptor.name {
+            case .focusName:
+                let targetValue = arguments.last ?? ""
+                return IPCRequest(
+                    id: id,
+                    workspace: IPCWorkspaceRequest(
+                        name: .focusName,
+                        target: WorkspaceTarget(resolvingLegacyValue: targetValue)
+                    )
+                )
+            }
+        }
+
+        throw CLIParseError.usage(usageText)
     }
 
     private static func parseWindowRequest(id: String, arguments: [String]) throws -> IPCRequest {

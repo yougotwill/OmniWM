@@ -126,21 +126,28 @@ public struct IPCCommandDescriptor: Codable, Equatable, Sendable {
 }
 
 public struct IPCWorkspaceActionDescriptor: Codable, Equatable, Sendable {
+    public let actionWords: [String]
     public let path: String
     public let name: IPCWorkspaceActionName
     public let summary: String
     public let arguments: [String]
 
     public init(
-        path: String,
+        actionWords: [String],
         name: IPCWorkspaceActionName,
         summary: String,
         arguments: [String] = []
     ) {
-        self.path = path
+        self.actionWords = actionWords
+        path = Self.makePath(actionWords: actionWords, arguments: arguments)
         self.name = name
         self.summary = summary
         self.arguments = arguments
+    }
+
+    private static func makePath(actionWords: [String], arguments: [String]) -> String {
+        let parts = ["workspace"] + actionWords + arguments.map { "<\($0)>" }
+        return parts.joined(separator: " ")
     }
 }
 
@@ -223,7 +230,7 @@ public enum IPCAutomationManifest {
     )
     private static let workspaceNumberArgument = IPCCommandArgumentDescriptor(
         kind: .workspaceNumber,
-        summary: "One-based workspace number."
+        summary: "Positive numeric workspace ID."
     )
     private static let columnIndexArgument = IPCCommandArgumentDescriptor(
         kind: .columnIndex,
@@ -395,20 +402,20 @@ public enum IPCAutomationManifest {
         command(["focus-column", "first"], name: .focusColumnFirst, summary: "Focus the first Niri column.", layoutCompatibility: .niri),
         command(["focus-column", "last"], name: .focusColumnLast, summary: "Focus the last Niri column.", layoutCompatibility: .niri),
         command(["move"], name: .move, summary: "Move the focused window in the given direction.", arguments: [directionArgument]),
-        command(["switch-workspace"], name: .switchWorkspace, summary: "Switch to a workspace on the interaction monitor by one-based index.", arguments: [workspaceNumberArgument]),
+        command(["switch-workspace"], name: .switchWorkspace, summary: "Switch to a workspace on the interaction monitor by workspace ID.", arguments: [workspaceNumberArgument]),
         command(["switch-workspace", "next"], name: .switchWorkspaceNext, summary: "Switch to the next workspace on the current monitor."),
         command(["switch-workspace", "prev"], name: .switchWorkspacePrevious, summary: "Switch to the previous workspace on the current monitor."),
         command(["switch-workspace", "back-and-forth"], name: .switchWorkspaceBackAndForth, summary: "Switch to the previously active workspace on the current monitor."),
-        command(["switch-workspace", "anywhere"], name: .switchWorkspaceAnywhere, summary: "Focus a workspace by one-based index across all monitors.", arguments: [workspaceNumberArgument]),
-        command(["move-to-workspace"], name: .moveToWorkspace, summary: "Move the focused window to a workspace by one-based index.", arguments: [workspaceNumberArgument]),
+        command(["switch-workspace", "anywhere"], name: .switchWorkspaceAnywhere, summary: "Focus a workspace by workspace ID across all monitors.", arguments: [workspaceNumberArgument]),
+        command(["move-to-workspace"], name: .moveToWorkspace, summary: "Move the focused window to a workspace by workspace ID.", arguments: [workspaceNumberArgument]),
         command(["move-to-workspace", "up"], name: .moveToWorkspaceUp, summary: "Move the focused window to the adjacent workspace above."),
         command(["move-to-workspace", "down"], name: .moveToWorkspaceDown, summary: "Move the focused window to the adjacent workspace below."),
-        command(["move-to-workspace", "on-monitor"], name: .moveToWorkspaceOnMonitor, summary: "Move the focused window to a workspace on an adjacent monitor.", arguments: [workspaceNumberArgument, directionArgument]),
+        command(["move-to-workspace", "on-monitor"], name: .moveToWorkspaceOnMonitor, summary: "Move the focused window to a workspace already assigned to the requested adjacent monitor.", arguments: [workspaceNumberArgument, directionArgument]),
         command(["focus-monitor", "prev"], name: .focusMonitorPrevious, summary: "Move interaction focus to the previous monitor."),
         command(["focus-monitor", "next"], name: .focusMonitorNext, summary: "Move interaction focus to the next monitor."),
         command(["focus-monitor", "last"], name: .focusMonitorLast, summary: "Move interaction focus back to the previous monitor."),
         command(["move-column"], name: .moveColumn, summary: "Move the focused Niri column in the given direction.", arguments: [directionArgument], layoutCompatibility: .niri),
-        command(["move-column-to-workspace"], name: .moveColumnToWorkspace, summary: "Move the focused Niri column to a workspace by one-based index.", arguments: [workspaceNumberArgument], layoutCompatibility: .niri),
+        command(["move-column-to-workspace"], name: .moveColumnToWorkspace, summary: "Move the focused Niri column to a workspace by workspace ID.", arguments: [workspaceNumberArgument], layoutCompatibility: .niri),
         command(["move-column-to-workspace", "up"], name: .moveColumnToWorkspaceUp, summary: "Move the focused Niri column to the adjacent workspace above.", layoutCompatibility: .niri),
         command(["move-column-to-workspace", "down"], name: .moveColumnToWorkspaceDown, summary: "Move the focused Niri column to the adjacent workspace below.", layoutCompatibility: .niri),
         command(["toggle-column-tabbed"], name: .toggleColumnTabbed, summary: "Toggle tabbed mode for the focused Niri column.", layoutCompatibility: .niri),
@@ -441,9 +448,9 @@ public enum IPCAutomationManifest {
 
     public static let workspaceActionDescriptors: [IPCWorkspaceActionDescriptor] = [
         .init(
-            path: "workspace focus-name <name>",
+            actionWords: ["focus-name"],
             name: .focusName,
-            summary: "Focus a workspace by raw name or configured display name.",
+            summary: "Focus a workspace by raw workspace ID or unambiguous configured display name.",
             arguments: ["name"]
         ),
     ]
@@ -577,6 +584,15 @@ public enum IPCAutomationManifest {
             .filter { descriptor in
                 guard commandWords.count >= descriptor.commandWords.count else { return false }
                 return Array(commandWords.prefix(descriptor.commandWords.count)) == descriptor.commandWords
+            }
+    }
+
+    public static func workspaceActionDescriptors(matching actionWords: [String]) -> [IPCWorkspaceActionDescriptor] {
+        workspaceActionDescriptors
+            .sorted { $0.path < $1.path }
+            .filter { descriptor in
+                guard actionWords.count >= descriptor.actionWords.count else { return false }
+                return Array(actionWords.prefix(descriptor.actionWords.count)) == descriptor.actionWords
             }
     }
 

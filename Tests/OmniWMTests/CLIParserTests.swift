@@ -53,6 +53,28 @@ import OmniWMIPC
         #expect(command == .setWorkspaceLayout(layout: .defaultLayout))
     }
 
+    @Test func parsesWorkspaceCommandsWithHighWorkspaceIds() throws {
+        let parsed = try CLIParser.parse(arguments: ["omniwmctl", "command", "switch-workspace", "10"])
+
+        guard case let .command(command) = parsed.request.payload else {
+            Issue.record("Expected a command payload")
+            return
+        }
+
+        #expect(command == .switchWorkspace(workspaceNumber: 10))
+    }
+
+    @Test func parsesWorkspaceFocusNameNumericInputAsRawWorkspaceIDTarget() throws {
+        let parsed = try CLIParser.parse(arguments: ["omniwmctl", "workspace", "focus-name", "10"])
+
+        guard case let .workspace(request) = parsed.request.payload else {
+            Issue.record("Expected a workspace payload")
+            return
+        }
+
+        #expect(request == IPCWorkspaceRequest(name: .focusName, target: .rawID("10")))
+    }
+
     @Test func queriesDefaultToJSONOutput() throws {
         let parsed = try CLIParser.parse(arguments: ["omniwmctl", "query", "workspace-bar"])
 
@@ -243,6 +265,17 @@ import OmniWMIPC
         } catch {
             Issue.record("Unexpected parser error: \(error)")
         }
+    }
+
+    @Test func parsesZeroPaddedWorkspaceNumbersAsCanonicalTargets() throws {
+        let parsed = try CLIParser.parse(arguments: ["omniwmctl", "command", "switch-workspace", "01"])
+
+        guard case let .command(command) = parsed.request.payload else {
+            Issue.record("Expected a command payload")
+            return
+        }
+
+        #expect(command == .switchWorkspace(workspaceNumber: 1))
     }
 
     @Test func rejectsZeroWorkspaceNumber() {
