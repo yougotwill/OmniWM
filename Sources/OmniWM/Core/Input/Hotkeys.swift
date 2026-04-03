@@ -7,9 +7,14 @@ struct HotkeyPlannedRegistration: Equatable {
     let command: HotkeyCommand
 }
 
+enum HotkeyRegistrationFailureReason: Equatable {
+    case duplicateBinding
+    case systemReserved
+}
+
 struct HotkeyRegistrationPlan: Equatable {
     let registrations: [HotkeyPlannedRegistration]
-    let failures: Set<HotkeyCommand>
+    let failures: [HotkeyCommand: HotkeyRegistrationFailureReason]
 }
 
 final class HotkeyCenter {
@@ -22,7 +27,7 @@ final class HotkeyCenter {
 
     private var bindings: [HotkeyBinding] = []
 
-    private(set) var registrationFailures: Set<HotkeyCommand> = []
+    private(set) var registrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
 
     func start() {
         guard !isRunning else { return }
@@ -98,7 +103,7 @@ final class HotkeyCenter {
                 refs.append(ref)
                 idToCommand[nextId] = registration.command
             } else {
-                registrationFailures.insert(registration.command)
+                registrationFailures[registration.command] = .systemReserved
             }
             nextId += 1
         }
@@ -113,20 +118,14 @@ final class HotkeyCenter {
 extension HotkeyCenter {
     static func registrationPlan(for bindings: [HotkeyBinding]) -> HotkeyRegistrationPlan {
         var ownersByBinding: [KeyBinding: Set<HotkeyCommand>] = [:]
-        var commandBindings: [(command: HotkeyCommand, bindings: [KeyBinding])] = []
+        var commandBindings: [(command: HotkeyCommand, binding: KeyBinding?)] = []
 
         for binding in bindings {
-            var seenWithinAction: Set<KeyBinding> = []
-            let uniqueBindings = binding.bindings.filter { hotkey in
-                guard !hotkey.isUnassigned else { return false }
-                return seenWithinAction.insert(hotkey).inserted
+            let validBinding = binding.binding.isUnassigned ? nil : binding.binding
+            if let validBinding {
+                ownersByBinding[validBinding, default: []].insert(binding.command)
             }
-
-            for hotkey in uniqueBindings {
-                ownersByBinding[hotkey, default: []].insert(binding.command)
-            }
-
-            commandBindings.append((command: binding.command, bindings: uniqueBindings))
+            commandBindings.append((command: binding.command, binding: validBinding))
         }
 
         let conflictedBindings = Set(
@@ -136,15 +135,15 @@ extension HotkeyCenter {
         )
 
         var registrations: [HotkeyPlannedRegistration] = []
-        var failures: Set<HotkeyCommand> = []
+        var failures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
 
         for commandBinding in commandBindings {
-            let hasConflict = commandBinding.bindings.contains { conflictedBindings.contains($0) }
-            if hasConflict {
-                failures.insert(commandBinding.command)
+            if let binding = commandBinding.binding, conflictedBindings.contains(binding) {
+                failures[commandBinding.command] = .duplicateBinding
+                continue
             }
 
-            for binding in commandBinding.bindings where !conflictedBindings.contains(binding) {
+            if let binding = commandBinding.binding {
                 registrations.append(
                     HotkeyPlannedRegistration(
                         binding: binding,

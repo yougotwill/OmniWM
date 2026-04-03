@@ -1,9 +1,40 @@
 import SwiftUI
 
+enum HotkeyCaptureResult {
+    case applied
+    case conflict(ConflictAlert)
+}
+
+@MainActor enum HotkeyBindingEditor {
+    static func capture(_ newBinding: KeyBinding, for actionId: String, settings: SettingsStore) -> HotkeyCaptureResult {
+        let conflicts = settings.findConflicts(for: newBinding, excluding: actionId)
+        guard conflicts.isEmpty else {
+            return .conflict(
+                ConflictAlert(
+                    targetActionId: actionId,
+                    newBinding: newBinding,
+                    conflictingCommands: conflicts.map(\.command.displayName)
+                )
+            )
+        }
+
+        settings.updateBinding(for: actionId, newBinding: newBinding)
+        return .applied
+    }
+
+    static func applyConflictResolution(_ alert: ConflictAlert, settings: SettingsStore) {
+        let conflicts = settings.findConflicts(for: alert.newBinding, excluding: alert.targetActionId)
+        for conflict in conflicts {
+            settings.clearBinding(for: conflict.id)
+        }
+        settings.updateBinding(for: alert.targetActionId, newBinding: alert.newBinding)
+    }
+}
+
 struct HotkeySettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var controller: WMController
-    @State private var recordingTarget: RecordingTarget?
+    @State private var recordingActionId: String?
     @State private var conflictAlert: ConflictAlert?
     @State private var searchText: String = ""
 
@@ -47,11 +78,11 @@ struct HotkeySettingsView: View {
                             HotkeyCategorySection(
                                 category: category,
                                 bindings: actions,
-                                recordingTarget: $recordingTarget,
+                                recordingActionId: $recordingActionId,
                                 registrationFailures: controller.hotkeyRegistrationFailures,
+                                onStartRecording: startRecording,
                                 onBindingCaptured: handleBindingCaptured,
-                                onAddBinding: startRecordingForAdd,
-                                onRemoveBinding: removeBinding,
+                                onClearBinding: clearBinding,
                                 onResetBindings: resetBindings
                             )
                         }
@@ -59,15 +90,24 @@ struct HotkeySettingsView: View {
                 }
             }
         }
+        .onChange(of: recordingActionId) { _, newValue in
+            syncHotkeyRecordingState(newValue)
+        }
+        .onDisappear {
+            guard recordingActionId != nil else { return }
+            controller.setHotkeysEnabled(settings.hotkeysEnabled)
+        }
         .alert(item: $conflictAlert) { alert in
             Alert(
                 title: Text("Hotkey Conflict"),
                 message: Text(alert.message),
                 primaryButton: .destructive(Text("Replace")) {
-                    applyBinding(alert.newBinding, to: alert.target, clearingConflicts: true)
+                    HotkeyBindingEditor.applyConflictResolution(alert, settings: settings)
+                    controller.updateHotkeyBindings(settings.hotkeyBindings)
+                    recordingActionId = nil
                 },
                 secondaryButton: .cancel {
-                    recordingTarget = nil
+                    recordingActionId = nil
                 }
             )
         }
@@ -79,84 +119,51 @@ struct HotkeySettingsView: View {
         }
     }
 
-    private func startRecordingForAdd(actionId: String) {
-        recordingTarget = .add(actionId: actionId)
+    private func startRecording(for actionId: String) {
+        recordingActionId = actionId
     }
 
-    private func handleBindingCaptured(target: RecordingTarget, newBinding: KeyBinding) {
-        let conflicts = settings.findConflicts(for: newBinding, excluding: target.actionId)
-        if !conflicts.isEmpty {
-            conflictAlert = ConflictAlert(
-                target: target,
-                newBinding: newBinding,
-                conflictingCommands: conflicts.map(\.command.displayName)
-            )
-            recordingTarget = nil
-        } else {
-            applyBinding(newBinding, to: target, clearingConflicts: false)
+    private func handleBindingCaptured(actionId: String, newBinding: KeyBinding) {
+        switch HotkeyBindingEditor.capture(newBinding, for: actionId, settings: settings) {
+        case .applied:
+            controller.updateHotkeyBindings(settings.hotkeyBindings)
+            recordingActionId = nil
+        case let .conflict(alert):
+            conflictAlert = alert
+            recordingActionId = nil
         }
     }
 
-    private func applyBinding(_ binding: KeyBinding, to target: RecordingTarget, clearingConflicts: Bool) {
-        if clearingConflicts {
-            let conflicts = settings.findConflicts(for: binding, excluding: target.actionId)
-            for conflict in conflicts {
-                settings.removeBinding(binding, from: conflict.id)
-            }
-        }
-
-        switch target {
-        case let .add(actionId):
-            settings.addBinding(for: actionId, newBinding: binding)
-        case let .replace(actionId, index):
-            settings.replaceBinding(for: actionId, at: index, with: binding)
-        }
-
+    private func clearBinding(actionId: String) {
+        settings.clearBinding(for: actionId)
         controller.updateHotkeyBindings(settings.hotkeyBindings)
-        recordingTarget = nil
-    }
-
-    private func removeBinding(actionId: String, index: Int) {
-        settings.removeBinding(for: actionId, at: index)
-        controller.updateHotkeyBindings(settings.hotkeyBindings)
-        recordingTarget = nil
+        recordingActionId = nil
     }
 
     private func resetBindings(actionId: String) {
         settings.resetBindings(for: actionId)
         controller.updateHotkeyBindings(settings.hotkeyBindings)
-        recordingTarget = nil
-    }
-}
-
-enum RecordingTarget: Equatable, Identifiable {
-    case add(actionId: String)
-    case replace(actionId: String, bindingIndex: Int)
-
-    var id: String {
-        switch self {
-        case let .add(actionId):
-            return "add:\(actionId)"
-        case let .replace(actionId, bindingIndex):
-            return "replace:\(actionId):\(bindingIndex)"
-        }
+        recordingActionId = nil
     }
 
-    var actionId: String {
-        switch self {
-        case let .add(actionId):
-            return actionId
-        case let .replace(actionId, _):
-            return actionId
-        }
+    private func syncHotkeyRecordingState(_ actionId: String?) {
+        controller.setHotkeysEnabled(actionId == nil ? settings.hotkeysEnabled : false)
     }
 }
 
 struct ConflictAlert: Identifiable {
-    let id = UUID()
-    let target: RecordingTarget
+    let targetActionId: String
     let newBinding: KeyBinding
     let conflictingCommands: [String]
+
+    var id: String {
+        [
+            targetActionId,
+            String(newBinding.keyCode),
+            String(newBinding.modifiers),
+            conflictingCommands.joined(separator: "|"),
+        ].joined(separator: ":")
+    }
 
     var message: String {
         if conflictingCommands.count == 1 {
@@ -171,11 +178,11 @@ struct ConflictAlert: Identifiable {
 struct HotkeyCategorySection: View {
     let category: HotkeyCategory
     let bindings: [HotkeyBinding]
-    @Binding var recordingTarget: RecordingTarget?
-    let registrationFailures: Set<HotkeyCommand>
-    let onBindingCaptured: (RecordingTarget, KeyBinding) -> Void
-    let onAddBinding: (String) -> Void
-    let onRemoveBinding: (String, Int) -> Void
+    @Binding var recordingActionId: String?
+    let registrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason]
+    let onStartRecording: (String) -> Void
+    let onBindingCaptured: (String, KeyBinding) -> Void
+    let onClearBinding: (String) -> Void
     let onResetBindings: (String) -> Void
 
     var body: some View {
@@ -188,11 +195,11 @@ struct HotkeyCategorySection: View {
             ForEach(bindings) { binding in
                 HotkeyBindingRow(
                     binding: binding,
-                    recordingTarget: $recordingTarget,
-                    hasFailed: registrationFailures.contains(binding.command),
+                    recordingActionId: $recordingActionId,
+                    failureReason: registrationFailures[binding.command],
+                    onStartRecording: onStartRecording,
                     onBindingCaptured: onBindingCaptured,
-                    onAddBinding: onAddBinding,
-                    onRemoveBinding: onRemoveBinding,
+                    onClearBinding: onClearBinding,
                     onResetBindings: onResetBindings
                 )
             }
@@ -202,11 +209,11 @@ struct HotkeyCategorySection: View {
 
 struct HotkeyBindingRow: View {
     let binding: HotkeyBinding
-    @Binding var recordingTarget: RecordingTarget?
-    let hasFailed: Bool
-    let onBindingCaptured: (RecordingTarget, KeyBinding) -> Void
-    let onAddBinding: (String) -> Void
-    let onRemoveBinding: (String, Int) -> Void
+    @Binding var recordingActionId: String?
+    let failureReason: HotkeyRegistrationFailureReason?
+    let onStartRecording: (String) -> Void
+    let onBindingCaptured: (String, KeyBinding) -> Void
+    let onClearBinding: (String) -> Void
     let onResetBindings: (String) -> Void
 
     @State private var showHotkeyHelp = false
@@ -232,76 +239,55 @@ struct HotkeyBindingRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if hasFailed {
+                if let failureReason {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
-                        .help("Failed to register: this key combination may be reserved by the system")
+                        .help(failureMessage(for: failureReason))
                 }
 
                 Button("Reset") {
                     hideHotkeyHelp()
-                    recordingTarget = nil
+                    recordingActionId = nil
                     onResetBindings(binding.id)
                 }
                 .buttonStyle(.link)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                if binding.bindings.isEmpty {
-                    HStack {
-                        Text("Unassigned")
-                            .font(.system(.body, design: .monospaced))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(4)
-                        Button("Add Binding") {
-                            hideHotkeyHelp()
-                            recordingTarget = nil
-                            onAddBinding(binding.id)
-                        }
-                        .buttonStyle(.link)
-                    }
-                } else {
-                    ForEach(Array(binding.bindings.enumerated()), id: \.offset) { index, currentBinding in
-                        HotkeyBindingChip(
-                            binding: currentBinding,
-                            isRecording: recordingTarget == .replace(actionId: binding.id, bindingIndex: index),
-                            onStartRecording: {
-                                hideHotkeyHelp()
-                                recordingTarget = .replace(actionId: binding.id, bindingIndex: index)
-                            },
-                            onCaptured: { newBinding in
-                                onBindingCaptured(.replace(actionId: binding.id, bindingIndex: index), newBinding)
-                            },
-                            onCancel: {
-                                recordingTarget = nil
-                            },
-                            onRemove: {
-                                hideHotkeyHelp()
-                                onRemoveBinding(binding.id, index)
-                            },
-                            showHotkeyHelp: $showHotkeyHelp,
-                            hoverHelpDelayNs: hoverHelpDelayNs
-                        )
-                    }
-                }
-
-                Button {
+            HotkeyBindingChip(
+                binding: binding.binding,
+                isRecording: recordingActionId == binding.id,
+                onStartRecording: {
                     hideHotkeyHelp()
-                    recordingTarget = nil
-                    onAddBinding(binding.id)
-                } label: {
-                    Label("Add Binding", systemImage: "plus.circle")
-                }
-                .buttonStyle(.link)
-            }
+                    onStartRecording(binding.id)
+                },
+                onCaptured: { newBinding in
+                    onBindingCaptured(binding.id, newBinding)
+                },
+                onCancel: {
+                    recordingActionId = nil
+                },
+                onRemove: {
+                    hideHotkeyHelp()
+                    onClearBinding(binding.id)
+                },
+                showHotkeyHelp: $showHotkeyHelp,
+                hoverHelpDelayNs: hoverHelpDelayNs
+            )
         }
         .padding(.vertical, 2)
         .zIndex(showHotkeyHelp ? 1 : 0)
         .animation(.easeOut(duration: 0.1), value: showHotkeyHelp)
         .onDisappear {
             cancelHotkeyHelpTask()
+        }
+    }
+
+    private func failureMessage(for reason: HotkeyRegistrationFailureReason) -> String {
+        switch reason {
+        case .duplicateBinding:
+            return "Failed to register: this key combination is already assigned to another OmniWM command"
+        case .systemReserved:
+            return "Failed to register: this key combination may be reserved by the system"
         }
     }
 
@@ -366,7 +352,7 @@ struct HotkeyBindingChip: View {
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Remove this hotkey")
+                    .help("Clear this hotkey")
                 }
             }
         }
@@ -418,6 +404,5 @@ private struct HotkeyHoverTooltip: View {
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
             }
             .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-            .allowsHitTesting(false)
     }
 }

@@ -8,13 +8,8 @@ struct ActionSpec: Equatable {
     let keywords: [String]
     let category: HotkeyCategory
     let layoutCompatibility: LayoutCompatibility
-    let defaultBindings: [KeyBinding]
-    let alternateBindings: [KeyBinding]
+    let defaultBinding: KeyBinding
     let ipcCommandName: IPCCommandName?
-
-    var defaultBinding: KeyBinding {
-        defaultBindings.first ?? .unassigned
-    }
 
     var ipcDescriptor: IPCCommandDescriptor? {
         ipcCommandName.flatMap(IPCAutomationManifest.commandDescriptor(for:))
@@ -70,7 +65,7 @@ enum ActionCatalog {
             HotkeyBinding(
                 id: spec.id,
                 command: spec.command,
-                bindings: ActionCatalog.canonicalizeBindings(spec.defaultBindings + spec.alternateBindings)
+                binding: spec.defaultBinding
             )
         }
     }
@@ -82,17 +77,13 @@ enum ActionCatalog {
         guard let spec = spec(for: binding.id) else {
             return binding.command.displayName.localizedCaseInsensitiveContains(query)
                 || binding.command.layoutCompatibility.rawValue.localizedCaseInsensitiveContains(query)
-                || binding.bindings.contains(where: {
-                    $0.displayString.localizedCaseInsensitiveContains(query)
-                        || $0.humanReadableString.localizedCaseInsensitiveContains(query)
-                })
+                || binding.binding.displayString.localizedCaseInsensitiveContains(query)
+                || binding.binding.humanReadableString.localizedCaseInsensitiveContains(query)
         }
 
         return spec.searchTerms.contains { normalize($0).contains(normalizedQuery) }
-            || binding.bindings.contains(where: { binding in
-                normalize(binding.displayString).contains(normalizedQuery)
-                    || normalize(binding.humanReadableString).contains(normalizedQuery)
-            })
+            || normalize(binding.binding.displayString).contains(normalizedQuery)
+            || normalize(binding.binding.humanReadableString).contains(normalizedQuery)
     }
 
     static func uniqueTerms(_ values: [String]) -> [String] {
@@ -275,8 +266,7 @@ enum ActionCatalog {
         command: HotkeyCommand,
         category: HotkeyCategory,
         binding: KeyBinding,
-        keywords: [String] = [],
-        alternateBindings: [KeyBinding] = []
+        keywords: [String] = []
     ) -> ActionSpec {
         let title = displayName(for: command)
         return ActionSpec(
@@ -286,18 +276,9 @@ enum ActionCatalog {
             keywords: uniqueTerms(keywords + [title, id]),
             category: category,
             layoutCompatibility: compatibility(for: command),
-            defaultBindings: [binding],
-            alternateBindings: alternateBindings,
+            defaultBinding: binding,
             ipcCommandName: ipcCommandName(for: command)
         )
-    }
-
-    private static func canonicalizeBindings(_ bindings: [KeyBinding]) -> [KeyBinding] {
-        var seen: Set<KeyBinding> = []
-        return bindings.compactMap { binding in
-            guard !binding.isUnassigned, seen.insert(binding).inserted else { return nil }
-            return binding
-        }
     }
 
     private static func compatibility(for command: HotkeyCommand) -> LayoutCompatibility {

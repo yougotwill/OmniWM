@@ -558,73 +558,16 @@ final class SettingsStore {
     }
 
     func updateBinding(for commandId: String, newBinding: KeyBinding) {
-        updateBindings(for: commandId, newBindings: newBinding.isUnassigned ? [] : [newBinding])
-    }
-
-    func updateBindings(for commandId: String, newBindings: [KeyBinding]) {
         guard let index = hotkeyBindings.firstIndex(where: { $0.id == commandId }) else { return }
         hotkeyBindings[index] = HotkeyBinding(
             id: hotkeyBindings[index].id,
             command: hotkeyBindings[index].command,
-            bindings: newBindings
+            binding: newBinding
         )
     }
 
-    func addBinding(for commandId: String, newBinding: KeyBinding) {
-        guard let index = hotkeyBindings.firstIndex(where: { $0.id == commandId }),
-              !newBinding.isUnassigned
-        else { return }
-
-        var updated = hotkeyBindings[index].bindings
-        updated.append(newBinding)
-        hotkeyBindings[index] = HotkeyBinding(
-            id: hotkeyBindings[index].id,
-            command: hotkeyBindings[index].command,
-            bindings: updated
-        )
-    }
-
-    func replaceBinding(for commandId: String, at index: Int, with newBinding: KeyBinding) {
-        guard let bindingIndex = hotkeyBindings.firstIndex(where: { $0.id == commandId }),
-              hotkeyBindings[bindingIndex].bindings.indices.contains(index)
-        else { return }
-
-        var updated = hotkeyBindings[bindingIndex].bindings
-        if newBinding.isUnassigned {
-            updated.remove(at: index)
-        } else {
-            updated[index] = newBinding
-        }
-        hotkeyBindings[bindingIndex] = HotkeyBinding(
-            id: hotkeyBindings[bindingIndex].id,
-            command: hotkeyBindings[bindingIndex].command,
-            bindings: updated
-        )
-    }
-
-    func removeBinding(for commandId: String, at index: Int) {
-        guard let bindingIndex = hotkeyBindings.firstIndex(where: { $0.id == commandId }),
-              hotkeyBindings[bindingIndex].bindings.indices.contains(index)
-        else { return }
-
-        var updated = hotkeyBindings[bindingIndex].bindings
-        updated.remove(at: index)
-        hotkeyBindings[bindingIndex] = HotkeyBinding(
-            id: hotkeyBindings[bindingIndex].id,
-            command: hotkeyBindings[bindingIndex].command,
-            bindings: updated
-        )
-    }
-
-    func removeBinding(_ targetBinding: KeyBinding, from commandId: String) {
-        guard let bindingIndex = hotkeyBindings.firstIndex(where: { $0.id == commandId }) else { return }
-
-        let updated = hotkeyBindings[bindingIndex].bindings.filter { !$0.conflicts(with: targetBinding) }
-        hotkeyBindings[bindingIndex] = HotkeyBinding(
-            id: hotkeyBindings[bindingIndex].id,
-            command: hotkeyBindings[bindingIndex].command,
-            bindings: updated
-        )
+    func clearBinding(for commandId: String) {
+        updateBinding(for: commandId, newBinding: .unassigned)
     }
 
     func resetBindings(for commandId: String) {
@@ -636,7 +579,7 @@ final class SettingsStore {
 
     func findConflicts(for binding: KeyBinding, excluding commandId: String) -> [HotkeyBinding] {
         hotkeyBindings.filter { hotkeyBinding in
-            hotkeyBinding.id != commandId && hotkeyBinding.bindings.contains(where: { $0.conflicts(with: binding) })
+            hotkeyBinding.id != commandId && hotkeyBinding.binding.conflicts(with: binding)
         }
     }
 

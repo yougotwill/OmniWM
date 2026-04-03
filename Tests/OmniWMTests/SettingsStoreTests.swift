@@ -650,7 +650,7 @@ private func makePersistedRestoreCatalogFixture(
         }
 
         #expect(hotkeyBindings.count == HotkeyBindingRegistry.defaults().count)
-        #expect(hotkeyBindings.allSatisfy { $0["bindings"] != nil && $0["binding"] == nil })
+        #expect(hotkeyBindings.allSatisfy { $0["binding"] != nil && $0["bindings"] == nil })
     }
 }
 
@@ -818,17 +818,14 @@ private func makePersistedRestoreCatalogFixture(
             keyCode: UInt32(kVK_ANSI_K),
             modifiers: UInt32(controlKey) | UInt32(optionKey)
         )
-        changed.hotkeyBindings[0].bindings = [updatedBinding, KeyBinding(
-            keyCode: UInt32(kVK_ANSI_L),
-            modifiers: UInt32(controlKey) | UInt32(optionKey)
-        )]
+        changed.hotkeyBindings[0].binding = updatedBinding
 
         let rawData = try changed.exportData(mode: .compact, defaults: defaults)
         let mergedData = try SettingsExport.mergedImportData(from: rawData, defaults: defaults)
         let merged = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
-        #expect(merged.hotkeyBindings[0].bindings == changed.hotkeyBindings[0].bindings)
-        #expect(merged.hotkeyBindings[1].bindings == defaults.hotkeyBindings[1].bindings)
+        #expect(merged.hotkeyBindings[0].binding == changed.hotkeyBindings[0].binding)
+        #expect(merged.hotkeyBindings[1].binding == defaults.hotkeyBindings[1].binding)
     }
 
     @Test func legacyAnimationsEnabledKeyIsIgnoredOnImportAndOmittedOnReexport() throws {
@@ -1063,7 +1060,7 @@ private func makePersistedRestoreCatalogFixture(
     }
 
     @Test func hotkeyBindingEncodesWithoutSerializedCommand() throws {
-        let binding = HotkeyBinding(id: "move.left", command: .move(.left), bindings: [])
+        let binding = HotkeyBinding(id: "move.left", command: .move(.left), binding: .unassigned)
         let data = try JSONEncoder().encode(binding)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             Issue.record("Expected hotkey binding to encode as an object")
@@ -1072,7 +1069,7 @@ private func makePersistedRestoreCatalogFixture(
 
         #expect(json["id"] as? String == "move.left")
         #expect(json["command"] == nil)
-        #expect((json["bindings"] as? [Any] ?? []).isEmpty)
+        #expect(json["binding"] as? String == "Unassigned")
     }
 }
 
@@ -1094,18 +1091,18 @@ private func makePersistedRestoreCatalogFixture(
         let moveLeft = settings.hotkeyBindings.first { $0.id == "move.left" }
         let moveRight = settings.hotkeyBindings.first { $0.id == "move.right" }
 
-        #expect(moveLeft?.bindings == [KeyBinding(
+        #expect(moveLeft?.binding == KeyBinding(
             keyCode: UInt32(kVK_ANSI_K),
             modifiers: UInt32(controlKey | optionKey)
-        )])
-        #expect(moveRight?.bindings == [KeyBinding(
+        ))
+        #expect(moveRight?.binding == KeyBinding(
             keyCode: UInt32(kVK_RightArrow),
             modifiers: UInt32(optionKey | shiftKey)
-        )])
+        ))
         #expect(settings.hotkeyBindings.map(\.id) == HotkeyBindingRegistry.defaults().map(\.id))
     }
 
-    @Test func mergedImportDataCanonicalizesBindingsById() throws {
+    @Test func mergedImportDataUsesLastExplicitBindingForDuplicateIds() throws {
         let rawData = Data(
             """
             {
@@ -1113,7 +1110,7 @@ private func makePersistedRestoreCatalogFixture(
               "hotkeyBindings": [
                 { "id": "move.left", "bindings": ["Control+Option+J", "Control+Option+K"], "command": { "focusPrevious": {} } },
                 { "id": "unknown.binding", "binding": "Option+L" },
-                { "id": "move.left", "binding": "Control+Option+K" }
+                { "id": "move.left", "binding": "Control+Option+L" }
               ]
             }
             """.utf8
@@ -1123,76 +1120,61 @@ private func makePersistedRestoreCatalogFixture(
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
         #expect(decoded.hotkeyBindings.map(\.id) == HotkeyBindingRegistry.defaults().map(\.id))
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_J),
-                modifiers: UInt32(controlKey | optionKey)
-            ),
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_K),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.right" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_RightArrow),
-                modifiers: UInt32(optionKey | shiftKey)
-            )
-        ])
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_L),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.right" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_RightArrow),
+            modifiers: UInt32(optionKey | shiftKey)
+        ))
     }
 
-    @Test func settingsStoreSupportsMultipleBindingsPerAction() {
+    @Test func settingsStoreUpdatesSingleBindingAndResetsToDefault() {
         let settings = SettingsStore(defaults: makeTestDefaults())
 
-        settings.updateBindings(for: "move.left", newBindings: [
-            KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey)),
-            KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(optionKey)),
-            KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey))
-        ])
-        settings.addBinding(for: "move.left", newBinding: KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey)))
-        settings.replaceBinding(for: "move.left", at: 1, with: KeyBinding(keyCode: UInt32(kVK_ANSI_Semicolon), modifiers: UInt32(optionKey)))
-        settings.removeBinding(for: "move.left", at: 0)
+        settings.updateBinding(
+            for: "move.left",
+            newBinding: KeyBinding(keyCode: UInt32(kVK_ANSI_Semicolon), modifiers: UInt32(optionKey))
+        )
 
-        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(keyCode: UInt32(kVK_ANSI_Semicolon), modifiers: UInt32(optionKey)),
-            KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey))
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_Semicolon),
+            modifiers: UInt32(optionKey)
+        ))
 
         settings.resetBindings(for: "move.left")
 
-        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.bindings == HotkeyBindingRegistry.defaults().first { $0.id == "move.left" }?.bindings)
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == HotkeyBindingRegistry.defaults().first { $0.id == "move.left" }?.binding)
     }
 
     @Test func clearedHotkeyPersistsAcrossReload() {
         let defaults = makeTestDefaults()
         let settings = SettingsStore(defaults: defaults)
 
-        settings.updateBindings(for: "move.left", newBindings: [])
+        settings.clearBinding(for: "move.left")
 
         let reloaded = SettingsStore(defaults: defaults)
 
-        #expect(reloaded.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [])
-        #expect(reloaded.hotkeyBindings.first { $0.id == "move.right" }?.bindings == HotkeyBindingRegistry.defaults().first { $0.id == "move.right" }?.bindings)
+        #expect(reloaded.hotkeyBindings.first { $0.id == "move.left" }?.binding == .unassigned)
+        #expect(reloaded.hotkeyBindings.first { $0.id == "move.right" }?.binding == HotkeyBindingRegistry.defaults().first { $0.id == "move.right" }?.binding)
     }
 
-    @Test func findConflictsScansAllBindingsWithinAnAction() {
+    @Test func findConflictsReturnsAssignedOwner() {
         let settings = SettingsStore(defaults: makeTestDefaults())
 
-        settings.updateBindings(for: "move.left", newBindings: [
-            KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey)),
-            KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(optionKey))
-        ])
-        settings.updateBindings(for: "move.right", newBindings: [
-            KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey))
-        ])
+        let leftBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey))
+        let rightBinding = KeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(optionKey))
+        settings.updateBinding(for: "move.left", newBinding: leftBinding)
+        settings.updateBinding(for: "move.right", newBinding: rightBinding)
 
         let conflicts = settings.findConflicts(
-            for: KeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(optionKey)),
+            for: leftBinding,
             excluding: "move.right"
         )
 
         #expect(conflicts.map(\.id) == ["move.left"])
-        #expect(conflicts.first?.bindings.count == 2)
+        #expect(conflicts.first?.binding == leftBinding)
     }
 
     @Test func mergedImportDataCanonicalizesLegacyCommandPaletteBindingsIntoOneAction() throws {
@@ -1211,10 +1193,10 @@ private func makePersistedRestoreCatalogFixture(
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
-        #expect(decoded.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [
-            KeyBinding(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)),
-            KeyBinding(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(controlKey | optionKey | shiftKey))
-        ])
+        #expect(decoded.hotkeyBindings.first { $0.id == "openCommandPalette" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_Space),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
     }
 
     @Test func mergedImportDataPreservesExplicitlyClearedHotkeyBinding() throws {
@@ -1232,8 +1214,8 @@ private func makePersistedRestoreCatalogFixture(
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [])
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.right" }?.bindings == HotkeyBindingRegistry.defaults().first { $0.id == "move.right" }?.bindings)
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == .unassigned)
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.right" }?.binding == HotkeyBindingRegistry.defaults().first { $0.id == "move.right" }?.binding)
     }
 
     @Test func settingsStoreDropsRemovedDirectionalBindingsWithoutTouchingValidOnes() throws {
@@ -1251,12 +1233,10 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_K),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
         #expect(settings.hotkeyBindings.contains { $0.id == "moveToMonitor.left" } == false)
         #expect(settings.hotkeyBindings.contains { $0.id == "focusWindowTop" } == false)
     }
@@ -1278,12 +1258,10 @@ private func makePersistedRestoreCatalogFixture(
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_K),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
         #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.left" } == false)
         #expect(decoded.hotkeyBindings.contains { $0.id == "focusMonitor.left" } == false)
     }
@@ -1304,12 +1282,10 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_K),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
         #expect(settings.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.next" } == false)
         #expect(settings.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.previous" } == false)
         #expect(settings.hotkeyBindings.contains { $0.id == "summonWorkspace.0" } == false)
@@ -1333,12 +1309,10 @@ private func makePersistedRestoreCatalogFixture(
         let mergedData = try SettingsExport.mergedImportData(from: rawData)
         let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
 
-        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_K),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(decoded.hotkeyBindings.first { $0.id == "move.left" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
         #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.next" } == false)
         #expect(decoded.hotkeyBindings.contains { $0.id == "moveWorkspaceToMonitor.previous" } == false)
         #expect(decoded.hotkeyBindings.contains { $0.id == "summonWorkspace.8" } == false)
@@ -1357,12 +1331,10 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_Space),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_Space),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
     }
 
     @Test func settingsStoreUsesLegacyMenuPaletteBindingWhenWindowFinderBindingIsMissing() {
@@ -1378,12 +1350,10 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_M),
-                modifiers: UInt32(controlKey | optionKey | shiftKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_M),
+            modifiers: UInt32(controlKey | optionKey | shiftKey)
+        ))
     }
 
     @Test func explicitCommandPaletteBindingWinsOverLegacyBindings() {
@@ -1401,12 +1371,10 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_P),
-                modifiers: UInt32(controlKey | optionKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.binding == KeyBinding(
+            keyCode: UInt32(kVK_ANSI_P),
+            modifiers: UInt32(controlKey | optionKey)
+        ))
     }
 
     @Test func explicitEmptyCommandPaletteBindingSuppressesLegacyBindings() {
@@ -1424,35 +1392,7 @@ private func makePersistedRestoreCatalogFixture(
 
         let settings = SettingsStore(defaults: defaults)
 
-        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [])
-    }
-
-    @Test func mergedImportDataCanonicalizesLegacyCommandPaletteBindings() throws {
-        let rawData = Data(
-            """
-            {
-              "version": \(SettingsMigration.currentSettingsEpoch),
-              "hotkeyBindings": [
-                { "id": "openMenuPalette", "binding": "Control+Option+Shift+M" },
-                { "id": "openWindowFinder", "binding": "Control+Option+Space" }
-              ]
-            }
-            """.utf8
-        )
-
-        let mergedData = try SettingsExport.mergedImportData(from: rawData)
-        let decoded = try JSONDecoder().decode(SettingsExport.self, from: mergedData)
-
-        #expect(decoded.hotkeyBindings.first { $0.id == "openCommandPalette" }?.bindings == [
-            KeyBinding(
-                keyCode: UInt32(kVK_Space),
-                modifiers: UInt32(controlKey | optionKey)
-            ),
-            KeyBinding(
-                keyCode: UInt32(kVK_ANSI_M),
-                modifiers: UInt32(controlKey | optionKey | shiftKey)
-            )
-        ])
+        #expect(settings.hotkeyBindings.first { $0.id == "openCommandPalette" }?.binding == .unassigned)
     }
 }
 

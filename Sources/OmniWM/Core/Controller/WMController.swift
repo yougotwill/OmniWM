@@ -538,7 +538,7 @@ final class WMController {
         layoutRefreshController.requestFullRescan(reason: .appRulesChanged)
     }
 
-    var hotkeyRegistrationFailures: Set<HotkeyCommand> {
+    var hotkeyRegistrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] {
         hotkeys.registrationFailures
     }
 
