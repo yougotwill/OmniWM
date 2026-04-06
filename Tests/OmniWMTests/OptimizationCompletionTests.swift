@@ -122,11 +122,14 @@ private func makeOverviewWindowItem(
         #expect(model.entry(forWindowId: 303) != nil)
 
         let seenWindowReset = model.confirmedMissingKeys(
-            keys: [.init(pid: 45, windowId: 303)],
+            keys: [.init(pid: 45, windowId: 301), .init(pid: 45, windowId: 303)],
             requiredConsecutiveMisses: 2
         )
         #expect(seenWindowReset.isEmpty)
-        let missAfterReset = model.confirmedMissingKeys(keys: [], requiredConsecutiveMisses: 2)
+        let missAfterReset = model.confirmedMissingKeys(
+            keys: [.init(pid: 45, windowId: 301)],
+            requiredConsecutiveMisses: 2
+        )
         #expect(missAfterReset.isEmpty)
         #expect(model.entry(forWindowId: 303) != nil)
     }
