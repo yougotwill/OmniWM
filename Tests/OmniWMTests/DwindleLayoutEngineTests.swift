@@ -23,6 +23,43 @@ private func layoutTokenSet(_ changes: [LayoutFrameChange]) -> Set<WindowToken> 
     Set(changes.map(\.token))
 }
 
+private func applyResolvedDwindleSettingsForEngineTests(
+    _ settings: ResolvedDwindleSettings,
+    to engine: DwindleLayoutEngine
+) {
+    engine.settings.smartSplit = settings.smartSplit
+    engine.settings.defaultSplitRatio = settings.defaultSplitRatio
+    engine.settings.splitWidthMultiplier = settings.splitWidthMultiplier
+    engine.settings.singleWindowAspectRatio = settings.singleWindowAspectRatio.size
+    engine.settings.innerGap = settings.innerGap
+    engine.settings.outerGapTop = settings.outerGapTop
+    engine.settings.outerGapBottom = settings.outerGapBottom
+    engine.settings.outerGapLeft = settings.outerGapLeft
+    engine.settings.outerGapRight = settings.outerGapRight
+}
+
+private func warmReferenceDwindleImportForEngineTests(
+    tokens: [WindowToken],
+    screen: CGRect,
+    settings: ResolvedDwindleSettings
+) -> (order: [WindowToken], frames: [WindowToken: CGRect]) {
+    let engine = DwindleLayoutEngine()
+    let workspaceId = UUID()
+    applyResolvedDwindleSettingsForEngineTests(settings, to: engine)
+
+    var activeFrame: CGRect?
+    for token in tokens {
+        _ = engine.addWindow(token: token, to: workspaceId, activeWindowFrame: activeFrame)
+        let frames = engine.calculateLayout(for: workspaceId, screen: screen)
+        activeFrame = frames[token]
+    }
+
+    return (
+        order: engine.root(for: workspaceId)?.collectAllWindows() ?? [],
+        frames: engine.currentFrames(in: workspaceId)
+    )
+}
+
 @MainActor
 private func configureWorkspaceAsDwindle(
     on controller: WMController,
@@ -160,6 +197,47 @@ private func configureWorkspacesAsDwindle(
         let forwardFrames = forwardEngine.calculateLayout(for: wsId, screen: screen)
         let reverseFrames = reverseEngine.calculateLayout(for: wsId, screen: screen)
         #expect(forwardFrames != reverseFrames)
+    }
+
+    @Test func coldBootstrapSyncMatchesWarmIncrementalReference() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let handles = [
+            makeTestHandle(pid: 241),
+            makeTestHandle(pid: 242),
+            makeTestHandle(pid: 243)
+        ]
+        let tokens = handles.map(\.id)
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let settings = ResolvedDwindleSettings(
+            smartSplit: true,
+            defaultSplitRatio: 1.0,
+            splitWidthMultiplier: 0.85,
+            singleWindowAspectRatio: .fill,
+            useGlobalGaps: false,
+            innerGap: 12,
+            outerGapTop: 16,
+            outerGapBottom: 10,
+            outerGapLeft: 14,
+            outerGapRight: 18
+        )
+        applyResolvedDwindleSettingsForEngineTests(settings, to: engine)
+
+        _ = engine.syncWindows(
+            tokens,
+            in: wsId,
+            focusedToken: tokens.first,
+            bootstrapScreen: screen
+        )
+        let coldFrames = engine.calculateLayout(for: wsId, screen: screen)
+        let warmReference = warmReferenceDwindleImportForEngineTests(
+            tokens: tokens,
+            screen: screen,
+            settings: settings
+        )
+
+        #expect(engine.root(for: wsId)?.collectAllWindows() == warmReference.order)
+        #expect(coldFrames == warmReference.frames)
     }
 
     @Test func selectionSurvivesSiblingCollapseAfterRemoval() {

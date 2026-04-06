@@ -169,6 +169,40 @@ private func dwindleTokenSet(
     Set(controller.dwindleEngine?.root(for: workspaceId)?.collectAllWindows() ?? [])
 }
 
+private func applyResolvedDwindleSettingsForRefreshTests(
+    _ settings: ResolvedDwindleSettings,
+    to engine: DwindleLayoutEngine
+) {
+    engine.settings.smartSplit = settings.smartSplit
+    engine.settings.defaultSplitRatio = settings.defaultSplitRatio
+    engine.settings.splitWidthMultiplier = settings.splitWidthMultiplier
+    engine.settings.singleWindowAspectRatio = settings.singleWindowAspectRatio.size
+    engine.settings.innerGap = settings.innerGap
+    engine.settings.outerGapTop = settings.outerGapTop
+    engine.settings.outerGapBottom = settings.outerGapBottom
+    engine.settings.outerGapLeft = settings.outerGapLeft
+    engine.settings.outerGapRight = settings.outerGapRight
+}
+
+private func warmReferenceDwindleFramesForRefreshTests(
+    tokens: [WindowToken],
+    screen: CGRect,
+    settings: ResolvedDwindleSettings
+) -> [WindowToken: CGRect] {
+    let engine = DwindleLayoutEngine()
+    let workspaceId = UUID()
+    applyResolvedDwindleSettingsForRefreshTests(settings, to: engine)
+
+    var activeFrame: CGRect?
+    for token in tokens {
+        _ = engine.addWindow(token: token, to: workspaceId, activeWindowFrame: activeFrame)
+        let frames = engine.calculateLayout(for: workspaceId, screen: screen)
+        activeFrame = frames[token]
+    }
+
+    return engine.currentFrames(in: workspaceId)
+}
+
 private func replacingToken(
     _ token: WindowToken,
     with replacement: WindowToken,
@@ -1246,62 +1280,112 @@ private func prepareNiriState(
                 "2": .dwindle
             ]
         )
+        controller.enableNiriLayout(maxWindowsPerColumn: 3)
         controller.enableDwindleLayout()
         await waitForRefreshWork(on: controller)
-
-        let handlesByWindowId = await prepareNiriState(
-            on: controller,
-            assignments: [
-                (sourceWorkspaceId, 3_401),
-                (sourceWorkspaceId, 3_402),
-                (sourceWorkspaceId, 3_403)
-            ],
-            focusedWindowId: 3_401,
-            ensureWorkspaces: [targetWorkspaceId]
-        )
-        let movedTokens = Set(
-            [3_401, 3_402, 3_403].compactMap { handlesByWindowId[$0]?.id }
-        )
+        controller.syncMonitorsToNiriEngine()
         controller.settings.focusFollowsWindowToMonitor = false
 
-        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
-        await waitForRefreshWork(on: controller)
-        guard let secondHandle = controller.workspaceManager.resolveWorkspaceFocus(in: sourceWorkspaceId) else {
-            Issue.record("Missing second source focus after first background send")
+        let windowIds = [3_401, 3_402, 3_403]
+        let handles: [WindowHandle] = windowIds.compactMap { windowId in
+            let token = controller.workspaceManager.addWindow(
+                makeRefreshTestWindow(windowId: windowId),
+                pid: getpid(),
+                windowId: windowId,
+                to: sourceWorkspaceId
+            )
+            guard let handle = controller.workspaceManager.handle(for: token) else {
+                Issue.record("Missing bridge handle for seeded Niri column window")
+                return nil
+            }
+            _ = controller.workspaceManager.rememberFocus(handle, in: sourceWorkspaceId)
+            return handle
+        }
+        guard handles.count == windowIds.count else { return }
+
+        guard let engine = controller.niriEngine,
+              let sourceMonitor = controller.workspaceManager.monitor(for: sourceWorkspaceId),
+              let targetMonitor = controller.workspaceManager.monitor(for: targetWorkspaceId)
+        else {
+            Issue.record("Missing Niri engine or workspace monitors for Dwindle bootstrap test")
             return
         }
-        _ = controller.workspaceManager.setManagedFocus(
-            secondHandle,
-            in: sourceWorkspaceId,
-            onMonitor: controller.workspaceManager.monitorId(for: sourceWorkspaceId)
-        )
 
-        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
-        await waitForRefreshWork(on: controller)
-        guard let thirdHandle = controller.workspaceManager.resolveWorkspaceFocus(in: sourceWorkspaceId) else {
-            Issue.record("Missing third source focus after second background send")
+        let sourceRoot = NiriRoot(workspaceId: sourceWorkspaceId)
+        let sourceColumn = NiriContainer()
+        sourceColumn.width = .fixed(480)
+        sourceColumn.cachedWidth = 480
+        sourceRoot.appendChild(sourceColumn)
+        engine.roots[sourceWorkspaceId] = sourceRoot
+        engine.ensureMonitor(for: sourceMonitor.id, monitor: sourceMonitor).workspaceRoots[sourceWorkspaceId] = sourceRoot
+
+        var windowNodes: [NiriWindow] = []
+        for handle in handles {
+            let window = NiriWindow(token: handle.id)
+            sourceColumn.appendChild(window)
+            engine.tokenToNode[handle.id] = window
+            windowNodes.append(window)
+        }
+
+        guard let focusedHandle = handles.first,
+              let focusedWindow = windowNodes.first
+        else {
+            Issue.record("Missing focused source window for Dwindle bootstrap test")
             return
         }
+
         _ = controller.workspaceManager.setManagedFocus(
-            thirdHandle,
+            focusedHandle,
             in: sourceWorkspaceId,
-            onMonitor: controller.workspaceManager.monitorId(for: sourceWorkspaceId)
+            onMonitor: sourceMonitor.id
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: focusedWindow.id,
+            focusedToken: focusedHandle.id,
+            in: sourceWorkspaceId,
+            onMonitor: sourceMonitor.id
+        )
+        controller.workspaceManager.withNiriViewportState(for: sourceWorkspaceId) { state in
+            state.selectedNodeId = focusedWindow.id
+            state.activeColumnIndex = 0
+            state.viewOffsetPixels = .static(0)
+        }
+
+        let movedTokens = handles.map(\.id)
+        let expectedFrames = warmReferenceDwindleFramesForRefreshTests(
+            tokens: movedTokens,
+            screen: controller.insetWorkingFrame(for: targetMonitor),
+            settings: controller.settings.resolvedDwindleSettings(for: targetMonitor)
         )
 
-        controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceIndex: 1)
+        var relayoutEvents: [(RefreshReason, LayoutRefreshController.RefreshRoute)] = []
+        var fullRescanReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, route in
+            relayoutEvents.append((reason, route))
+            return false
+        }
+        controller.layoutRefreshController.debugHooks.onFullRescan = { reason in
+            fullRescanReasons.append(reason)
+            return false
+        }
+
+        controller.workspaceNavigationHandler.moveColumnToWorkspace(rawWorkspaceID: "2")
         await waitForRefreshWork(on: controller)
 
         #expect(controller.activeWorkspace()?.id == sourceWorkspaceId)
-        #expect(dwindleTokenSet(controller: controller, workspaceId: targetWorkspaceId) == movedTokens)
+        #expect(relayoutEvents.map(\.0) == [.workspaceTransition])
+        #expect(relayoutEvents.map(\.1) == [.immediateRelayout])
+        #expect(fullRescanReasons.isEmpty)
+        #expect(dwindleTokenSet(controller: controller, workspaceId: targetWorkspaceId) == Set(movedTokens))
+        #expect(controller.dwindleEngine?.root(for: targetWorkspaceId)?.collectAllWindows() == movedTokens)
 
         controller.workspaceNavigationHandler.switchWorkspace(index: 1)
         await waitForSettledRefreshWork(on: controller)
 
         let frames = controller.dwindleEngine?.currentFrames(in: targetWorkspaceId) ?? [:]
-        let roundedHeights = Set(frames.values.map { Int($0.height.rounded()) })
-
-        #expect(Set(frames.keys) == movedTokens)
-        #expect(roundedHeights.count > 1)
+        #expect(Set(frames.keys) == Set(movedTokens))
+        #expect(frames == expectedFrames)
     }
 
     @Test @MainActor func summonWindowRightIntoNiriUsesImmediateRelayoutOnly() async {
