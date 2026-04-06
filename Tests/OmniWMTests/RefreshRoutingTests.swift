@@ -1615,6 +1615,59 @@ private func prepareNiriState(
         assertNoLegacyReasons(recorder)
     }
 
+    @Test @MainActor func inactiveWorkspaceHandleAppActivationUsesImmediateRelayoutOnly() async {
+        let controller = makeRefreshTestController()
+        controller.hasStartedServices = true
+        guard let workspaceOne = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspaceTwo = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true),
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Failed to create inactive-workspace app-activation fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 211),
+            pid: 2_211,
+            windowId: 211,
+            to: workspaceOne
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceOne,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 2_212
+        let targetToken = controller.workspaceManager.addWindow(
+            makeRefreshTestWindow(windowId: 212),
+            pid: targetPid,
+            windowId: 212,
+            to: workspaceTwo
+        )
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return makeRefreshTestWindow(windowId: targetToken.windowId)
+        }
+
+        let recorder = RefreshEventRecorder()
+        installRefreshSpies(on: controller, recorder: recorder)
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .workspaceDidActivateApplication
+        )
+        await waitForRefreshWork(on: controller)
+
+        #expect(controller.activeWorkspace()?.id == workspaceTwo)
+        #expect(controller.workspaceManager.focusedToken == targetToken)
+        #expect(recorder.relayoutEvents.map(\.0) == [.appActivationTransition])
+        #expect(recorder.relayoutEvents.map(\.1) == [.immediateRelayout])
+        #expect(recorder.fullRescanReasons.isEmpty)
+        assertNoLegacyReasons(recorder)
+    }
+
     @Test @MainActor func activeSpaceChangeDoesNotFrameWriteNativeFullscreenSuspendedWindowInNiri() async {
         let controller = makeRefreshTestController()
         let lifecycleManager = ServiceLifecycleManager(controller: controller)

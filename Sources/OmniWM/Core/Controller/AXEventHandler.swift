@@ -912,7 +912,11 @@ final class AXEventHandler: CGSEventDelegate {
                 )
                 return
             case .unrelatedNoRequest:
-                guard source.isAuthoritative || isWorkspaceActive else { return }
+                guard shouldHandleObservedManagedActivationWithoutPendingRequest(
+                    source: source,
+                    origin: origin,
+                    isWorkspaceActive: isWorkspaceActive
+                ) else { return }
             }
 
             handleManagedAppActivation(
@@ -963,7 +967,11 @@ final class AXEventHandler: CGSEventDelegate {
                 )
                 return
             case .unrelatedNoRequest:
-                guard source.isAuthoritative || isWorkspaceActive else { return }
+                guard shouldHandleObservedManagedActivationWithoutPendingRequest(
+                    source: source,
+                    origin: origin,
+                    isWorkspaceActive: isWorkspaceActive
+                ) else { return }
             }
 
             handleManagedAppActivation(
@@ -2138,6 +2146,21 @@ final class AXEventHandler: CGSEventDelegate {
         return activeRequest.token == token
             ? .matchesActiveRequest(activeRequest)
             : .conflictsWithPendingRequest(activeRequest)
+    }
+
+    private func shouldHandleObservedManagedActivationWithoutPendingRequest(
+        source: ActivationEventSource,
+        origin: ActivationCallOrigin,
+        isWorkspaceActive: Bool
+    ) -> Bool {
+        guard !isWorkspaceActive else { return true }
+
+        switch source {
+        case .focusedWindowChanged:
+            return true
+        case .workspaceDidActivateApplication, .cgsFrontAppChanged:
+            return origin == .external
+        }
     }
 
     private func shouldHonorObservedFocusOverPendingRequest(

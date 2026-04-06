@@ -601,7 +601,6 @@ private func waitUntilAXEventTest(
         controller.axEventHandler.handleAppActivation(pid: getpid())
 
         #expect(controller.workspaceManager.focusedHandle == nil)
-        #expect(controller.workspaceManager.isNonManagedFocusActive)
         #expect(controller.workspaceManager.isAppFullscreenActive == false)
     }
 
@@ -1029,6 +1028,108 @@ private func waitUntilAXEventTest(
         #expect(controller.activeWorkspace()?.id == workspaceTwo)
         #expect(controller.workspaceManager.focusedToken == targetToken)
         #expect(controller.workspaceManager.pendingFocusedToken == nil)
+    }
+
+    @Test @MainActor func workspaceDidActivateApplicationRevealsManagedWindowOnInactiveWorkspace() {
+        let controller = makeAXEventTestController()
+        controller.hasStartedServices = true
+        guard let workspaceOne = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspaceTwo = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true),
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Missing inactive-workspace activation fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 971),
+            pid: 9_701,
+            windowId: 971,
+            to: workspaceOne
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceOne,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 9_702
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 972),
+            pid: targetPid,
+            windowId: 972,
+            to: workspaceTwo
+        )
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: targetToken.windowId)
+        }
+
+        #expect(controller.activeWorkspace()?.id == workspaceOne)
+        #expect(controller.workspaceManager.focusedToken == nil)
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .workspaceDidActivateApplication
+        )
+
+        #expect(controller.activeWorkspace()?.id == workspaceTwo)
+        #expect(controller.workspaceManager.focusedToken == targetToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.lastFocusedToken(in: workspaceTwo) == targetToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
+    }
+
+    @Test @MainActor func cgsFrontAppChangedRevealsManagedWindowOnInactiveWorkspace() {
+        let controller = makeAXEventTestController()
+        controller.hasStartedServices = true
+        guard let workspaceOne = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspaceTwo = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true),
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Missing inactive-workspace CGS activation fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 981),
+            pid: 9_801,
+            windowId: 981,
+            to: workspaceOne
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceOne,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 9_802
+        let targetToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 982),
+            pid: targetPid,
+            windowId: 982,
+            to: workspaceTwo
+        )
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: targetToken.windowId)
+        }
+
+        #expect(controller.activeWorkspace()?.id == workspaceOne)
+        #expect(controller.workspaceManager.focusedToken == nil)
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .cgsFrontAppChanged
+        )
+
+        #expect(controller.activeWorkspace()?.id == workspaceTwo)
+        #expect(controller.workspaceManager.focusedToken == targetToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.lastFocusedToken(in: workspaceTwo) == targetToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
     }
 
     @Test @MainActor func frontingProbeRetriesUntilFocusedWindowMatchesPendingRequest() async {
@@ -1854,6 +1955,76 @@ private func waitUntilAXEventTest(
         }
 
         #expect(restored)
+        #expect(controller.workspaceManager.entry(for: originalToken) == nil)
+        #expect(replacementEntry.handle === originalEntry.handle)
+        #expect(controller.workspaceManager.nativeFullscreenRecord(for: replacementToken) == nil)
+        #expect(controller.workspaceManager.layoutReason(for: replacementToken) == .standard)
+    }
+
+    @Test @MainActor func workspaceDidActivateApplicationRevealsRestoredManagedWindowOnInactiveWorkspace() {
+        let controller = makeAXEventTestController()
+        controller.hasStartedServices = true
+        guard let workspaceOne = controller.workspaceManager.workspaceId(for: "1", createIfMissing: false),
+              let workspaceTwo = controller.workspaceManager.workspaceId(for: "2", createIfMissing: true),
+              let monitor = controller.workspaceManager.monitors.first
+        else {
+            Issue.record("Missing restored inactive-workspace activation fixture")
+            return
+        }
+
+        let sourceToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 983),
+            pid: 9_803,
+            windowId: 983,
+            to: workspaceOne
+        )
+        _ = controller.workspaceManager.setManagedFocus(
+            sourceToken,
+            in: workspaceOne,
+            onMonitor: monitor.id
+        )
+
+        let targetPid: pid_t = 9_804
+        let originalToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 984),
+            pid: targetPid,
+            windowId: 984,
+            to: workspaceTwo
+        )
+        guard let originalEntry = controller.workspaceManager.entry(for: originalToken) else {
+            Issue.record("Missing original restored-entry fixture")
+            return
+        }
+
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(originalToken, in: workspaceTwo)
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(originalToken)
+        controller.axEventHandler.handleRemoved(token: originalToken)
+
+        let replacementToken = WindowToken(pid: targetPid, windowId: 985)
+        controller.axEventHandler.isFullscreenProvider = { _ in false }
+        controller.axEventHandler.focusedWindowRefProvider = { pid in
+            guard pid == targetPid else { return nil }
+            return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: replacementToken.windowId)
+        }
+
+        #expect(controller.activeWorkspace()?.id == workspaceOne)
+        #expect(controller.workspaceManager.focusedToken == nil)
+
+        controller.axEventHandler.handleAppActivation(
+            pid: targetPid,
+            source: .workspaceDidActivateApplication
+        )
+
+        guard let replacementEntry = controller.workspaceManager.entry(for: replacementToken) else {
+            Issue.record("Missing replacement entry after restored activation")
+            return
+        }
+
+        #expect(controller.activeWorkspace()?.id == workspaceTwo)
+        #expect(controller.workspaceManager.focusedToken == replacementToken)
+        #expect(controller.workspaceManager.pendingFocusedToken == nil)
+        #expect(controller.workspaceManager.lastFocusedToken(in: workspaceTwo) == replacementToken)
+        #expect(controller.workspaceManager.isNonManagedFocusActive == false)
         #expect(controller.workspaceManager.entry(for: originalToken) == nil)
         #expect(replacementEntry.handle === originalEntry.handle)
         #expect(controller.workspaceManager.nativeFullscreenRecord(for: replacementToken) == nil)
