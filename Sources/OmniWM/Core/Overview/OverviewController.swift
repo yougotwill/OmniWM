@@ -898,8 +898,8 @@ final class OverviewController {
     }
 }
 
-private extension OverviewController {
-    struct DragSession {
+extension OverviewController {
+    private struct DragSession {
         let handle: WindowHandle
         let windowId: Int
         let workspaceId: WorkspaceDescriptor.ID
@@ -907,7 +907,7 @@ private extension OverviewController {
         let startPoint: CGPoint
     }
 
-    func beginDrag(on monitorId: Monitor.ID, handle: WindowHandle, startPoint: CGPoint) {
+    private func beginDrag(on monitorId: Monitor.ID, handle: WindowHandle, startPoint: CGPoint) {
         guard let wmController else { return }
         guard let entry = wmController.workspaceManager.entry(for: handle) else { return }
 
@@ -932,7 +932,7 @@ private extension OverviewController {
         }
     }
 
-    func updateDrag(on monitorId: Monitor.ID, at point: CGPoint) {
+    private func updateDrag(on monitorId: Monitor.ID, at point: CGPoint) {
         guard dragSession != nil else { return }
         activeInteractionMonitorId = monitorId
         dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
@@ -945,7 +945,7 @@ private extension OverviewController {
         }
     }
 
-    func endDrag(on monitorId: Monitor.ID, at point: CGPoint) {
+    private func endDrag(on monitorId: Monitor.ID, at point: CGPoint) {
         guard let session = dragSession else { return }
         activeInteractionMonitorId = monitorId
         dragGhostController?.updatePosition(cursorLocation: globalPoint(from: point, on: monitorId))
@@ -969,19 +969,19 @@ private extension OverviewController {
         updateWindowDisplays()
     }
 
-    func cancelDrag() {
+    private func cancelDrag() {
         clearDragTargets()
         dragGhostController?.endDrag()
         dragSession = nil
         updateWindowDisplays()
     }
 
-    func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
+    private func resolveDragTarget(at point: CGPoint, on monitorId: Monitor.ID) -> OverviewDragTarget? {
         guard let layout = layoutsByMonitor[monitorId] else { return nil }
         return layout.resolveDragTarget(at: point, draggedHandle: dragSession?.handle)
     }
 
-    func performDragAction(session: DragSession, target: OverviewDragTarget) {
+    private func performDragAction(session: DragSession, target: OverviewDragTarget) {
         guard let wmController else { return }
 
         switch target {
@@ -1028,14 +1028,14 @@ private extension OverviewController {
         wmController.layoutRefreshController.requestImmediateRelayout(reason: .overviewMutation)
     }
 
-    func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    private func isNiriLayout(workspaceId: WorkspaceDescriptor.ID) -> Bool {
         guard let wmController else { return false }
         guard let name = wmController.workspaceManager.descriptor(for: workspaceId)?.name else { return false }
         let layoutType = wmController.settings.layoutType(for: name)
         return layoutType != .dwindle
     }
 
-    func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
+    private func overviewInsertPositionToNiri(_ position: InsertPosition) -> InsertPosition {
         switch position {
         case .before:
             return .after
@@ -1045,5 +1045,4 @@ private extension OverviewController {
             return .swap
         }
     }
-
 }

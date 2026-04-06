@@ -197,6 +197,17 @@ private func executeAndSettleLayoutPlans(
     controller.layoutRefreshController.stopAllScrollAnimations()
 }
 
+@MainActor
+private func settleViewport(
+    on controller: WMController,
+    workspaceId: WorkspaceDescriptor.ID
+) {
+    controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+        state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
+    }
+    controller.layoutRefreshController.stopAllScrollAnimations()
+}
+
 private func assertHideOnlyMonitorBoundaryDiff(
     _ plan: WorkspaceLayoutPlan,
     token: WindowToken,
@@ -5592,20 +5603,6 @@ private func makeCenteredCrossMonitorFixture(
             controller.layoutRefreshController.stopAllScrollAnimations()
         }
 
-        func settleViewport() {
-            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-                state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
-            }
-            controller.layoutRefreshController.stopAllScrollAnimations()
-        }
-
-        func settleViewport() {
-            controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
-                state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
-            }
-            controller.layoutRefreshController.stopAllScrollAnimations()
-        }
-
         setSelection(activeIndex: 1, visibleStartIndex: 0)
         controller.niriLayoutHandler.focusNeighbor(direction: .right)
         await waitForLayoutPlanRefreshWork(on: controller)
@@ -5615,7 +5612,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(firstMoveState.viewOffsetPixels.isAnimating)
         #expect(abs(viewportStart(for: firstMoveState, columns: columns, gap: gap) - columnStride) < 0.1)
 
-        settleViewport()
+        settleViewport(on: controller, workspaceId: workspaceId)
         controller.niriLayoutHandler.focusNeighbor(direction: .left)
         await waitForLayoutPlanRefreshWork(on: controller)
 
@@ -5834,7 +5831,7 @@ private func makeCenteredCrossMonitorFixture(
         #expect(midToggleState.viewOffsetPixels.isAnimating)
 
         controller.layoutRefreshController.settleAllAnimationsForTests()
-        settleViewport()
+        settleViewport(on: controller, workspaceId: workspaceId)
 
         let settledState = controller.workspaceManager.niriViewportState(for: workspaceId)
         #expect(!settledState.viewOffsetPixels.isAnimating)

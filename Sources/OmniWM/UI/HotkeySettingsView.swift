@@ -6,7 +6,11 @@ enum HotkeyCaptureResult {
 }
 
 @MainActor enum HotkeyBindingEditor {
-    static func capture(_ newBinding: KeyBinding, for actionId: String, settings: SettingsStore) -> HotkeyCaptureResult {
+    static func capture(
+        _ newBinding: KeyBinding,
+        for actionId: String,
+        settings: SettingsStore
+    ) -> HotkeyCaptureResult {
         let conflicts = settings.findConflicts(for: newBinding, excluding: actionId)
         guard conflicts.isEmpty else {
             return .conflict(
@@ -58,10 +62,10 @@ struct HotkeySettingsView: View {
                 TextField("Search hotkeys...", text: $searchText)
                     .textFieldStyle(.plain)
                 if !searchText.isEmpty {
-                    Button(action: { searchText = "" }) {
+                    Button(action: { searchText = "" }, label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
-                    }
+                    })
                     .buttonStyle(.plain)
                 }
             }
@@ -236,7 +240,11 @@ struct HotkeyBindingRow: View {
                             .fontWeight(.medium)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(binding.command.layoutCompatibility == .niri ? Color.blue.opacity(0.2) : Color.purple.opacity(0.2))
+                            .background(
+                                binding.command.layoutCompatibility == .niri
+                                    ? Color.blue.opacity(0.2)
+                                    : Color.purple.opacity(0.2)
+                            )
                             .foregroundColor(binding.command.layoutCompatibility == .niri ? .blue : .purple)
                             .cornerRadius(4)
                     }
@@ -329,14 +337,14 @@ struct HotkeyBindingChip: View {
                 Button(action: {
                     hideHotkeyHelp()
                     onStartRecording()
-                }) {
+                }, label: {
                     Text(binding.displayString)
                         .font(.system(.body, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(4)
-                }
+                })
                 .buttonStyle(.plain)
                 .overlay(alignment: .top) {
                     if showHotkeyHelp {
@@ -351,10 +359,10 @@ struct HotkeyBindingChip: View {
                     Button(action: {
                         hideHotkeyHelp()
                         onRemove()
-                    }) {
+                    }, label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
-                    }
+                    })
                     .buttonStyle(.plain)
                     .help("Clear this hotkey")
                 }

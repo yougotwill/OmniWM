@@ -461,7 +461,7 @@ import QuartzCore
         )
     }
 
-    private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) async {
+    private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) {
         guard let controller else { return }
 
         layoutState.didExecuteRefreshExecutionPlan = true
@@ -508,7 +508,7 @@ import QuartzCore
         }
 
         if plan.effects.drainDeferredCreatedWindows {
-            await controller.axEventHandler.drainDeferredCreatedWindows()
+            controller.axEventHandler.drainDeferredCreatedWindows()
         }
 
         if plan.effects.subscribeManagedWindows {
@@ -791,7 +791,7 @@ import QuartzCore
             )
             applyRefreshMetadata(refresh, to: &plan)
             try Task.checkCancellation()
-            await executeRefreshExecutionPlan(plan)
+            executeRefreshExecutionPlan(plan)
         } catch {
             return false
         }
@@ -815,7 +815,7 @@ import QuartzCore
         var plan = buildVisibilityExecutionPlan()
         applyRefreshMetadata(refresh, to: &plan)
         guard !Task.isCancelled else { return false }
-        await executeRefreshExecutionPlan(plan)
+        executeRefreshExecutionPlan(plan)
 
         return true
     }
@@ -860,7 +860,7 @@ import QuartzCore
             var plan = try await buildWindowRemovalExecutionPlan(payloads: payloads)
             applyRefreshMetadata(refresh, to: &plan)
             try Task.checkCancellation()
-            await executeRefreshExecutionPlan(plan)
+            executeRefreshExecutionPlan(plan)
         } catch {
             return false
         }
@@ -946,7 +946,7 @@ import QuartzCore
         var plan = try await buildFullRefreshExecutionPlan()
         applyRefreshMetadata(refresh, to: &plan)
         try Task.checkCancellation()
-        await executeRefreshExecutionPlan(plan)
+        executeRefreshExecutionPlan(plan)
         return true
     }
 

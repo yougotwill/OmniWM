@@ -39,7 +39,8 @@ enum WorkspaceConfigurationAddPolicy {
 
     static let addButtonHelp = "Add the lowest unused workspace ID"
     static let footerText =
-        "Workspace IDs use positive numeric slots. Display Name stays editable. Direct workspace hotkeys remain limited to 1-9; add 10+ here or through IPC/CLI."
+        "Workspace IDs use positive numeric slots. Display Name stays editable. " +
+        "Direct workspace hotkeys remain limited to 1-9; add 10+ here or through IPC/CLI."
 }
 
 struct WorkspacesSettingsTab: View {
@@ -86,9 +87,9 @@ struct WorkspacesSettingsTab: View {
                 HStack {
                     Text("Workspace Configurations")
                     Spacer()
-                    Button(action: { isAddingNew = true }) {
+                    Button(action: { isAddingNew = true }, label: {
                         Image(systemName: "plus.circle")
-                    }
+                    })
                     .buttonStyle(.plain)
                     .help(addButtonHelp)
                 }
@@ -114,7 +115,9 @@ struct WorkspacesSettingsTab: View {
         .sheet(isPresented: $isAddingNew) {
             WorkspaceEditSheet(
                 configuration: WorkspaceConfiguration(
-                    name: WorkspaceConfigurationAddPolicy.nextAvailableWorkspaceName(in: settings.workspaceConfigurations),
+                    name: WorkspaceConfigurationAddPolicy.nextAvailableWorkspaceName(
+                        in: settings.workspaceConfigurations
+                    ),
                     monitorAssignment: .main
                 ),
                 isNew: true,
@@ -304,7 +307,10 @@ struct WorkspaceEditSheet: View {
                     }
                 }
 
-                Text("Main follows the current main display. Secondary follows the first non-main display. Specific Display pins this workspace to the selected monitor when available.")
+                Text(
+                    "Main follows the current main display. Secondary follows the first non-main display. " +
+                    "Specific Display pins this workspace to the selected monitor when available."
+                )
                     .font(.caption)
                     .foregroundColor(.secondary)
 

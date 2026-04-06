@@ -72,7 +72,10 @@ struct QuakeTerminalSettingsTab: View {
 
             Section("About") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Quake Terminal provides a drop-down terminal that can be toggled with a hotkey, similar to the console in Quake-style games.")
+                    Text(
+                        "Quake Terminal provides a drop-down terminal that can be toggled with a hotkey, " +
+                        "similar to the console in Quake-style games."
+                    )
                         .font(.footnote)
                         .foregroundColor(.secondary)
 

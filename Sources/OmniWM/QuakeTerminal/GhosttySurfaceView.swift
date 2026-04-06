@@ -95,6 +95,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         addTrackingArea(trackingArea)
     }
 
+    @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }

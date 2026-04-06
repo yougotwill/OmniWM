@@ -3,7 +3,7 @@ import Foundation
 @usableFromInline
 final class ThreadGuardedValue<Value>: Sendable {
     @usableFromInline
-    nonisolated(unsafe) var _value: Value?
+    nonisolated(unsafe) var storedValue: Value?
 
     @usableFromInline
     let threadToken: AppThreadToken
@@ -13,7 +13,7 @@ final class ThreadGuardedValue<Value>: Sendable {
             fatalError("appThreadToken is not initialized - must be called from within app thread context")
         }
         threadToken = token
-        _value = value
+        storedValue = value
     }
 
     @inlinable
@@ -21,19 +21,19 @@ final class ThreadGuardedValue<Value>: Sendable {
         get {
             #if DEBUG
             threadToken.checkEquals(appThreadToken)
-            guard let v = _value else {
+            guard let currentValue = storedValue else {
                 fatalError("Value is already destroyed")
             }
-            return v
+            return currentValue
             #else
-            return _value.unsafelyUnwrapped
+            return storedValue.unsafelyUnwrapped
             #endif
         }
         set(newValue) {
             #if DEBUG
             threadToken.checkEquals(appThreadToken)
             #endif
-            _value = newValue
+            storedValue = newValue
         }
     }
 
@@ -42,18 +42,18 @@ final class ThreadGuardedValue<Value>: Sendable {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        return _value
+        return storedValue
     }
 
     func destroy() {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        _value = nil
+        storedValue = nil
     }
 
     deinit {
-        assert(_value == nil, "The Value must be explicitly destroyed on the appropriate thread before deinit")
+        assert(storedValue == nil, "The Value must be explicitly destroyed on the appropriate thread before deinit")
     }
 
     @inlinable
@@ -62,13 +62,13 @@ final class ThreadGuardedValue<Value>: Sendable {
             #if DEBUG
             threadToken.checkEquals(appThreadToken)
             #endif
-            return _value?[key]
+            return storedValue?[key]
         }
         set {
             #if DEBUG
             threadToken.checkEquals(appThreadToken)
             #endif
-            _value?[key] = newValue
+            storedValue?[key] = newValue
         }
     }
 
@@ -77,7 +77,7 @@ final class ThreadGuardedValue<Value>: Sendable {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        return _value?.contains(element) ?? false
+        return storedValue?.contains(element) ?? false
     }
 
     @inlinable
@@ -85,7 +85,7 @@ final class ThreadGuardedValue<Value>: Sendable {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        _value?.insert(element)
+        storedValue?.insert(element)
     }
 
     @inlinable
@@ -94,7 +94,7 @@ final class ThreadGuardedValue<Value>: Sendable {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        return _value?.remove(element)
+        return storedValue?.remove(element)
     }
 }
 
@@ -104,6 +104,6 @@ extension ThreadGuardedValue {
         #if DEBUG
         threadToken.checkEquals(appThreadToken)
         #endif
-        _value?.keys.forEach(body)
+        storedValue?.keys.forEach(body)
     }
 }

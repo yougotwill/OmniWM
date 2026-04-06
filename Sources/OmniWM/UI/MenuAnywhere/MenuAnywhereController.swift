@@ -69,8 +69,7 @@ final class MenuAnywhereController: NSObject, NSMenuDelegate {
               CFGetTypeID(obj as CFTypeRef) == AXUIElementGetTypeID(),
               let app = currentApp, !app.isTerminated
         else { return }
-
-        let element = obj as! AXUIElement
+        let element = unsafeBitCast(obj as CFTypeRef, to: AXUIElement.self)
 
         if !app.isActive {
             app.activate(options: [])

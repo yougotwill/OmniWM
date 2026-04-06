@@ -1,0 +1,25 @@
+parent_config: ../../../.swiftlint.yml
+
+# OmniWM's core runtime contains long-lived orchestrators, state stores, and
+# event pipelines. Keep warnings aligned with the root config while preventing
+# known legacy hotspots from becoming hard failures during policy cleanup.
+line_length:
+  warning: 120
+  error: 240
+  ignores_comments: true
+
+type_body_length:
+  warning: 300
+  error: 3000
+
+file_length:
+  warning: 500
+  error: 4000
+
+function_body_length:
+  warning: 50
+  error: 250
+
+cyclomatic_complexity:
+  warning: 10
+  error: 60

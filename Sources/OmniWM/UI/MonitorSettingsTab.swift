@@ -115,7 +115,11 @@ struct MonitorSettingsTab: View {
             }
         }
         .onAppear(perform: refreshConnectedMonitors)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didChangeScreenParametersNotification
+            )
+        ) { _ in
             refreshConnectedMonitors()
         }
     }
@@ -381,7 +385,10 @@ private struct SelectedMonitorDetails: View {
                 .buttonStyle(.borderless)
             }
 
-            Text("Override the auto-detected orientation for this monitor. Vertical monitors scroll windows top-to-bottom instead of left-to-right.")
+            Text(
+                "Override the auto-detected orientation for this monitor. " +
+                "Vertical monitors scroll windows top-to-bottom instead of left-to-right."
+            )
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -444,7 +451,10 @@ enum MonitorSettingsTabModel {
         return entries.first?.id
     }
 
-    static func displayLabels(for monitors: [Monitor], axis: MouseWarpAxis = .horizontal) -> [Monitor.ID: MonitorDisplayLabel] {
+    static func displayLabels(
+        for monitors: [Monitor],
+        axis: MouseWarpAxis = .horizontal
+    ) -> [Monitor.ID: MonitorDisplayLabel] {
         let sorted = sortedMonitors(monitors, axis: axis)
         let totals = sorted.reduce(into: [String: Int]()) { counts, monitor in
             counts[monitor.name, default: 0] += 1

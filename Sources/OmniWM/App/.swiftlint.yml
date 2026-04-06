@@ -1,0 +1,6 @@
+parent_config: ../../../.swiftlint.yml
+
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true

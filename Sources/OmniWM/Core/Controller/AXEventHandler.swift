@@ -513,7 +513,7 @@ final class AXEventHandler: CGSEventDelegate {
         subscribeToWindows(windowIds)
     }
 
-    func drainDeferredCreatedWindows() async {
+    func drainDeferredCreatedWindows() {
         guard !deferredCreatedWindowOrder.isEmpty else { return }
 
         let deferredWindowIds = deferredCreatedWindowOrder

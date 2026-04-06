@@ -15,9 +15,15 @@ public struct IPCRuleValidationReport: Equatable, Sendable {
 }
 
 public enum IPCRuleValidator {
-    private static let appIdentifierPattern = try! NSRegularExpression(
-        pattern: "^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$"
-    )
+    private static let appIdentifierPattern: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(
+                pattern: "^[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*$"
+            )
+        } catch {
+            preconditionFailure("Invalid app identifier regex: \(error)")
+        }
+    }()
 
     public static func bundleIdError(for bundleId: String) -> String? {
         let trimmed = bundleId.trimmingCharacters(in: .whitespacesAndNewlines)

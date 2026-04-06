@@ -27,7 +27,9 @@ enum AppCLIInstallError: LocalizedError, Equatable {
         case let .conflictingInstall(url):
             return "Another file already exists at \(url.path). Move or remove it before installing OmniWM's CLI link."
         case let .cannotRemoveNonManagedInstall(url):
-            return "OmniWM will only remove the CLI link it created. The existing file at \(url.path) is managed elsewhere."
+            return
+                "OmniWM will only remove the CLI link it created. " +
+                "The existing file at \(url.path) is managed elsewhere."
         }
     }
 }
@@ -142,10 +144,8 @@ final class AppCLIManager {
             homeDirectory.appendingPathComponent("bin", isDirectory: true)
         ]
 
-        for directory in pathDirectories + fallbacks {
-            if isUserWritableDirectory(directory) {
-                return directory
-            }
+        for directory in pathDirectories + fallbacks where isUserWritableDirectory(directory) {
+            return directory
         }
 
         return fallbacks[0]
@@ -157,7 +157,12 @@ final class AppCLIManager {
             .split(separator: ":")
             .map { String($0) }
             .filter { !$0.isEmpty }
-            .map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true) }
+            .map {
+                URL(
+                    fileURLWithPath: NSString(string: $0).expandingTildeInPath,
+                    isDirectory: true
+                )
+            }
     }
 
     private func isDirectoryOnPATH(_ directory: URL) -> Bool {
@@ -167,7 +172,9 @@ final class AppCLIManager {
     private func isUserWritableDirectory(_ directory: URL) -> Bool {
         if fileManager.fileExists(atPath: directory.path) {
             var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
                 return false
             }
             return fileManager.isWritableFile(atPath: directory.path)

@@ -1,8 +1,8 @@
 import COmniWMKernels
 import Foundation
 
-extension CenterFocusedColumn {
-    fileprivate var zigRawValue: UInt32 {
+private extension CenterFocusedColumn {
+    var zigRawValue: UInt32 {
         switch self {
         case .never:
             return UInt32(OMNIWM_CENTER_FOCUSED_COLUMN_NEVER)

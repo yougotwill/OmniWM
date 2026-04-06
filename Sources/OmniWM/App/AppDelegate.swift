@@ -12,7 +12,8 @@ final class AppBootstrapState {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated(unsafe) static weak var sharedBootstrap: AppBootstrapState?
     static var ipcServerFactoryForTests: ((WMController) -> IPCServerLifecycle)?
-    static var updateCoordinatorFactoryForTests: ((SettingsStore, WMController, UserDefaults) -> any AppUpdateCoordinating)?
+    static var updateCoordinatorFactoryForTests:
+        ((SettingsStore, WMController, UserDefaults) -> any AppUpdateCoordinating)?
     private static let desktopAndDockSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension"
     )!
@@ -177,11 +178,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "OmniWM needs to reset stale settings"
         if let storedEpoch {
             alert.informativeText =
-                "This build expects settings epoch \(SettingsMigration.currentSettingsEpoch), but found epoch \(storedEpoch). " +
+                "This build expects settings epoch \(SettingsMigration.currentSettingsEpoch), " +
+                "but found epoch \(storedEpoch). " +
                 "You can export a raw backup, reset to defaults, or quit."
         } else {
             alert.informativeText =
-                "This build expects settings epoch \(SettingsMigration.currentSettingsEpoch), but found older persisted settings with no epoch marker. " +
+                "This build expects settings epoch \(SettingsMigration.currentSettingsEpoch), " +
+                "but found older persisted settings with no epoch marker. " +
                 "You can export a raw backup, reset to defaults, or quit."
         }
         alert.addButton(withTitle: "Export Backup")
@@ -204,8 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.messageText = "Turn off Displays have separate Spaces before launching OmniWM"
         alert.informativeText =
-            "OmniWM requires shared Spaces across displays. Open System Settings > Desktop & Dock > Mission Control, " +
-            "turn off \"Displays have separate Spaces\", then log out of macOS and log back in before launching OmniWM again."
+            "OmniWM requires shared Spaces across displays. " +
+            "Open System Settings > Desktop & Dock > Mission Control, " +
+            "turn off \"Displays have separate Spaces\", " +
+            "then log out of macOS and log back in before launching OmniWM again."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Quit")
 

@@ -57,12 +57,12 @@ extension NiriLayoutEngine {
     ) -> CGFloat {
         guard let monitorId = monitorContaining(workspace: workspaceId),
               let monitor = monitors[monitorId],
-              let switch_ = monitor.workspaceSwitch,
-              let workspaceIndex = switch_.index(of: workspaceId) else {
+              let workspaceSwitch = monitor.workspaceSwitch,
+              let workspaceIndex = workspaceSwitch.index(of: workspaceId) else {
             return 0
         }
 
-        let renderIndex = switch_.currentIndex(at: time)
+        let renderIndex = workspaceSwitch.currentIndex(at: time)
         let delta = Double(workspaceIndex) - renderIndex
         if abs(delta) < 0.001 {
             return 0

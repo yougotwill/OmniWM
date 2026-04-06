@@ -409,7 +409,10 @@ final class WorkspaceBarManager {
         return panel
     }
 
-    nonisolated static func effectivePosition(for monitor: Monitor, resolved: ResolvedBarSettings) -> WorkspaceBarPosition {
+    nonisolated static func effectivePosition(
+        for monitor: Monitor,
+        resolved: ResolvedBarSettings
+    ) -> WorkspaceBarPosition {
         WorkspaceBarGeometry.effectivePosition(for: monitor, resolved: resolved)
     }
 

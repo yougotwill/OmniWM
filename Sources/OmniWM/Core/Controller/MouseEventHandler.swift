@@ -113,7 +113,7 @@ final class MouseEventHandler {
         var debugCounters = DebugCounters()
     }
 
-    nonisolated(unsafe) static weak var _instance: MouseEventHandler?
+    nonisolated(unsafe) static weak var sharedInstance: MouseEventHandler?
 
     weak var controller: WMController?
     var state = State()
@@ -124,7 +124,7 @@ final class MouseEventHandler {
     }
 
     func setup() {
-        MouseEventHandler._instance = self
+        MouseEventHandler.sharedInstance = self
 
         let eventMask: CGEventMask =
             (1 << CGEventType.mouseMoved.rawValue) |
@@ -135,7 +135,7 @@ final class MouseEventHandler {
 
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = MouseEventHandler._instance?.state.eventTap {
+                if let tap = MouseEventHandler.sharedInstance?.state.eventTap {
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)
@@ -167,7 +167,7 @@ final class MouseEventHandler {
 
         let gestureCallback: CGEventTapCallBack = { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = MouseEventHandler._instance?.state.gestureTap {
+                if let tap = MouseEventHandler.sharedInstance?.state.gestureTap {
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return Unmanaged.passUnretained(event)
@@ -213,7 +213,7 @@ final class MouseEventHandler {
             CGEvent.tapEnable(tap: tap, enable: false)
             state.gestureTap = nil
         }
-        MouseEventHandler._instance = nil
+        MouseEventHandler.sharedInstance = nil
         state.currentHoveredEdges = []
         state.isResizing = false
         state.pendingTapEvents.clear()
@@ -1200,7 +1200,7 @@ final class MouseEventHandler {
         let phase = UInt32(event.getIntegerValueField(.scrollWheelEventScrollPhase))
 
         MainActor.assumeIsolated {
-            guard let handler = MouseEventHandler._instance else { return }
+            guard let handler = MouseEventHandler.sharedInstance else { return }
             switch type {
             case .mouseMoved:
                 handler.receiveTapMouseMoved(at: screenLocation)
@@ -1237,7 +1237,7 @@ final class MouseEventHandler {
         guard let snapshot = makeGestureEventSnapshot(from: event) else { return true }
 
         MainActor.assumeIsolated {
-            MouseEventHandler._instance?.receiveTapGestureEvent(snapshot)
+            MouseEventHandler.sharedInstance?.receiveTapGestureEvent(snapshot)
         }
 
         return true

@@ -65,6 +65,9 @@ private final class CommandPaletteActionBox: @unchecked Sendable {
     }
 }
 
+typealias CommandPaletteSummonWindowRightHandler =
+    (WMController, WindowHandle, WindowToken, WorkspaceDescriptor.ID) -> Void
+
 @MainActor
 struct CommandPaletteEnvironment {
     var frontmostApplication: () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication }
@@ -75,11 +78,8 @@ struct CommandPaletteEnvironment {
     var navigateToWindow: (WMController, WindowHandle) -> Void = { controller, handle in
         controller.navigateToCommandPaletteWindow(handle)
     }
-    var summonWindowRight: (WMController, WindowHandle, WindowToken, WorkspaceDescriptor.ID) -> Void = {
-        controller,
-        handle,
-        anchorToken,
-        anchorWorkspaceId in
+    var summonWindowRight: CommandPaletteSummonWindowRightHandler =
+        { controller, handle, anchorToken, anchorWorkspaceId in
         controller.summonCommandPaletteWindowRight(
             handle,
             anchorToken: anchorToken,
@@ -749,7 +749,7 @@ final class CommandPaletteController: NSObject, ObservableObject, NSWindowDelega
             SkyLight.shared.orderWindow(UInt32(windowId), relativeTo: 0, order: .above)
 
             var psn = ProcessSerialNumber()
-            if GetProcessForPID(target.app.processIdentifier, &psn) == noErr {
+            if getProcessForPID(target.app.processIdentifier, &psn) == noErr {
                 _ = _SLPSSetFrontProcessWithOptions(&psn, UInt32(windowId), kCPSUserGenerated)
                 makeKeyWindow(psn: &psn, windowId: UInt32(windowId))
             }
@@ -914,10 +914,10 @@ private struct CommandPaletteView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 18))
                     if !controller.searchText.isEmpty {
-                        Button(action: { controller.searchText = "" }) {
+                        Button(action: { controller.searchText = "" }, label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.secondary)
-                        }
+                        })
                         .buttonStyle(.plain)
                     }
                 }
@@ -1063,7 +1063,7 @@ private struct CommandPaletteModePicker: View {
     private func modeButton(_ mode: CommandPaletteMode, enabled: Bool) -> some View {
         let hint = CommandPaletteController.modeHint(for: mode)
         let isSelected = selectedMode == mode
-        return Button(action: { onSelect(mode) }) {
+        return Button(action: { onSelect(mode) }, label: {
             HStack(spacing: 10) {
                 Text(hint.title)
                     .font(.system(size: 12, weight: .semibold))
@@ -1084,7 +1084,7 @@ private struct CommandPaletteModePicker: View {
                     )
             }
             .clipShape(Capsule())
-        }
+        })
         .buttonStyle(.plain)
         .disabled(!enabled)
     }

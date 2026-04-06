@@ -277,7 +277,7 @@ struct SponsorCardView: View {
             if let url = githubURL {
                 NSWorkspace.shared.open(url)
             }
-        }) {
+        }, label: {
             VStack(spacing: 16) {
                 GlowingAvatarView(
                     motionPolicy: motionPolicy,
@@ -331,7 +331,7 @@ struct SponsorCardView: View {
             )
             .scaleEffect(isHovered ? 1.02 : 1.0)
             .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.15) : nil, value: isHovered)
-        }
+        })
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering

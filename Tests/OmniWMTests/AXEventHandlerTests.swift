@@ -2436,8 +2436,8 @@ private func waitUntilAXEventTest(
         )
         controller.layoutRefreshController.layoutState.isFullEnumerationInProgress = false
 
-        await controller.axEventHandler.drainDeferredCreatedWindows()
-        await controller.axEventHandler.drainDeferredCreatedWindows()
+        controller.axEventHandler.drainDeferredCreatedWindows()
+        controller.axEventHandler.drainDeferredCreatedWindows()
 
         #expect(controller.workspaceManager.entry(forPid: getpid(), windowId: 821)?.workspaceId == workspaceId)
         #expect(controller.workspaceManager.allEntries().filter { $0.windowId == 821 }.count == 1)

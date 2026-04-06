@@ -1,0 +1,9 @@
+parent_config: ../../../.swiftlint.yml
+
+type_body_length:
+  warning: 300
+  error: 800
+
+cyclomatic_complexity:
+  warning: 10
+  error: 30

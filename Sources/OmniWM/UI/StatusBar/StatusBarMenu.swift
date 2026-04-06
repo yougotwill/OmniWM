@@ -402,7 +402,9 @@ final class StatusBarMenuBuilder {
         var message =
             "OmniWM will create a symlink at \(linkURL.path) pointing to its bundled omniwmctl binary."
         if !directoryOnPath {
-            message += "\n\n\(directoryURL.path) is not currently in your PATH, so Terminal may not find `omniwmctl` until you add that directory."
+            message +=
+                "\n\n\(directoryURL.path) is not currently in your PATH, " +
+                "so Terminal may not find `omniwmctl` until you add that directory."
         }
 
         guard confirmationAlertPresenter(

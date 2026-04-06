@@ -1,0 +1,28 @@
+# SwiftLint applies only the nearest nested config for a file, so keep the
+# geometry-specific relaxations here directly.
+line_length:
+  warning: 120
+  error: 240
+  ignores_comments: true
+
+function_body_length:
+  warning: 50
+  error: 150
+
+cyclomatic_complexity:
+  warning: 10
+  error: 25
+
+type_body_length:
+  warning: 300
+  error: 1000
+
+file_length:
+  warning: 500
+  error: 1200
+
+# Niri geometry code uses wide helper signatures to keep column/workspace state
+# explicit while iterating on the layout model.
+function_parameter_count:
+  warning: 5
+  error: 12

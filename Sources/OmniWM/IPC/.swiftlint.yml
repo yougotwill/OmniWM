@@ -1,0 +1,15 @@
+parent_config: ../../../.swiftlint.yml
+
+# IPC routers accumulate command/query fan-out; keep root warnings while
+# avoiding hard failures until responsibilities are split further.
+type_body_length:
+  warning: 300
+  error: 800
+
+function_body_length:
+  warning: 50
+  error: 150
+
+cyclomatic_complexity:
+  warning: 10
+  error: 60

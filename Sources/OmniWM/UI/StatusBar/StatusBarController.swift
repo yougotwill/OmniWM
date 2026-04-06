@@ -43,7 +43,7 @@ final class StatusBarController: NSObject {
         defaults.removeObject(forKey: preferredPositionKey(for: HiddenBarController.separatorAutosaveName))
     }
 
-    private nonisolated static func preferredPositionKey(for autosaveName: String) -> String {
+    nonisolated private static func preferredPositionKey(for autosaveName: String) -> String {
         "NSStatusItem Preferred Position \(autosaveName)"
     }
 

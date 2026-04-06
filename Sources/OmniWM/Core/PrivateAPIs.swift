@@ -18,7 +18,7 @@ func SLPSPostEventRecordTo(
 ) -> OSStatus
 
 @_silgen_name("GetProcessForPID")
-func GetProcessForPID(_ pid: pid_t, _ psn: inout ProcessSerialNumber) -> OSStatus
+func getProcessForPID(_ pid: pid_t, _ psn: inout ProcessSerialNumber) -> OSStatus
 
 @_silgen_name("_AXUIElementGetWindow")
 func _AXUIElementGetWindow(_ element: AXUIElement, _ windowId: inout CGWindowID) -> AXError
@@ -53,7 +53,7 @@ func makeKeyWindow(psn: inout ProcessSerialNumber, windowId: UInt32) {
 
 func focusWindow(pid: pid_t, windowId: UInt32, windowRef _: AXUIElement) {
     var psn = ProcessSerialNumber()
-    guard GetProcessForPID(pid, &psn) == noErr else { return }
+    guard getProcessForPID(pid, &psn) == noErr else { return }
 
     _ = _SLPSSetFrontProcessWithOptions(&psn, windowId, kCPSUserGenerated)
     makeKeyWindow(psn: &psn, windowId: windowId)

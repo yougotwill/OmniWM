@@ -53,7 +53,10 @@ struct PersistedWindowRestoreBaseKey: Codable, Equatable, Hashable {
         return bundleId.lowercased()
     }
 
-    fileprivate static func normalizeText(_ text: String?) -> String? {
+}
+
+private extension PersistedWindowRestoreBaseKey {
+    static func normalizeText(_ text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty
         else {

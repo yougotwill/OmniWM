@@ -67,7 +67,7 @@ actor IPCConnection {
         ipcConnectionSubscriptionTestHookStore.set(hooks)
     }
 
-    private nonisolated static func runReadLoop(fileDescriptor: Int32, owner: IPCConnection) async {
+    nonisolated private static func runReadLoop(fileDescriptor: Int32, owner: IPCConnection) async {
         var readBuffer = Data()
         do {
             while let line = try readNextLine(from: fileDescriptor, buffer: &readBuffer) {
@@ -169,11 +169,11 @@ actor IPCConnection {
         closeIfNeeded()
     }
 
-    private nonisolated static func subscriptionTestHooksForTests() -> IPCConnectionSubscriptionTestHooks? {
+    nonisolated private static func subscriptionTestHooksForTests() -> IPCConnectionSubscriptionTestHooks? {
         ipcConnectionSubscriptionTestHookStore.get()
     }
 
-    private nonisolated static func readNextLine(from fileDescriptor: Int32, buffer: inout Data) throws -> String? {
+    nonisolated private static func readNextLine(from fileDescriptor: Int32, buffer: inout Data) throws -> String? {
         while true {
             if let newlineIndex = buffer.firstIndex(of: 0x0A) {
                 guard newlineIndex <= maxRequestLineBytes else {
@@ -212,7 +212,7 @@ actor IPCConnection {
         }
     }
 
-    private nonisolated static func readChunk(from fileDescriptor: Int32) throws -> Data? {
+    nonisolated private static func readChunk(from fileDescriptor: Int32) throws -> Data? {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let count = Darwin.read(fileDescriptor, &buffer, buffer.count)

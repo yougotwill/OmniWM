@@ -265,10 +265,13 @@ enum AXWindowService {
         guard CFGetTypeID(posRaw) == AXValueGetTypeID(),
               CFGetTypeID(sizeRaw) == AXValueGetTypeID()
         else { throw .cannotGetAttribute }
+        let posValue = unsafeDowncast(posRaw, to: AXValue.self)
+        let sizeValue = unsafeDowncast(sizeRaw, to: AXValue.self)
         var pos = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(posRaw as! AXValue, .cgPoint, &pos),
-              AXValueGetValue(sizeRaw as! AXValue, .cgSize, &size) else { throw .cannotGetAttribute }
+        guard AXValueGetValue(posValue, .cgPoint, &pos),
+              AXValueGetValue(sizeValue, .cgSize, &size)
+        else { throw .cannotGetAttribute }
         return convertFromAX(CGRect(origin: pos, size: size))
     }
 
@@ -630,16 +633,18 @@ enum AXWindowService {
             if valuesArray.count > 3, let minValue = valuesArray[3],
                CFGetTypeID(minValue as CFTypeRef) == AXValueGetTypeID()
             {
+                let minSizeValue = unsafeBitCast(minValue as CFTypeRef, to: AXValue.self)
                 var size = CGSize.zero
-                if AXValueGetValue(minValue as! AXValue, .cgSize, &size) {
+                if AXValueGetValue(minSizeValue, .cgSize, &size) {
                     minSize = size
                 }
             }
             if valuesArray.count > 4, let maxValue = valuesArray[4],
                CFGetTypeID(maxValue as CFTypeRef) == AXValueGetTypeID()
             {
+                let maxSizeValue = unsafeBitCast(maxValue as CFTypeRef, to: AXValue.self)
                 var size = CGSize.zero
-                if AXValueGetValue(maxValue as! AXValue, .cgSize, &size) {
+                if AXValueGetValue(maxSizeValue, .cgSize, &size) {
                     maxSize = size
                 }
             }

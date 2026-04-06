@@ -282,6 +282,7 @@ Layout legend:
 | Preselect Left / Right / Up / Down | `Unassigned` | `Dwindle` |
 | Clear Preselection | `Unassigned` | `Dwindle` |
 | Raise All Floating Windows | `Option + Shift + R` | `Shared` |
+| Rescue Off-Screen Floating Windows | `Unassigned` | `Shared` |
 | Toggle Focused Window Floating | `Unassigned` | `Shared` |
 | Assign Focused Window to Scratchpad | `Unassigned` | `Shared` |
 | Toggle Scratchpad Window | `Unassigned` | `Shared` |
@@ -406,7 +407,20 @@ Configure per-application behavior in Settings > App Rules:
 Requirements:
 - SwiftPM with Swift 6.2+
 - macOS 15.0+
-- Ghostty's universal `libghostty.a` (build Ghostty and copy it to `Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a` so it includes both `arm64` and `x86_64`)
+- Zig `0.15.2`
+- Ghostty's universal `libghostty.a` at `Frameworks/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a`
+
+Build Commands:
+
+```bash
+make build         # Run build preflight checks, build Zig kernels, then build OmniWM
+make test          # Run build preflight checks, build Zig kernels, then run the Swift test suite
+make kernels-test  # Run the Zig kernel test suite
+make verify        # Run lint + build + tests
+make release-check # Run release-oriented preflight and universal build checks
+```
+
+`make build` and `make test` are the supported entry points for contributors. They run the current preflight checks and Zig kernel build automatically before invoking SwiftPM, so you should not rely on calling `swift build` or `swift test` directly on a fresh checkout.
 
 ## Support
 

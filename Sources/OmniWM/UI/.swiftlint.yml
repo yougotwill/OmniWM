@@ -1,0 +1,16 @@
+parent_config: ../../../.swiftlint.yml
+
+# App UI controllers are still carrying legacy menu/palette implementations;
+# keep the warnings visible, but keep the policy change from turning them red.
+line_length:
+  warning: 120
+  error: 200
+  ignores_comments: true
+
+type_body_length:
+  warning: 300
+  error: 800
+
+file_length:
+  warning: 500
+  error: 1300

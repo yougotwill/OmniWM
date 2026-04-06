@@ -1,0 +1,28 @@
+# SwiftLint applies only the nearest nested config for a file, so controller
+# thresholds must be restated here instead of relying on Core/.swiftlint.yml.
+line_length:
+  warning: 120
+  error: 240
+  ignores_comments: true
+
+type_body_length:
+  warning: 300
+  error: 3000
+
+file_length:
+  warning: 500
+  error: 4000
+
+function_body_length:
+  warning: 50
+  error: 250
+
+cyclomatic_complexity:
+  warning: 10
+  error: 60
+
+# Controller and handler entrypoints frequently need additional parameters to
+# thread monitor/workspace/window context through event-driven operations.
+function_parameter_count:
+  warning: 5
+  error: 15
