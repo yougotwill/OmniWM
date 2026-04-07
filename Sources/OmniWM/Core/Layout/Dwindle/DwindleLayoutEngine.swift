@@ -1,6 +1,34 @@
-import Foundation
+import COmniWMKernels
 import CoreGraphics
+import Foundation
 import QuartzCore
+
+private extension DwindleOrientation {
+    var kernelRawValue: UInt32 {
+        switch self {
+        case .horizontal:
+            UInt32(OMNIWM_DWINDLE_ORIENTATION_HORIZONTAL)
+        case .vertical:
+            UInt32(OMNIWM_DWINDLE_ORIENTATION_VERTICAL)
+        }
+    }
+}
+
+private enum DwindleKernelConstants {
+    static let minimumDimension: CGFloat = 1
+    static let gapSticksTolerance: CGFloat = 2
+    static let splitRatioMin: CGFloat = 0.1
+    static let splitRatioMax: CGFloat = 1.9
+    static let splitFractionDivisor: CGFloat = 2
+    static let splitFractionMin: CGFloat = 0.05
+    static let splitFractionMax: CGFloat = 0.95
+}
+
+private struct DwindleKernelSnapshot {
+    let rootIndex: Int32
+    let nodes: ContiguousArray<DwindleNode>
+    let rawNodes: ContiguousArray<omniwm_dwindle_node_input>
+}
 
 final class DwindleLayoutEngine {
     private var roots: [WorkspaceDescriptor.ID: DwindleNode] = [:]
@@ -9,7 +37,7 @@ final class DwindleLayoutEngine {
     private var preselection: [WorkspaceDescriptor.ID: Direction] = [:]
     private var windowConstraints: [WindowToken: WindowSizeConstraints] = [:]
 
-    var settings: DwindleSettings = DwindleSettings()
+    var settings: DwindleSettings = .init()
     private var monitorSettings: [Monitor.ID: ResolvedDwindleSettings] = [:]
     var animationClock: AnimationClock?
     var displayRefreshRate: Double = 60.0
@@ -50,7 +78,7 @@ final class DwindleLayoutEngine {
         return effective
     }
 
-    var windowMovementAnimationConfig: CubicConfig = CubicConfig(duration: 0.3)
+    var windowMovementAnimationConfig: CubicConfig = .init(duration: 0.3)
 
     func root(for workspaceId: WorkspaceDescriptor.ID) -> DwindleNode? {
         roots[workspaceId]
@@ -135,11 +163,10 @@ final class DwindleLayoutEngine {
             return root
         }
 
-        let targetNode: DwindleNode
-        if let selected = selectedNode(in: workspaceId), selected.isLeaf {
-            targetNode = selected
+        let targetNode: DwindleNode = if let selected = selectedNode(in: workspaceId), selected.isLeaf {
+            selected
         } else {
-            targetNode = root.descendToFirstLeaf()
+            root.descendToFirstLeaf()
         }
 
         let preselectedDir = preselection[workspaceId]
@@ -160,7 +187,7 @@ final class DwindleLayoutEngine {
     private func splitLeaf(
         _ leaf: DwindleNode,
         newWindow: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID,
+        workspaceId _: WorkspaceDescriptor.ID,
         activeWindowFrame: CGRect?,
         preselectedDirection: Direction? = nil
     ) -> DwindleNode {
@@ -206,7 +233,8 @@ final class DwindleLayoutEngine {
     ) -> (orientation: DwindleOrientation, newFirst: Bool) {
         guard settings.smartSplit,
               let targetRect,
-              let activeFrame = activeWindowFrame else {
+              let activeFrame = activeWindowFrame
+        else {
             return (aspectOrientation(for: targetRect), false)
         }
 
@@ -216,18 +244,16 @@ final class DwindleLayoutEngine {
         let deltaX = activeCenter.x - targetCenter.x
         let deltaY = activeCenter.y - targetCenter.y
 
-        let slope: CGFloat
-        if abs(deltaX) < 0.001 {
-            slope = .infinity
+        let slope: CGFloat = if abs(deltaX) < 0.001 {
+            .infinity
         } else {
-            slope = deltaY / deltaX
+            deltaY / deltaX
         }
 
-        let aspect: CGFloat
-        if abs(targetRect.width) < 0.001 {
-            aspect = .infinity
+        let aspect: CGFloat = if abs(targetRect.width) < 0.001 {
+            .infinity
         } else {
-            aspect = targetRect.height / targetRect.width
+            targetRect.height / targetRect.width
         }
 
         if abs(slope) < aspect {
@@ -391,38 +417,167 @@ final class DwindleLayoutEngine {
         guard let root = roots[workspaceId] else { return [:] }
 
         let windowCount = root.collectAllWindows().count
-        if windowCount == 0 {
-            return [:]
-        }
+        guard windowCount > 0 else { return [:] }
 
-        invalidateMinSizeCache(for: workspaceId)
+        let snapshot = makeKernelSnapshot(from: root)
+        var rawInput = makeKernelInput(rootIndex: snapshot.rootIndex, screen: screen)
+        var rawFrames = ContiguousArray(
+            repeating: omniwm_dwindle_node_frame(
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                has_frame: 0
+            ),
+            count: snapshot.rawNodes.count
+        )
 
-        var output: [WindowToken: CGRect] = [:]
-        let tilingArea = DwindleGapCalculator.applyOuterGapsOnly(rect: screen, settings: settings)
-
-        if windowCount == 1 {
-            let leaf = root.descendToFirstLeaf()
-            if case let .leaf(handle, fullscreen) = leaf.kind,
-               let handle {
-                let rect: CGRect
-                if fullscreen {
-                    rect = screen
-                } else {
-                    rect = singleWindowRect(screen: tilingArea)
-                }
-                output[handle] = rect
-                leaf.cachedFrame = rect
+        let status = snapshot.rawNodes.withUnsafeBufferPointer { rawNodes in
+            rawFrames.withUnsafeMutableBufferPointer { rawFrames in
+                omniwm_dwindle_solve(
+                    &rawInput,
+                    rawNodes.baseAddress,
+                    rawNodes.count,
+                    rawFrames.baseAddress,
+                    rawFrames.count
+                )
             }
-        } else {
-            calculateLayoutRecursive(
-                node: root,
-                rect: tilingArea,
-                tilingArea: tilingArea,
-                output: &output
+        }
+        precondition(
+            status == OMNIWM_KERNELS_STATUS_OK,
+            "omniwm_dwindle_solve returned \(status)"
+        )
+
+        return applyKernelFrames(rawFrames, snapshot: snapshot, windowCount: windowCount)
+    }
+
+    private func makeKernelSnapshot(from root: DwindleNode) -> DwindleKernelSnapshot {
+        var nodes = ContiguousArray<DwindleNode>()
+        var rawNodes = ContiguousArray<omniwm_dwindle_node_input>()
+
+        func append(_ node: DwindleNode) -> Int32 {
+            precondition(rawNodes.count < Int(Int32.max), "Dwindle kernel snapshot exceeded Int32 capacity")
+
+            let index = Int32(rawNodes.count)
+            nodes.append(node)
+            rawNodes.append(
+                omniwm_dwindle_node_input(
+                    first_child_index: -1,
+                    second_child_index: -1,
+                    split_ratio: 1.0,
+                    min_width: 0,
+                    min_height: 0,
+                    kind: UInt32(OMNIWM_DWINDLE_NODE_KIND_LEAF),
+                    orientation: UInt32(OMNIWM_DWINDLE_ORIENTATION_HORIZONTAL),
+                    has_window: 0,
+                    fullscreen: 0
+                )
             )
+
+            let firstChildIndex = node.firstChild().map(append) ?? -1
+            let secondChildIndex = node.secondChild().map(append) ?? -1
+
+            switch node.kind {
+            case let .split(orientation, ratio):
+                rawNodes[Int(index)] = omniwm_dwindle_node_input(
+                    first_child_index: firstChildIndex,
+                    second_child_index: secondChildIndex,
+                    split_ratio: ratio,
+                    min_width: 0,
+                    min_height: 0,
+                    kind: UInt32(OMNIWM_DWINDLE_NODE_KIND_SPLIT),
+                    orientation: orientation.kernelRawValue,
+                    has_window: 0,
+                    fullscreen: 0
+                )
+
+            case let .leaf(handle, fullscreen):
+                let minimumSize = if let handle {
+                    constraints(for: handle).minSize
+                } else {
+                    CGSize(
+                        width: DwindleKernelConstants.minimumDimension,
+                        height: DwindleKernelConstants.minimumDimension
+                    )
+                }
+
+                rawNodes[Int(index)] = omniwm_dwindle_node_input(
+                    first_child_index: -1,
+                    second_child_index: -1,
+                    split_ratio: 1.0,
+                    min_width: minimumSize.width,
+                    min_height: minimumSize.height,
+                    kind: UInt32(OMNIWM_DWINDLE_NODE_KIND_LEAF),
+                    orientation: UInt32(OMNIWM_DWINDLE_ORIENTATION_HORIZONTAL),
+                    has_window: handle == nil ? 0 : 1,
+                    fullscreen: fullscreen ? 1 : 0
+                )
+            }
+
+            return index
         }
 
-        return output
+        return DwindleKernelSnapshot(
+            rootIndex: append(root),
+            nodes: nodes,
+            rawNodes: rawNodes
+        )
+    }
+
+    private func makeKernelInput(
+        rootIndex: Int32,
+        screen: CGRect
+    ) -> omniwm_dwindle_layout_input {
+        omniwm_dwindle_layout_input(
+            root_index: rootIndex,
+            screen_x: screen.minX,
+            screen_y: screen.minY,
+            screen_width: screen.width,
+            screen_height: screen.height,
+            inner_gap: settings.innerGap,
+            outer_gap_top: settings.outerGapTop,
+            outer_gap_bottom: settings.outerGapBottom,
+            outer_gap_left: settings.outerGapLeft,
+            outer_gap_right: settings.outerGapRight,
+            single_window_aspect_width: settings.singleWindowAspectRatio.width,
+            single_window_aspect_height: settings.singleWindowAspectRatio.height,
+            single_window_aspect_tolerance: settings.singleWindowAspectRatioTolerance,
+            minimum_dimension: DwindleKernelConstants.minimumDimension,
+            gap_sticks_tolerance: DwindleKernelConstants.gapSticksTolerance,
+            split_ratio_min: DwindleKernelConstants.splitRatioMin,
+            split_ratio_max: DwindleKernelConstants.splitRatioMax,
+            split_fraction_divisor: DwindleKernelConstants.splitFractionDivisor,
+            split_fraction_min: DwindleKernelConstants.splitFractionMin,
+            split_fraction_max: DwindleKernelConstants.splitFractionMax
+        )
+    }
+
+    private func applyKernelFrames(
+        _ rawFrames: ContiguousArray<omniwm_dwindle_node_frame>,
+        snapshot: DwindleKernelSnapshot,
+        windowCount: Int
+    ) -> [WindowToken: CGRect] {
+        var frames: [WindowToken: CGRect] = [:]
+        frames.reserveCapacity(windowCount)
+
+        for (index, node) in snapshot.nodes.enumerated() {
+            let rawFrame = rawFrames[index]
+            guard rawFrame.has_frame != 0 else { continue }
+
+            let frame = CGRect(
+                x: rawFrame.x,
+                y: rawFrame.y,
+                width: rawFrame.width,
+                height: rawFrame.height
+            )
+            node.cachedFrame = frame
+
+            if case let .leaf(handle, _) = node.kind, let handle {
+                frames[handle] = frame
+            }
+        }
+
+        return frames
     }
 
     func currentFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect] {
@@ -502,189 +657,6 @@ final class DwindleLayoutEngine {
             y: frame.origin.y + offset.y,
             width: frame.width + sizeOffset.width,
             height: frame.height + sizeOffset.height
-        )
-    }
-
-    private func calculateLayoutRecursive(
-        node: DwindleNode,
-        rect: CGRect,
-        tilingArea: CGRect,
-        output: inout [WindowToken: CGRect]
-    ) {
-        switch node.kind {
-        case let .leaf(handle, fullscreen):
-            guard let handle else { return }
-
-            let target: CGRect
-            if fullscreen {
-                target = tilingArea
-            } else {
-                target = DwindleGapCalculator.applyGaps(
-                    nodeRect: rect,
-                    tilingArea: tilingArea,
-                    settings: settings
-                )
-            }
-            output[handle] = target
-            node.cachedFrame = target
-
-        case let .split(orientation, ratio):
-            node.cachedFrame = rect
-
-            let firstMin: CGSize
-            let secondMin: CGSize
-
-            if let first = node.firstChild() {
-                firstMin = computeMinSizeForSubtree(first)
-            } else {
-                firstMin = CGSize(width: 1, height: 1)
-            }
-
-            if let second = node.secondChild() {
-                secondMin = computeMinSizeForSubtree(second)
-            } else {
-                secondMin = CGSize(width: 1, height: 1)
-            }
-
-            let (r1, r2) = splitRect(
-                rect,
-                orientation: orientation,
-                ratio: ratio,
-                firstMinSize: firstMin,
-                secondMinSize: secondMin
-            )
-
-            if let first = node.firstChild() {
-                calculateLayoutRecursive(node: first, rect: r1, tilingArea: tilingArea, output: &output)
-            }
-            if let second = node.secondChild() {
-                calculateLayoutRecursive(node: second, rect: r2, tilingArea: tilingArea, output: &output)
-            }
-        }
-    }
-
-    private func computeMinSizeForSubtree(_ node: DwindleNode) -> CGSize {
-        if let cached = node.cachedMinSize {
-            return cached
-        }
-
-        let result: CGSize
-        switch node.kind {
-        case let .leaf(handle, _):
-            if let handle {
-                let c = constraints(for: handle)
-                result = c.minSize
-            } else {
-                result = CGSize(width: 1, height: 1)
-            }
-
-        case let .split(orientation, _):
-            guard let first = node.firstChild(), let second = node.secondChild() else {
-                result = CGSize(width: 1, height: 1)
-                break
-            }
-
-            let firstMin = computeMinSizeForSubtree(first)
-            let secondMin = computeMinSizeForSubtree(second)
-
-            switch orientation {
-            case .horizontal:
-                result = CGSize(
-                    width: firstMin.width + secondMin.width,
-                    height: max(firstMin.height, secondMin.height)
-                )
-            case .vertical:
-                result = CGSize(
-                    width: max(firstMin.width, secondMin.width),
-                    height: firstMin.height + secondMin.height
-                )
-            }
-        }
-
-        node.cachedMinSize = result
-        return result
-    }
-
-    private func invalidateMinSizeCache(for workspaceId: WorkspaceDescriptor.ID) {
-        guard let root = roots[workspaceId] else { return }
-        invalidateMinSizeCacheRecursive(root)
-    }
-
-    private func invalidateMinSizeCacheRecursive(_ node: DwindleNode) {
-        node.cachedMinSize = nil
-        for child in node.children {
-            invalidateMinSizeCacheRecursive(child)
-        }
-    }
-
-    private func splitRect(
-        _ rect: CGRect,
-        orientation: DwindleOrientation,
-        ratio: CGFloat,
-        firstMinSize: CGSize,
-        secondMinSize: CGSize
-    ) -> (CGRect, CGRect) {
-        var fraction = settings.ratioToFraction(ratio)
-
-        switch orientation {
-        case .horizontal:
-            let totalMin = firstMinSize.width + secondMinSize.width
-            if totalMin > rect.width {
-                let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.width / totalMinClamped
-            } else {
-                let minFraction = firstMinSize.width / rect.width
-                let maxFraction = (rect.width - secondMinSize.width) / rect.width
-                fraction = max(minFraction, min(maxFraction, fraction))
-            }
-
-            let firstW = rect.width * fraction
-            let secondW = rect.width - firstW
-            let r1 = CGRect(x: rect.minX, y: rect.minY, width: firstW, height: rect.height)
-            let r2 = CGRect(x: rect.minX + firstW, y: rect.minY, width: secondW, height: rect.height)
-            return (r1, r2)
-
-        case .vertical:
-            let totalMin = firstMinSize.height + secondMinSize.height
-            if totalMin > rect.height {
-                let totalMinClamped = max(totalMin, 1)
-                fraction = firstMinSize.height / totalMinClamped
-            } else {
-                let minFraction = firstMinSize.height / rect.height
-                let maxFraction = (rect.height - secondMinSize.height) / rect.height
-                fraction = max(minFraction, min(maxFraction, fraction))
-            }
-
-            let firstH = rect.height * fraction
-            let secondH = rect.height - firstH
-            let r1 = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: firstH)
-            let r2 = CGRect(x: rect.minX, y: rect.minY + firstH, width: rect.width, height: secondH)
-            return (r1, r2)
-        }
-    }
-
-    private func singleWindowRect(screen: CGRect) -> CGRect {
-        let targetRatio = settings.singleWindowAspectRatio.width / settings.singleWindowAspectRatio.height
-        let currentRatio = screen.width / screen.height
-
-        if abs(targetRatio - currentRatio) < settings.singleWindowAspectRatioTolerance {
-            return screen
-        }
-
-        var width = screen.width
-        var height = screen.height
-
-        if currentRatio > targetRatio {
-            width = height * targetRatio
-        } else {
-            height = width / targetRatio
-        }
-
-        return CGRect(
-            x: screen.minX + (screen.width - width) / 2,
-            y: screen.minY + (screen.height - height) / 2,
-            width: width,
-            height: height
         )
     }
 
@@ -818,7 +790,8 @@ final class DwindleLayoutEngine {
 
     func moveFocus(direction: Direction, in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
         guard let current = selectedNode(in: workspaceId),
-              let currentHandle = current.windowToken else {
+              let currentHandle = current.windowToken
+        else {
             if let root = roots[workspaceId] {
                 let firstLeaf = root.descendToFirstLeaf()
                 selectedNodeId[workspaceId] = firstLeaf.id
@@ -847,7 +820,8 @@ final class DwindleLayoutEngine {
               let ch = currentHandle,
               let neighborHandle = findGeometricNeighbor(from: ch, direction: direction, in: workspaceId),
               let neighbor = findNode(for: neighborHandle),
-              case let .leaf(nh, neighborFullscreen) = neighbor.kind else {
+              case let .leaf(nh, neighborFullscreen) = neighbor.kind
+        else {
             return false
         }
 
@@ -881,7 +855,8 @@ final class DwindleLayoutEngine {
     func toggleOrientation(in workspaceId: WorkspaceDescriptor.ID) {
         guard let selected = selectedNode(in: workspaceId),
               let parent = selected.parent,
-              case let .split(orientation, ratio) = parent.kind else {
+              case let .split(orientation, ratio) = parent.kind
+        else {
             return
         }
 
@@ -890,7 +865,8 @@ final class DwindleLayoutEngine {
 
     func toggleFullscreen(in workspaceId: WorkspaceDescriptor.ID) -> WindowToken? {
         guard let selected = selectedNode(in: workspaceId),
-              case let .leaf(handle, fullscreen) = selected.kind else {
+              case let .leaf(handle, fullscreen) = selected.kind
+        else {
             return nil
         }
 
@@ -987,7 +963,8 @@ final class DwindleLayoutEngine {
         }
 
         if stable, root.children.count == 2,
-           let newFirst = root.firstChild() {
+           let newFirst = root.firstChild()
+        {
             newFirst.detach()
             root.appendChild(newFirst)
         }
@@ -1062,11 +1039,10 @@ final class DwindleLayoutEngine {
             abs($0.element - currentRatio) < abs($1.element - currentRatio)
         })?.offset ?? 1
 
-        let newIndex: Int
-        if forward {
-            newIndex = (currentIndex + 1) % presets.count
+        let newIndex: Int = if forward {
+            (currentIndex + 1) % presets.count
         } else {
-            newIndex = (currentIndex - 1 + presets.count) % presets.count
+            (currentIndex - 1 + presets.count) % presets.count
         }
 
         parent.kind = .split(orientation: orientation, ratio: presets[newIndex])
@@ -1107,9 +1083,9 @@ final class DwindleLayoutEngine {
                   let node = tokenToNode[handle] else { continue }
 
             let changed = abs(oldFrame.origin.x - newFrame.origin.x) > 0.5 ||
-                          abs(oldFrame.origin.y - newFrame.origin.y) > 0.5 ||
-                          abs(oldFrame.width - newFrame.width) > 0.5 ||
-                          abs(oldFrame.height - newFrame.height) > 0.5
+                abs(oldFrame.origin.y - newFrame.origin.y) > 0.5 ||
+                abs(oldFrame.width - newFrame.width) > 0.5 ||
+                abs(oldFrame.height - newFrame.height) > 0.5
 
             if changed {
                 node.animateFrom(
@@ -1125,7 +1101,7 @@ final class DwindleLayoutEngine {
 
     func calculateAnimatedFrames(
         baseFrames: [WindowToken: CGRect],
-        in workspaceId: WorkspaceDescriptor.ID,
+        in _: WorkspaceDescriptor.ID,
         at time: TimeInterval
     ) -> [WindowToken: CGRect] {
         var result = baseFrames
@@ -1136,7 +1112,7 @@ final class DwindleLayoutEngine {
             let sizeOffset = node.renderSizeOffset(at: time)
 
             let hasAnimation = abs(posOffset.x) > 0.1 || abs(posOffset.y) > 0.1 ||
-                              abs(sizeOffset.width) > 0.1 || abs(sizeOffset.height) > 0.1
+                abs(sizeOffset.width) > 0.1 || abs(sizeOffset.height) > 0.1
 
             if hasAnimation {
                 result[handle] = CGRect(

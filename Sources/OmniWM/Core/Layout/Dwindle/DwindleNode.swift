@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import QuartzCore
 
 typealias DwindleNodeId = UUID
@@ -20,14 +20,14 @@ extension Direction {
     var dwindleOrientation: DwindleOrientation {
         switch self {
         case .left, .right: .horizontal
-        case .up, .down: .vertical
+        case .down, .up: .vertical
         }
     }
 
     var isPositive: Bool {
         switch self {
         case .right, .up: true
-        case .left, .down: false
+        case .down, .left: false
         }
     }
 }
@@ -43,8 +43,6 @@ final class DwindleNode {
     var children: [DwindleNode] = []
     var kind: DwindleNodeKind
     var cachedFrame: CGRect?
-
-    var cachedMinSize: CGSize?
 
     var moveXAnimation: CubicMoveAnimation?
     var moveYAnimation: CubicMoveAnimation?
@@ -86,8 +84,13 @@ final class DwindleNode {
         return nil
     }
 
-    func firstChild() -> DwindleNode? { children.first }
-    func secondChild() -> DwindleNode? { children.count > 1 ? children[1] : nil }
+    func firstChild() -> DwindleNode? {
+        children.first
+    }
+
+    func secondChild() -> DwindleNode? {
+        children.count > 1 ? children[1] : nil
+    }
 
     func detach() {
         parent?.children.removeAll { $0.id == self.id }
@@ -140,7 +143,7 @@ final class DwindleNode {
     func insertBefore(_ sibling: DwindleNode) {
         guard let parent = sibling.parent,
               let index = parent.children.firstIndex(where: { $0.id == sibling.id }) else { return }
-        self.detach()
+        detach()
         self.parent = parent
         parent.children.insert(self, at: index)
     }
@@ -148,7 +151,7 @@ final class DwindleNode {
     func insertAfter(_ sibling: DwindleNode) {
         guard let parent = sibling.parent,
               let index = parent.children.firstIndex(where: { $0.id == sibling.id }) else { return }
-        self.detach()
+        detach()
         self.parent = parent
         parent.children.insert(self, at: index + 1)
     }
@@ -170,7 +173,7 @@ final class DwindleNode {
     }
 
     func collectAllWindows() -> [WindowToken] {
-        collectAllLeaves().compactMap { $0.windowToken }
+        collectAllLeaves().compactMap(\.windowToken)
     }
 
     func animateFrom(

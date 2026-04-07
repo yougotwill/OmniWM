@@ -1,10 +1,9 @@
 import ApplicationServices
 import CoreGraphics
 import Foundation
+@testable import OmniWM
 import QuartzCore
 import Testing
-
-@testable import OmniWM
 
 private func hasDwindleAnimationDirective(
     _ directives: [AnimationDirective],
@@ -60,6 +59,17 @@ private func warmReferenceDwindleImportForEngineTests(
     )
 }
 
+private func makeDwindleTestToken(_ windowId: Int, pid: pid_t = 999) -> WindowToken {
+    WindowToken(pid: pid, windowId: windowId)
+}
+
+private func makeDwindleLeaf(
+    _ token: WindowToken? = nil,
+    fullscreen: Bool = false
+) -> DwindleNode {
+    DwindleNode(kind: .leaf(handle: token, fullscreen: fullscreen))
+}
+
 @MainActor
 private func configureWorkspaceAsDwindle(
     on controller: WMController,
@@ -99,8 +109,326 @@ private func configureWorkspacesAsDwindle(
     controller.settings.workspaceConfigurations = configurations
 }
 
-@Suite struct DwindleLayoutEngineTests {
-    @Test func syncWindowsKeepsStableNodeForReobservedToken() {
+struct DwindleLayoutEngineTests {
+    @Test func `empty workspace returns no frames`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+
+        #expect(engine.calculateLayout(for: wsId, screen: screen).isEmpty)
+
+        let placeholderRoot = engine.ensureRoot(for: wsId)
+        #expect(engine.calculateLayout(for: wsId, screen: screen).isEmpty)
+        #expect(placeholderRoot.cachedFrame == nil)
+    }
+
+    @Test func `single window applies outer gaps before aspect ratio`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let token = makeDwindleTestToken(1001)
+        let root = engine.ensureRoot(for: wsId)
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+        root.kind = .leaf(handle: token, fullscreen: false)
+        engine.settings.singleWindowAspectRatio = CGSize(width: 4, height: 3)
+        engine.settings.singleWindowAspectRatioTolerance = 0.1
+        engine.settings.outerGapTop = 50
+        engine.settings.outerGapBottom = 50
+        engine.settings.outerGapLeft = 100
+        engine.settings.outerGapRight = 100
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+        let expected = CGRect(x: 200, y: 50, width: 1200, height: 900)
+
+        #expect(frames[token] == expected)
+        #expect(root.cachedFrame == expected)
+    }
+
+    @Test func `single window tolerance keeps full tiling area when aspect is close enough`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let token = makeDwindleTestToken(1002)
+        let root = engine.ensureRoot(for: wsId)
+        let screen = CGRect(x: 0, y: 0, width: 1340, height: 1000)
+
+        root.kind = .leaf(handle: token, fullscreen: false)
+        engine.settings.singleWindowAspectRatio = CGSize(width: 4, height: 3)
+        engine.settings.singleWindowAspectRatioTolerance = 0.01
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+
+        #expect(frames[token] == screen)
+        #expect(root.cachedFrame == screen)
+    }
+
+    @Test func `single window fill mode uses entire tiling area`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let token = makeDwindleTestToken(1017)
+        let root = engine.ensureRoot(for: wsId)
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+        root.kind = .leaf(handle: token, fullscreen: false)
+        engine.settings.singleWindowAspectRatio = DwindleSingleWindowAspectRatio.fill.size
+        engine.settings.outerGapTop = 10
+        engine.settings.outerGapBottom = 30
+        engine.settings.outerGapLeft = 20
+        engine.settings.outerGapRight = 40
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+        let expected = CGRect(x: 20, y: 30, width: 1540, height: 960)
+
+        #expect(frames[token] == expected)
+        #expect(root.cachedFrame == expected)
+    }
+
+    @Test func `single fullscreen window uses full screen rect`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let token = makeDwindleTestToken(1003)
+        let root = engine.ensureRoot(for: wsId)
+        let screen = CGRect(x: 10, y: 20, width: 1280, height: 720)
+
+        root.kind = .leaf(handle: token, fullscreen: true)
+        engine.settings.outerGapTop = 30
+        engine.settings.outerGapBottom = 40
+        engine.settings.outerGapLeft = 50
+        engine.settings.outerGapRight = 60
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+
+        #expect(frames[token] == screen)
+        #expect(root.cachedFrame == screen)
+    }
+
+    @Test func `fullscreen leaf in multi window layout uses tiling area`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let coveredToken = makeDwindleTestToken(1018)
+        let fullscreenToken = makeDwindleTestToken(1019)
+        let coveredLeaf = makeDwindleLeaf(coveredToken)
+        let fullscreenLeaf = makeDwindleLeaf(fullscreenToken, fullscreen: true)
+        let root = engine.ensureRoot(for: wsId)
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 500)
+        let tilingArea = CGRect(x: 30, y: 20, width: 930, height: 470)
+
+        root.kind = .split(orientation: .horizontal, ratio: 1.0)
+        root.replaceChildren(first: coveredLeaf, second: fullscreenLeaf)
+        engine.settings.innerGap = 10
+        engine.settings.outerGapTop = 10
+        engine.settings.outerGapBottom = 20
+        engine.settings.outerGapLeft = 30
+        engine.settings.outerGapRight = 40
+
+        let frames = engine.calculateLayout(for: wsId, screen: screen)
+
+        #expect(root.cachedFrame == tilingArea)
+        #expect(coveredLeaf.cachedFrame == CGRect(x: 60, y: 40, width: 430, height: 440))
+        #expect(fullscreenLeaf.cachedFrame == tilingArea)
+        #expect(frames[coveredToken] == coveredLeaf.cachedFrame)
+        #expect(frames[fullscreenToken] == fullscreenLeaf.cachedFrame)
+    }
+
+    @Test func `horizontal split applies inner gaps and caches split frames`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let leftToken = makeDwindleTestToken(1004)
+        let rightToken = makeDwindleTestToken(1005)
+        let leftLeaf = makeDwindleLeaf(leftToken)
+        let rightLeaf = makeDwindleLeaf(rightToken)
+        let root = engine.ensureRoot(for: wsId)
+
+        root.kind = .split(orientation: .horizontal, ratio: 1.0)
+        root.replaceChildren(first: leftLeaf, second: rightLeaf)
+        engine.settings.innerGap = 10
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1000, height: 500)
+        )
+
+        #expect(root.cachedFrame == CGRect(x: 0, y: 0, width: 1000, height: 500))
+        #expect(leftLeaf.cachedFrame == CGRect(x: 0, y: 0, width: 495, height: 500))
+        #expect(rightLeaf.cachedFrame == CGRect(x: 505, y: 0, width: 495, height: 500))
+        #expect(frames[leftToken] == leftLeaf.cachedFrame)
+        #expect(frames[rightToken] == rightLeaf.cachedFrame)
+    }
+
+    @Test func `vertical split applies inner gaps`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let bottomToken = makeDwindleTestToken(1006)
+        let topToken = makeDwindleTestToken(1007)
+        let bottomLeaf = makeDwindleLeaf(bottomToken)
+        let topLeaf = makeDwindleLeaf(topToken)
+        let root = engine.ensureRoot(for: wsId)
+
+        root.kind = .split(orientation: .vertical, ratio: 1.0)
+        root.replaceChildren(first: bottomLeaf, second: topLeaf)
+        engine.settings.innerGap = 10
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+
+        #expect(bottomLeaf.cachedFrame == CGRect(x: 0, y: 0, width: 1000, height: 395))
+        #expect(topLeaf.cachedFrame == CGRect(x: 0, y: 405, width: 1000, height: 395))
+        #expect(frames[bottomToken] == bottomLeaf.cachedFrame)
+        #expect(frames[topToken] == topLeaf.cachedFrame)
+    }
+
+    @Test func `split ratio clamps using aggregated subtree min sizes`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let firstToken = makeDwindleTestToken(1008)
+        let secondToken = makeDwindleTestToken(1009)
+        let thirdToken = makeDwindleTestToken(1010)
+        let firstLeaf = makeDwindleLeaf(firstToken)
+        let secondLeaf = makeDwindleLeaf(secondToken)
+        let thirdLeaf = makeDwindleLeaf(thirdToken)
+        let leftSubtree = DwindleNode(kind: .split(orientation: .vertical, ratio: 1.0))
+        let root = engine.ensureRoot(for: wsId)
+
+        leftSubtree.replaceChildren(first: firstLeaf, second: secondLeaf)
+        root.kind = .split(orientation: .horizontal, ratio: 0.3)
+        root.replaceChildren(first: leftSubtree, second: thirdLeaf)
+        engine.settings.innerGap = 0
+
+        engine.updateWindowConstraints(
+            for: firstToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 300, height: 200), maxSize: .zero, isFixed: false)
+        )
+        engine.updateWindowConstraints(
+            for: secondToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 100, height: 400), maxSize: .zero, isFixed: false)
+        )
+        engine.updateWindowConstraints(
+            for: thirdToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 200, height: 100), maxSize: .zero, isFixed: false)
+        )
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 700, height: 800)
+        )
+
+        #expect(leftSubtree.cachedFrame == CGRect(x: 0, y: 0, width: 300, height: 800))
+        #expect(frames[firstToken] == CGRect(x: 0, y: 0, width: 300, height: 400))
+        #expect(frames[secondToken] == CGRect(x: 0, y: 400, width: 300, height: 400))
+        #expect(frames[thirdToken] == CGRect(x: 300, y: 0, width: 400, height: 800))
+    }
+
+    @Test func `split ratio uses min size fraction when total minimum exceeds available space`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let firstToken = makeDwindleTestToken(1011)
+        let secondToken = makeDwindleTestToken(1012)
+        let firstLeaf = makeDwindleLeaf(firstToken)
+        let secondLeaf = makeDwindleLeaf(secondToken)
+        let root = engine.ensureRoot(for: wsId)
+
+        root.kind = .split(orientation: .horizontal, ratio: 1.0)
+        root.replaceChildren(first: firstLeaf, second: secondLeaf)
+        engine.settings.innerGap = 0
+        engine.updateWindowConstraints(
+            for: firstToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 500, height: 1), maxSize: .zero, isFixed: false)
+        )
+        engine.updateWindowConstraints(
+            for: secondToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 300, height: 1), maxSize: .zero, isFixed: false)
+        )
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 600, height: 200)
+        )
+
+        #expect(frames[firstToken] == CGRect(x: 0, y: 0, width: 375, height: 200))
+        #expect(frames[secondToken] == CGRect(x: 375, y: 0, width: 225, height: 200))
+    }
+
+    @Test func `placeholder leaf uses fallback min size without producing output frame`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let firstToken = makeDwindleTestToken(1013)
+        let secondToken = makeDwindleTestToken(1014)
+        let placeholder = makeDwindleLeaf(nil)
+        let firstLeaf = makeDwindleLeaf(firstToken)
+        let secondLeaf = makeDwindleLeaf(secondToken)
+        let rightSubtree = DwindleNode(kind: .split(orientation: .horizontal, ratio: 1.0))
+        let root = engine.ensureRoot(for: wsId)
+
+        rightSubtree.replaceChildren(first: firstLeaf, second: secondLeaf)
+        root.kind = .split(orientation: .vertical, ratio: 1.0)
+        root.replaceChildren(first: placeholder, second: rightSubtree)
+        engine.settings.innerGap = 0
+
+        engine.updateWindowConstraints(
+            for: firstToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 100, height: 400), maxSize: .zero, isFixed: false)
+        )
+        engine.updateWindowConstraints(
+            for: secondToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 100, height: 400), maxSize: .zero, isFixed: false)
+        )
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 400, height: 200)
+        )
+
+        #expect(frames.count == 2)
+        #expect(placeholder.cachedFrame == nil)
+        #expect(abs((rightSubtree.cachedFrame?.height ?? 0) - (200 * (CGFloat(400) / 401))) < 0.001)
+        let expectedY = CGFloat(200) / 401
+        let expectedHeight = 200 * (CGFloat(400) / 401)
+        #expect(abs((frames[firstToken]?.minY ?? 0) - expectedY) < 0.001)
+        #expect(abs((frames[firstToken]?.height ?? 0) - expectedHeight) < 0.001)
+        #expect(abs((frames[secondToken]?.minY ?? 0) - expectedY) < 0.001)
+        #expect(abs((frames[secondToken]?.height ?? 0) - expectedHeight) < 0.001)
+        #expect(frames[firstToken]?.width == 200)
+        #expect(frames[secondToken]?.width == 200)
+    }
+
+    @Test func `missing child uses fallback min size during split clamping`() {
+        let engine = DwindleLayoutEngine()
+        let wsId = UUID()
+        let firstToken = makeDwindleTestToken(1015)
+        let secondToken = makeDwindleTestToken(1016)
+        let firstLeaf = makeDwindleLeaf(firstToken)
+        let secondLeaf = makeDwindleLeaf(secondToken)
+        let firstSubtree = DwindleNode(kind: .split(orientation: .horizontal, ratio: 1.0))
+        let root = engine.ensureRoot(for: wsId)
+
+        firstSubtree.replaceChildren(first: firstLeaf, second: secondLeaf)
+        root.kind = .split(orientation: .vertical, ratio: 1.0)
+        root.children = [firstSubtree]
+        firstSubtree.parent = root
+        engine.settings.innerGap = 0
+
+        engine.updateWindowConstraints(
+            for: firstToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 100, height: 500), maxSize: .zero, isFixed: false)
+        )
+        engine.updateWindowConstraints(
+            for: secondToken,
+            constraints: WindowSizeConstraints(minSize: CGSize(width: 100, height: 500), maxSize: .zero, isFixed: false)
+        )
+
+        let frames = engine.calculateLayout(
+            for: wsId,
+            screen: CGRect(x: 0, y: 0, width: 600, height: 300)
+        )
+
+        #expect(root.cachedFrame == CGRect(x: 0, y: 0, width: 600, height: 300))
+        #expect(abs((firstSubtree.cachedFrame?.height ?? 0) - (300 * (CGFloat(500) / 501))) < 0.001)
+        #expect(frames[firstToken] == CGRect(x: 0, y: 0, width: 300, height: 300 * (CGFloat(500) / 501)))
+        #expect(frames[secondToken] == CGRect(x: 300, y: 0, width: 300, height: 300 * (CGFloat(500) / 501)))
+    }
+
+    @Test func `sync windows keeps stable node for reobserved token`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
 
@@ -120,7 +448,7 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.findNode(for: refreshed.id)?.id == originalNodeId)
     }
 
-    @Test func rekeyWindowKeepsLeafStableAcrossSync() {
+    @Test func `rekey window keeps leaf stable across sync`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
 
@@ -141,7 +469,7 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.findNode(for: replacementToken)?.id == originalNodeId)
     }
 
-    @Test func layoutAndFrameCachesUseStableTokens() {
+    @Test func `layout and frame caches use stable tokens`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let handle1 = makeTestHandle(pid: 41)
@@ -168,7 +496,7 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.findNode(for: handle2.id) == nil)
     }
 
-    @Test func syncWindowsPreservesCallerOrderForFreshLayouts() {
+    @Test func `sync windows preserves caller order for fresh layouts`() {
         let forwardEngine = DwindleLayoutEngine()
         let reverseEngine = DwindleLayoutEngine()
         let wsId = UUID()
@@ -199,7 +527,7 @@ private func configureWorkspacesAsDwindle(
         #expect(forwardFrames != reverseFrames)
     }
 
-    @Test func coldBootstrapSyncMatchesWarmIncrementalReference() {
+    @Test func `cold bootstrap sync matches warm incremental reference`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let handles = [
@@ -240,7 +568,7 @@ private func configureWorkspacesAsDwindle(
         #expect(coldFrames == warmReference.frames)
     }
 
-    @Test func selectionSurvivesSiblingCollapseAfterRemoval() {
+    @Test func `selection survives sibling collapse after removal`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let left = makeTestHandle(pid: 81)
@@ -259,14 +587,14 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.toggleFullscreen(in: wsId) == right.id)
     }
 
-    @Test func focusHitTestMissesEmptyWorkspace() {
+    @Test func `focus hit test misses empty workspace`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
 
         #expect(engine.hitTestFocusableWindow(point: .zero, in: wsId, at: CACurrentMediaTime()) == nil)
     }
 
-    @Test func focusHitTestReturnsMatchingLeaf() {
+    @Test func `focus hit test returns matching leaf`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let firstHandle = makeTestHandle(pid: 51)
@@ -292,7 +620,7 @@ private func configureWorkspacesAsDwindle(
         )
     }
 
-    @Test func focusHitTestPrefersFullscreenWindowOverCoveredTile() {
+    @Test func `focus hit test prefers fullscreen window over covered tile`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let coveredHandle = makeTestHandle(pid: 61)
@@ -336,7 +664,7 @@ private func configureWorkspacesAsDwindle(
         )
     }
 
-    @Test func focusHitTestUsesPresentedFrameDuringAnimation() {
+    @Test func `focus hit test uses presented frame during animation`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let handle = makeTestHandle(pid: 71)
@@ -373,7 +701,7 @@ private func configureWorkspacesAsDwindle(
         )
     }
 
-    @Test @MainActor func steadyRelayoutPlanUsesTokensWithoutVisibilityDiffs() async throws {
+    @Test @MainActor func `steady relayout plan uses tokens without visibility diffs`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -402,7 +730,7 @@ private func configureWorkspacesAsDwindle(
         #expect(plan.diff.visibilityChanges.isEmpty)
     }
 
-    @Test @MainActor func relayoutPlanStartsAnimationWhenFramesChange() async throws {
+    @Test @MainActor func `relayout plan starts animation when frames change`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -440,7 +768,7 @@ private func configureWorkspacesAsDwindle(
         #expect(plan.diff.visibilityChanges.isEmpty)
     }
 
-    @Test @MainActor func activeAnimationTickReappliesFocusedBorder() async throws {
+    @Test @MainActor func `active animation tick reapplies focused border`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -482,7 +810,7 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 703)
     }
 
-    @Test @MainActor func fullscreenRelayoutSuppressesFocusedBorder() async throws {
+    @Test @MainActor func `fullscreen relayout suppresses focused border`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -527,7 +855,7 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderFrameForLayoutPlanTests(on: controller) == nil)
     }
 
-    @Test @MainActor func activeAnimationTickKeepsBorderHiddenDuringPreservedNonManagedFocus() async throws {
+    @Test @MainActor func `active animation tick keeps border hidden during preserved non managed focus`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -575,7 +903,7 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == nil)
     }
 
-    @Test @MainActor func relayoutPlanUsesResolvedMonitorSettingsFromSnapshot() async throws {
+    @Test @MainActor func `relayout plan uses resolved monitor settings from snapshot`() async throws {
         let monitor = makeLayoutPlanTestMonitor(name: "SquareTest")
         let controller = makeLayoutPlanTestController(monitors: [monitor])
         guard let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -622,7 +950,7 @@ private func configureWorkspacesAsDwindle(
         #expect(abs(overrideFrame.width - overrideFrame.height) < 0.5)
     }
 
-    @Test @MainActor func nonFocusedWorkspacePlanDoesNotClearFocusedBorder() async throws {
+    @Test @MainActor func `non focused workspace plan does not clear focused border`() async throws {
         let fixture = makeTwoMonitorLayoutPlanTestController()
         let controller = fixture.controller
         controller.setBordersEnabled(true)
@@ -657,14 +985,15 @@ private func configureWorkspacesAsDwindle(
         #expect(lastAppliedBorderWindowIdForLayoutPlanTests(on: controller) == 901)
     }
 
-    @Test @MainActor func visibleSecondaryWorkspacePlanRestoresInactiveHiddenWindows() async throws {
+    @Test @MainActor func `visible secondary workspace plan restores inactive hidden windows`() async throws {
         let fixture = makeTwoMonitorLayoutPlanTestController()
         let controller = fixture.controller
         configureWorkspacesAsDwindle(
             on: controller,
             workspaceIds: [fixture.primaryWorkspaceId, fixture.secondaryWorkspaceId]
         )
-        guard controller.workspaceManager.monitor(for: fixture.secondaryWorkspaceId)?.id == fixture.secondaryMonitor.id else {
+        guard controller.workspaceManager.monitor(for: fixture.secondaryWorkspaceId)?.id == fixture.secondaryMonitor.id
+        else {
             Issue.record("Expected the secondary workspace to remain assigned to the visible secondary monitor")
             return
         }
@@ -693,7 +1022,7 @@ private func configureWorkspacesAsDwindle(
         #expect(secondaryPlan.diff.restoreChanges.contains { $0.token == token })
     }
 
-    @Test @MainActor func staleDwindleAnimationStopsBeforeRestoringInactiveWorkspaceWindows() async throws {
+    @Test @MainActor func `stale dwindle animation stops before restoring inactive workspace windows`() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let originalWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
@@ -734,7 +1063,7 @@ private func configureWorkspacesAsDwindle(
         #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true)
     }
 
-    @Test func summonWindowRightReinsertsWindowAsRightSibling() {
+    @Test func `summon window right reinserts window as right sibling`() {
         let engine = DwindleLayoutEngine()
         let wsId = UUID()
         let anchor = makeTestHandle(pid: 81)
@@ -764,7 +1093,7 @@ private func configureWorkspacesAsDwindle(
         #expect(engine.selectedNode(in: wsId)?.windowToken == summoned.id)
     }
 
-    @Test func preselectionAddsCrossWorkspaceWindowAsRightSibling() {
+    @Test func `preselection adds cross workspace window as right sibling`() {
         let engine = DwindleLayoutEngine()
         let targetWorkspaceId = UUID()
         let sourceWorkspaceId = UUID()

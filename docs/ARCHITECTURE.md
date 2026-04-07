@@ -502,7 +502,7 @@ Entries are indexed by both `WindowToken` and raw `windowId` for fast lookup fro
 
 Niri arranges windows in vertical columns that scroll horizontally, inspired by the [Niri](https://github.com/YaLTeR/niri) Wayland compositor.
 
-Three leaf kernels in this area now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, and monitor restore assignment matching. Their Swift counterparts remain thin wrappers so the surrounding layout engine, navigation, and AppKit-facing orchestration stay in Swift.
+Four leaf kernels now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, monitor restore assignment matching, and the Dwindle frame solver. Their Swift counterparts remain thin wrappers so the surrounding layout engine, navigation, and AppKit-facing orchestration stay in Swift.
 
 **Node Tree:**
 
@@ -562,6 +562,8 @@ The Niri directory is the largest subsystem. Files are organized by responsibili
 **Directory:** `Sources/OmniWM/Core/Layout/Dwindle/`
 
 Dwindle recursively divides screen space using binary splits, similar to bspwm.
+
+The Dwindle tree remains Swift-owned, but the pure frame solver now lives in the Zig kernel library behind a compact C ABI. Swift flattens the current workspace tree into a snapshot, calls one bulk solve, and writes the returned rects back into the existing nodes' `cachedFrame` values for hit-testing, animation, and focus consumers.
 
 **BSP Tree:**
 

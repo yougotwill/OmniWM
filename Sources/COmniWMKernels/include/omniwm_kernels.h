@@ -20,6 +20,16 @@ enum {
     OMNIWM_CENTER_FOCUSED_COLUMN_ON_OVERFLOW = 2,
 };
 
+enum {
+    OMNIWM_DWINDLE_NODE_KIND_SPLIT = 0,
+    OMNIWM_DWINDLE_NODE_KIND_LEAF = 1,
+};
+
+enum {
+    OMNIWM_DWINDLE_ORIENTATION_HORIZONTAL = 0,
+    OMNIWM_DWINDLE_ORIENTATION_VERTICAL = 1,
+};
+
 typedef struct {
     double weight;
     double min_constraint;
@@ -35,6 +45,49 @@ typedef struct {
     uint8_t was_constrained;
 } omniwm_axis_output;
 
+typedef struct {
+    int32_t root_index;
+    double screen_x;
+    double screen_y;
+    double screen_width;
+    double screen_height;
+    double inner_gap;
+    double outer_gap_top;
+    double outer_gap_bottom;
+    double outer_gap_left;
+    double outer_gap_right;
+    double single_window_aspect_width;
+    double single_window_aspect_height;
+    double single_window_aspect_tolerance;
+    double minimum_dimension;
+    double gap_sticks_tolerance;
+    double split_ratio_min;
+    double split_ratio_max;
+    double split_fraction_divisor;
+    double split_fraction_min;
+    double split_fraction_max;
+} omniwm_dwindle_layout_input;
+
+typedef struct {
+    int32_t first_child_index;
+    int32_t second_child_index;
+    double split_ratio;
+    double min_width;
+    double min_height;
+    uint32_t kind;
+    uint32_t orientation;
+    uint8_t has_window;
+    uint8_t fullscreen;
+} omniwm_dwindle_node_input;
+
+typedef struct {
+    double x;
+    double y;
+    double width;
+    double height;
+    uint8_t has_frame;
+} omniwm_dwindle_node_frame;
+
 int32_t omniwm_axis_solve(
     const omniwm_axis_input *inputs,
     size_t count,
@@ -42,6 +95,14 @@ int32_t omniwm_axis_solve(
     double gap_size,
     uint8_t is_tabbed,
     omniwm_axis_output *outputs
+);
+
+int32_t omniwm_dwindle_solve(
+    const omniwm_dwindle_layout_input *input,
+    const omniwm_dwindle_node_input *nodes,
+    size_t node_count,
+    omniwm_dwindle_node_frame *outputs,
+    size_t output_count
 );
 
 double omniwm_geometry_container_position(

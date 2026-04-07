@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 struct DwindleSettings {
     var defaultSplitRatio: CGFloat = 1.0
@@ -7,7 +7,7 @@ struct DwindleSettings {
     var smartSplit: Bool = true
     var resizeStep: CGFloat = 0.1
 
-    var singleWindowAspectRatio: CGSize = CGSize(width: 4, height: 3)
+    var singleWindowAspectRatio: CGSize = .init(width: 4, height: 3)
     var singleWindowAspectRatioTolerance: CGFloat = 0.1
 
     var innerGap: CGFloat = 8.0
@@ -18,10 +18,5 @@ struct DwindleSettings {
 
     func clampedRatio(_ ratio: CGFloat) -> CGFloat {
         min(max(ratio, 0.1), 1.9)
-    }
-
-    func ratioToFraction(_ ratio: CGFloat) -> CGFloat {
-        let clamped = clampedRatio(ratio)
-        return min(max(clamped / 2.0, 0.05), 0.95)
     }
 }
