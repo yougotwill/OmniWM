@@ -130,7 +130,7 @@ let package = Package(
         ),
         .testTarget(
             name: "OmniWMTests",
-            dependencies: ["OmniWM", "OmniWMIPC", "OmniWMCtl"],
+            dependencies: ["OmniWM", "OmniWMIPC", "OmniWMCtl", "COmniWMKernels"],
             path: "Tests/OmniWMTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)

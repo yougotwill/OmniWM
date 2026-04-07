@@ -502,7 +502,9 @@ Entries are indexed by both `WindowToken` and raw `windowId` for fast lookup fro
 
 Niri arranges windows in vertical columns that scroll horizontally, inspired by the [Niri](https://github.com/YaLTeR/niri) Wayland compositor.
 
-Four leaf kernels now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, monitor restore assignment matching, and the Dwindle frame solver. Their Swift counterparts remain thin wrappers so the surrounding layout engine, navigation, and AppKit-facing orchestration stay in Swift.
+Five leaf kernels now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, monitor restore assignment matching, the Niri bulk projection/layout solver, and the Dwindle frame solver. Their Swift counterparts remain thin wrappers so the surrounding layout engine, navigation, and AppKit-facing orchestration stay in Swift.
+
+The Niri tree stays Swift-owned. Swift resolves workspace selection, monitor ownership, viewport state, and AppKit policy, then flattens the current columns/windows into compact snapshot arrays for one `omniwm_niri_layout_solve` call. Zig owns the deterministic bulk projection math for canonical/rendered container rects, window frames, resolved spans, and hidden-edge classification before Swift applies those outputs back onto the existing nodes.
 
 **Node Tree:**
 

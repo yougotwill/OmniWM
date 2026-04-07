@@ -663,10 +663,6 @@ class NiriWindow: NiriNode {
 
     var resolvedWidth: CGFloat?
 
-    var heightFixedByConstraint: Bool = false
-
-    var widthFixedByConstraint: Bool = false
-
     var lastFocusedTime: Date?
 
     var isHiddenInTabbedMode: Bool = false

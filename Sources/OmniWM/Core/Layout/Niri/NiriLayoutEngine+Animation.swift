@@ -288,75 +288,33 @@ extension NiriLayoutEngine {
             )
         }
 
-        guard let windowNode = findNode(for: token),
-              let column = windowNode.parent as? NiriContainer,
-              let colIdx = columnIndex(of: column, in: workspaceId)
-        else { return nil }
+        var targetState = state
+        targetState.viewOffsetPixels = .static(state.viewOffsetPixels.target())
 
-        let cols = columns(in: workspaceId)
-        guard !cols.isEmpty else { return nil }
+        let orientation = monitorContaining(workspace: workspaceId)
+            .flatMap { monitor(for: $0)?.orientation } ?? .horizontal
 
-        for col in cols {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
-            }
+        guard let projection = projectKernelLayout(
+            state: targetState,
+            workspaceId: workspaceId,
+            workingArea: WorkingAreaContext(
+                workingFrame: workingFrame,
+                viewFrame: workingFrame,
+                scale: 1.0
+            ),
+            gaps: (horizontal: gaps, vertical: gaps),
+            orientation: orientation,
+            animationTime: 0,
+            workspaceOffset: 0,
+            includeRenderOffsets: false,
+            hiddenPlacementMonitor: nil,
+            hiddenPlacementMonitors: []
+        ),
+        let windowIndex = projection.snapshot.windows.firstIndex(where: { $0.token == token }) else {
+            return nil
         }
 
-        func columnX(at index: Int) -> CGFloat {
-            var x: CGFloat = 0
-            for i in 0 ..< index {
-                x += cols[i].cachedWidth + gaps
-            }
-            return x
-        }
-
-        let totalColumnsWidth = cols.reduce(0) { $0 + $1.cachedWidth } + CGFloat(max(0, cols.count - 1)) * gaps
-
-        let targetViewOffset = state.viewOffsetPixels.target()
-        let alwaysCenterSingleColumn = effectiveAlwaysCenterSingleColumn(in: workspaceId)
-
-        let centeringOffset: CGFloat = if totalColumnsWidth < workingFrame.width {
-            if alwaysCenterSingleColumn || cols.count == 1 {
-                (workingFrame.width - totalColumnsWidth) / 2
-            } else {
-                0
-            }
-        } else {
-            0
-        }
-
-        let colX = columnX(at: colIdx)
-        let screenX = workingFrame.origin.x + colX + targetViewOffset + centeringOffset
-
-        let tabOffset = column.isTabbed ? renderStyle.tabIndicatorWidth : 0
-        let contentY = workingFrame.origin.y
-        let availableHeight = workingFrame.height
-
-        let windowNodes = column.windowNodes
-        guard let windowIndex = windowNodes.firstIndex(where: { $0.token == token }) else { return nil }
-
-        let targetY: CGFloat
-        let targetHeight: CGFloat
-
-        if windowNodes.count == 1 || column.isTabbed {
-            targetY = contentY
-            targetHeight = availableHeight
-        } else {
-            var y = contentY
-            for i in 0 ..< windowIndex {
-                let h = windowNodes[i].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
-                y += h + gaps
-            }
-            targetY = y
-            targetHeight = windowNodes[windowIndex].resolvedHeight ?? (availableHeight / CGFloat(windowNodes.count))
-        }
-
-        return CGRect(
-            x: screenX + tabOffset,
-            y: targetY,
-            width: column.cachedWidth - tabOffset,
-            height: targetHeight
-        )
+        return projection.windowOutputs[windowIndex].renderedRect
     }
 
     func targetFrameForWindow(

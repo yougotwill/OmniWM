@@ -1,4 +1,5 @@
 import AppKit
+import COmniWMKernels
 import Foundation
 
 extension CGFloat {
@@ -39,14 +40,100 @@ struct LayoutResult {
     let hiddenHandles: [WindowToken: HideSide]
 }
 
-private enum ContainerVisibilityState {
-    case visible
-    case hidden(AxisHideEdge)
+private enum NiriKernelConstants {
+    static let singleWindowAspectTolerance: CGFloat = 0.001
 }
 
-private struct ContainerOverflowRegion {
-    let edge: AxisHideEdge
-    let rect: CGRect
+private extension Monitor.Orientation {
+    var niriKernelRawValue: UInt32 {
+        switch self {
+        case .horizontal:
+            UInt32(OMNIWM_NIRI_ORIENTATION_HORIZONTAL)
+        case .vertical:
+            UInt32(OMNIWM_NIRI_ORIENTATION_VERTICAL)
+        }
+    }
+}
+
+private extension SizingMode {
+    var niriKernelRawValue: UInt8 {
+        switch self {
+        case .normal:
+            UInt8(OMNIWM_NIRI_WINDOW_SIZING_NORMAL)
+        case .fullscreen:
+            UInt8(OMNIWM_NIRI_WINDOW_SIZING_FULLSCREEN)
+        }
+    }
+}
+
+private extension AxisHideEdge {
+    init?(kernelRawValue: UInt8) {
+        switch Int32(kernelRawValue) {
+        case Int32(OMNIWM_NIRI_HIDDEN_EDGE_MINIMUM):
+            self = .minimum
+        case Int32(OMNIWM_NIRI_HIDDEN_EDGE_MAXIMUM):
+            self = .maximum
+        case Int32(OMNIWM_NIRI_HIDDEN_EDGE_NONE):
+            return nil
+        default:
+            preconditionFailure("Unknown Niri hidden edge \(kernelRawValue)")
+        }
+    }
+}
+
+extension omniwm_niri_container_output {
+    var canonicalRect: CGRect {
+        CGRect(
+            x: canonical_x,
+            y: canonical_y,
+            width: canonical_width,
+            height: canonical_height
+        )
+    }
+
+    var renderedRect: CGRect {
+        CGRect(
+            x: rendered_x,
+            y: rendered_y,
+            width: rendered_width,
+            height: rendered_height
+        )
+    }
+}
+
+extension omniwm_niri_window_output {
+    var canonicalRect: CGRect {
+        CGRect(
+            x: canonical_x,
+            y: canonical_y,
+            width: canonical_width,
+            height: canonical_height
+        )
+    }
+
+    var renderedRect: CGRect {
+        CGRect(
+            x: rendered_x,
+            y: rendered_y,
+            width: rendered_width,
+            height: rendered_height
+        )
+    }
+}
+
+struct NiriLayoutKernelSnapshot {
+    let containers: [NiriContainer]
+    let windows: [NiriWindow]
+    let input: omniwm_niri_layout_input
+    let rawContainers: ContiguousArray<omniwm_niri_container_input>
+    let rawWindows: ContiguousArray<omniwm_niri_window_input>
+    let rawMonitors: ContiguousArray<omniwm_niri_hidden_placement_monitor>
+}
+
+struct NiriLayoutKernelProjection {
+    let snapshot: NiriLayoutKernelSnapshot
+    let containerOutputs: ContiguousArray<omniwm_niri_container_output>
+    let windowOutputs: ContiguousArray<omniwm_niri_window_output>
 }
 
 extension NiriLayoutEngine {
@@ -142,13 +229,116 @@ extension NiriLayoutEngine {
         hiddenPlacementMonitor: HiddenPlacementMonitorContext? = nil,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext] = []
     ) {
-        let containers = columns(in: workspaceId)
-        guard !containers.isEmpty else { return }
-
         let workingFrame = workingArea?.workingFrame ?? monitorFrame
         let viewFrame = workingArea?.viewFrame ?? screenFrame ?? monitorFrame
         let effectiveScale = workingArea?.scale ?? scale
+        let time = animationTime ?? CACurrentMediaTime()
+        let workspaceOffset = workspaceSwitchOffset(
+            workspaceId: workspaceId,
+            monitorFrame: monitorFrame,
+            time: time
+        )
 
+        guard let projection = projectKernelLayout(
+            state: state,
+            workspaceId: workspaceId,
+            workingArea: WorkingAreaContext(
+                workingFrame: workingFrame,
+                viewFrame: viewFrame,
+                scale: effectiveScale
+            ),
+            gaps: gaps,
+            orientation: orientation,
+            animationTime: time,
+            workspaceOffset: workspaceOffset,
+            includeRenderOffsets: true,
+            hiddenPlacementMonitor: hiddenPlacementMonitor,
+            hiddenPlacementMonitors: hiddenPlacementMonitors
+        ) else {
+            return
+        }
+
+        applyKernelProjection(
+            projection,
+            frames: &frames,
+            hiddenHandles: &hiddenHandles,
+            orientation: orientation
+        )
+    }
+
+    func projectKernelLayout(
+        state: ViewportState,
+        workspaceId: WorkspaceDescriptor.ID,
+        workingArea: WorkingAreaContext,
+        gaps: (horizontal: CGFloat, vertical: CGFloat),
+        orientation: Monitor.Orientation,
+        animationTime: TimeInterval,
+        workspaceOffset: CGFloat,
+        includeRenderOffsets: Bool,
+        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
+    ) -> NiriLayoutKernelProjection? {
+        let containers = columns(in: workspaceId)
+        guard !containers.isEmpty else { return nil }
+
+        if let singleWindowContext = singleWindowLayoutContext(in: workspaceId),
+           singleWindowContext.container.hasManualSingleWindowWidthOverride,
+           singleWindowContext.container.cachedWidth <= 0 {
+            singleWindowContext.container.resolveAndCacheWidth(
+                workingAreaWidth: workingArea.workingFrame.width,
+                gaps: gaps.horizontal
+            )
+        }
+
+        for container in containers {
+            switch orientation {
+            case .horizontal:
+                if container.cachedWidth <= 0 {
+                    container.resolveAndCacheWidth(
+                        workingAreaWidth: workingArea.workingFrame.width,
+                        gaps: gaps.horizontal
+                    )
+                }
+            case .vertical:
+                if container.cachedHeight <= 0 {
+                    container.resolveAndCacheHeight(
+                        workingAreaHeight: workingArea.workingFrame.height,
+                        gaps: gaps.vertical
+                    )
+                }
+            }
+        }
+
+        let snapshot = makeKernelSnapshot(
+            containers: containers,
+            singleWindowContext: singleWindowLayoutContext(in: workspaceId),
+            state: state,
+            workingArea: workingArea,
+            gaps: gaps,
+            orientation: orientation,
+            animationTime: animationTime,
+            workspaceOffset: workspaceOffset,
+            includeRenderOffsets: includeRenderOffsets,
+            hiddenPlacementMonitor: hiddenPlacementMonitor,
+            hiddenPlacementMonitors: hiddenPlacementMonitors
+        )
+
+        return solveKernelProjection(snapshot)
+    }
+
+    private func makeKernelSnapshot(
+        containers: [NiriContainer],
+        singleWindowContext: SingleWindowLayoutContext?,
+        state: ViewportState,
+        workingArea: WorkingAreaContext,
+        gaps: (horizontal: CGFloat, vertical: CGFloat),
+        orientation: Monitor.Orientation,
+        animationTime: TimeInterval,
+        workspaceOffset: CGFloat,
+        includeRenderOffsets: Bool,
+        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
+    ) -> NiriLayoutKernelSnapshot {
         let primaryGap: CGFloat
         let secondaryGap: CGFloat
         switch orientation {
@@ -160,483 +350,251 @@ extension NiriLayoutEngine {
             secondaryGap = gaps.horizontal
         }
 
-        let time = animationTime ?? CACurrentMediaTime()
-        let workspaceOffset = workspaceSwitchOffset(
-            workspaceId: workspaceId,
-            monitorFrame: monitorFrame,
-            time: time
-        )
-        let canonicalFullscreenRect = workingFrame.roundedToPhysicalPixels(scale: effectiveScale)
-        let renderedFullscreenRect = canonicalFullscreenRect
-            .offsetBy(dx: workspaceOffset, dy: 0)
-            .roundedToPhysicalPixels(scale: effectiveScale)
+        let hiddenPlacementMonitorIndex = hiddenPlacementMonitor.flatMap { targetMonitor in
+            hiddenPlacementMonitors.firstIndex { $0.id == targetMonitor.id }
+        } ?? -1
 
-        if let singleWindowContext = singleWindowLayoutContext(in: workspaceId) {
-            layoutSingleWindowWorkspace(
-                singleWindowContext,
-                workingFrame: workingFrame,
-                fullscreenRect: canonicalFullscreenRect,
-                renderedFullscreenRect: renderedFullscreenRect,
-                workspaceOffset: workspaceOffset,
-                scale: effectiveScale,
-                gaps: gaps.horizontal,
-                time: time,
-                result: &frames,
-                orientation: orientation
-            )
-            return
-        }
+        let totalWindowCount = containers.reduce(into: 0) { $0 += $1.windowNodes.count }
+
+        var windows: [NiriWindow] = []
+        windows.reserveCapacity(totalWindowCount)
+
+        var rawWindows = ContiguousArray<omniwm_niri_window_input>()
+        rawWindows.reserveCapacity(totalWindowCount)
+
+        var rawContainers = ContiguousArray<omniwm_niri_container_input>()
+        rawContainers.reserveCapacity(containers.count)
 
         for container in containers {
-            switch orientation {
-            case .horizontal:
-                if container.cachedWidth <= 0 {
-                    container.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: primaryGap)
-                }
-            case .vertical:
-                if container.cachedHeight <= 0 {
-                    container.resolveAndCacheHeight(workingAreaHeight: workingFrame.height, gaps: primaryGap)
-                }
+            let windowStartIndex = rawWindows.count
+            let renderOffset = includeRenderOffsets ? container.renderOffset(at: animationTime) : .zero
+            let windowNodes = container.windowNodes
+
+            for window in windowNodes {
+                windows.append(window)
+                rawWindows.append(makeKernelWindowInput(
+                    for: window,
+                    orientation: orientation,
+                    renderOffset: includeRenderOffsets ? window.renderOffset(at: animationTime) : .zero
+                ))
             }
-        }
 
-        let containerSpans: [CGFloat] = switch orientation {
-        case .horizontal: containers.map { $0.cachedWidth }
-        case .vertical: containers.map { $0.cachedHeight }
-        }
-        let containerRenderOffsets = containers.map { $0.renderOffset(at: time) }
-        let containerWindowNodes = containers.map { $0.windowNodes }
+            let span: CGFloat = switch orientation {
+            case .horizontal: container.cachedWidth
+            case .vertical: container.cachedHeight
+            }
 
-        var containerPositions = [CGFloat]()
-        containerPositions.reserveCapacity(containers.count)
-        var runningPos: CGFloat = 0
-        for i in 0 ..< containers.count {
-            containerPositions.append(runningPos)
-            let span = containerSpans[i]
-            runningPos += span + primaryGap
-        }
-
-        let viewOffset = state.viewOffsetPixels.value(at: time)
-        let activeIdx = state.activeColumnIndex.clamped(to: 0 ... max(0, containers.count - 1))
-        let activePos = containers.isEmpty ? 0 : containerPositions[activeIdx]
-        let viewPos = activePos + viewOffset
-
-        for idx in 0 ..< containers.count {
-            let containerPos = containerPositions[idx]
-            let containerSpan = containerSpans[idx]
-            let renderOffset = containerRenderOffsets[idx]
-            let canonicalContainerRect = canonicalContainerRect(
-                position: containerPos,
-                span: containerSpan,
-                workingFrame: workingFrame,
-                scale: effectiveScale,
-                orientation: orientation
+            rawContainers.append(
+                omniwm_niri_container_input(
+                    span: span,
+                    render_offset_x: renderOffset.x,
+                    render_offset_y: renderOffset.y,
+                    window_start_index: numericCast(windowStartIndex),
+                    window_count: numericCast(windowNodes.count),
+                    is_tabbed: container.isTabbed ? 1 : 0,
+                    has_manual_single_window_width_override: container.hasManualSingleWindowWidthOverride ? 1 : 0
+                )
             )
-            let visibilityRect = visibleRenderedContainerRect(
-                canonicalRect: canonicalContainerRect,
-                viewPosition: viewPos,
-                workspaceOffset: workspaceOffset,
-                renderOffset: renderOffset,
-                scale: effectiveScale,
-                orientation: orientation
+        }
+
+        let rawMonitors = ContiguousArray(
+            hiddenPlacementMonitors.map { monitor in
+                omniwm_niri_hidden_placement_monitor(
+                    frame_x: monitor.frame.minX,
+                    frame_y: monitor.frame.minY,
+                    frame_width: monitor.frame.width,
+                    frame_height: monitor.frame.height,
+                    visible_x: monitor.visibleFrame.minX,
+                    visible_y: monitor.visibleFrame.minY,
+                    visible_width: monitor.visibleFrame.width,
+                    visible_height: monitor.visibleFrame.height
+                )
+            }
+        )
+
+        let input = omniwm_niri_layout_input(
+            working_x: workingArea.workingFrame.minX,
+            working_y: workingArea.workingFrame.minY,
+            working_width: workingArea.workingFrame.width,
+            working_height: workingArea.workingFrame.height,
+            view_x: workingArea.viewFrame.minX,
+            view_y: workingArea.viewFrame.minY,
+            view_width: workingArea.viewFrame.width,
+            view_height: workingArea.viewFrame.height,
+            scale: workingArea.scale,
+            primary_gap: primaryGap,
+            secondary_gap: secondaryGap,
+            tab_indicator_width: renderStyle.tabIndicatorWidth,
+            view_offset: state.viewOffsetPixels.value(at: animationTime),
+            workspace_offset: workspaceOffset,
+            single_window_aspect_ratio: singleWindowContext.map { Double($0.aspectRatio) } ?? 0,
+            single_window_aspect_tolerance: NiriKernelConstants.singleWindowAspectTolerance,
+            active_container_index: Int32(clamping: state.activeColumnIndex),
+            hidden_placement_monitor_index: Int32(clamping: hiddenPlacementMonitorIndex),
+            orientation: orientation.niriKernelRawValue,
+            single_window_mode: singleWindowContext == nil ? 0 : 1
+        )
+
+        return NiriLayoutKernelSnapshot(
+            containers: containers,
+            windows: windows,
+            input: input,
+            rawContainers: rawContainers,
+            rawWindows: rawWindows,
+            rawMonitors: rawMonitors
+        )
+    }
+
+    private func makeKernelWindowInput(
+        for window: NiriWindow,
+        orientation: Monitor.Orientation,
+        renderOffset: CGPoint
+    ) -> omniwm_niri_window_input {
+        let constraints = window.constraints
+        switch orientation {
+        case .horizontal:
+            let fixedValue: CGFloat?
+            switch window.height {
+            case let .fixed(height):
+                fixedValue = height
+            case .auto:
+                fixedValue = nil
+            }
+            return omniwm_niri_window_input(
+                weight: max(0.1, window.heightWeight),
+                min_constraint: constraints.minSize.height,
+                max_constraint: constraints.maxSize.height,
+                fixed_value: fixedValue ?? 0,
+                render_offset_x: renderOffset.x,
+                render_offset_y: renderOffset.y,
+                has_max_constraint: constraints.hasMaxHeight ? 1 : 0,
+                is_constraint_fixed: constraints.isFixed ? 1 : 0,
+                has_fixed_value: fixedValue == nil ? 0 : 1,
+                sizing_mode: window.sizingMode.niriKernelRawValue
             )
-            let renderedContainerRect: CGRect
-            switch containerVisibilityState(
-                for: visibilityRect,
-                viewportFrame: workingFrame,
-                fallback: idx == 0 ? .minimum : .maximum,
-                orientation: orientation,
-                hiddenPlacementMonitor: hiddenPlacementMonitor,
-                hiddenPlacementMonitors: hiddenPlacementMonitors
-            ) {
-            case .visible:
-                renderedContainerRect = visibilityRect
-            case let .hidden(hiddenEdge):
-                for window in containerWindowNodes[idx] {
-                    if window.sizingMode != .fullscreen {
-                        hiddenHandles[window.token] = hiddenEdge.encodedHideSide
+        case .vertical:
+            let fixedValue: CGFloat?
+            switch window.windowWidth {
+            case let .fixed(width):
+                fixedValue = width
+            case .auto:
+                fixedValue = nil
+            }
+            return omniwm_niri_window_input(
+                weight: max(0.1, window.widthWeight),
+                min_constraint: constraints.minSize.width,
+                max_constraint: constraints.maxSize.width,
+                fixed_value: fixedValue ?? 0,
+                render_offset_x: renderOffset.x,
+                render_offset_y: renderOffset.y,
+                has_max_constraint: constraints.hasMaxWidth ? 1 : 0,
+                is_constraint_fixed: constraints.isFixed ? 1 : 0,
+                has_fixed_value: fixedValue == nil ? 0 : 1,
+                sizing_mode: window.sizingMode.niriKernelRawValue
+            )
+        }
+    }
+
+    private func solveKernelProjection(
+        _ snapshot: NiriLayoutKernelSnapshot
+    ) -> NiriLayoutKernelProjection {
+        var rawInput = snapshot.input
+        var containerOutputs = ContiguousArray(
+            repeating: omniwm_niri_container_output(
+                canonical_x: 0,
+                canonical_y: 0,
+                canonical_width: 0,
+                canonical_height: 0,
+                rendered_x: 0,
+                rendered_y: 0,
+                rendered_width: 0,
+                rendered_height: 0
+            ),
+            count: snapshot.rawContainers.count
+        )
+        var windowOutputs = ContiguousArray(
+            repeating: omniwm_niri_window_output(
+                canonical_x: 0,
+                canonical_y: 0,
+                canonical_width: 0,
+                canonical_height: 0,
+                rendered_x: 0,
+                rendered_y: 0,
+                rendered_width: 0,
+                rendered_height: 0,
+                resolved_span: 0,
+                hidden_edge: 0
+            ),
+            count: snapshot.rawWindows.count
+        )
+
+        let status = snapshot.rawContainers.withUnsafeBufferPointer { containerBuffer in
+            snapshot.rawWindows.withUnsafeBufferPointer { windowBuffer in
+                snapshot.rawMonitors.withUnsafeBufferPointer { monitorBuffer in
+                    containerOutputs.withUnsafeMutableBufferPointer { containerOutputBuffer in
+                        windowOutputs.withUnsafeMutableBufferPointer { windowOutputBuffer in
+                            omniwm_niri_layout_solve(
+                                &rawInput,
+                                containerBuffer.baseAddress,
+                                containerBuffer.count,
+                                windowBuffer.baseAddress,
+                                windowBuffer.count,
+                                monitorBuffer.baseAddress,
+                                monitorBuffer.count,
+                                containerOutputBuffer.baseAddress,
+                                containerOutputBuffer.count,
+                                windowOutputBuffer.baseAddress,
+                                windowOutputBuffer.count
+                            )
+                        }
                     }
                 }
-                renderedContainerRect = hiddenRenderedContainerRect(
-                    canonicalRect: canonicalContainerRect,
-                    edge: hiddenEdge,
-                    viewFrame: viewFrame,
-                    scale: effectiveScale,
-                    orientation: orientation,
-                    hiddenPlacementMonitor: hiddenPlacementMonitor,
-                    hiddenPlacementMonitors: hiddenPlacementMonitors
-                )
             }
-
-            layoutContainer(
-                container: containers[idx],
-                canonicalContainerRect: canonicalContainerRect,
-                renderedContainerRect: renderedContainerRect,
-                fullscreenRect: canonicalFullscreenRect,
-                renderedFullscreenRect: renderedFullscreenRect,
-                secondaryGap: secondaryGap,
-                scale: effectiveScale,
-                animationTime: time,
-                result: &frames,
-                orientation: orientation
-            )
         }
-    }
 
-    private func canonicalContainerRect(
-        position: CGFloat,
-        span: CGFloat,
-        workingFrame: CGRect,
-        scale: CGFloat,
-        orientation: Monitor.Orientation
-    ) -> CGRect {
-        switch orientation {
-        case .horizontal:
-            let width = span.roundedToPhysicalPixel(scale: scale)
-            return CGRect(
-                x: workingFrame.origin.x + position,
-                y: workingFrame.origin.y,
-                width: width,
-                height: workingFrame.height
-            ).roundedToPhysicalPixels(scale: scale)
-        case .vertical:
-            let height = span.roundedToPhysicalPixel(scale: scale)
-            return CGRect(
-                x: workingFrame.origin.x,
-                y: workingFrame.origin.y + position,
-                width: workingFrame.width,
-                height: height
-            ).roundedToPhysicalPixels(scale: scale)
-        }
-    }
-
-    private func visibleRenderedContainerRect(
-        canonicalRect: CGRect,
-        viewPosition: CGFloat,
-        workspaceOffset: CGFloat,
-        renderOffset: CGPoint,
-        scale: CGFloat,
-        orientation: Monitor.Orientation
-    ) -> CGRect {
-        let translation: CGPoint = switch orientation {
-        case .horizontal:
-            CGPoint(
-                x: -viewPosition + workspaceOffset + renderOffset.x,
-                y: renderOffset.y
-            )
-        case .vertical:
-            CGPoint(
-                x: workspaceOffset + renderOffset.x,
-                y: -viewPosition + renderOffset.y
-            )
-        }
-        return canonicalRect.offsetBy(dx: translation.x, dy: translation.y)
-            .roundedToPhysicalPixels(scale: scale)
-    }
-
-    private func containerVisibilityState(
-        for renderedRect: CGRect,
-        viewportFrame: CGRect,
-        fallback: AxisHideEdge,
-        orientation: Monitor.Orientation,
-        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
-    ) -> ContainerVisibilityState {
-        let defaultHideEdge = hiddenEdge(
-            for: renderedRect,
-            viewportFrame: viewportFrame,
-            fallback: fallback,
-            orientation: orientation
+        precondition(
+            status == OMNIWM_KERNELS_STATUS_OK,
+            "omniwm_niri_layout_solve returned \(status)"
         )
-        guard containerIntersectsViewport(
-            renderedRect,
-            viewportFrame: viewportFrame,
-            orientation: orientation
-        ) else {
-            return .hidden(defaultHideEdge)
-        }
-        if let overflowEdge = overflowEdgeIntersectingNeighboringMonitor(
-            renderedRect,
-            viewportFrame: viewportFrame,
-            orientation: orientation,
-            hiddenPlacementMonitor: hiddenPlacementMonitor,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
-        ) {
-            return .hidden(overflowEdge)
-        }
-        return .visible
-    }
 
-    private func containerIntersectsViewport(
-        _ containerRect: CGRect,
-        viewportFrame: CGRect,
-        orientation: Monitor.Orientation
-    ) -> Bool {
-        switch orientation {
-        case .horizontal:
-            containerRect.maxX > viewportFrame.minX && containerRect.minX < viewportFrame.maxX
-        case .vertical:
-            containerRect.maxY > viewportFrame.minY && containerRect.minY < viewportFrame.maxY
-        }
-    }
-
-    private func overflowEdgeIntersectingNeighboringMonitor(
-        _ renderedRect: CGRect,
-        viewportFrame: CGRect,
-        orientation: Monitor.Orientation,
-        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
-    ) -> AxisHideEdge? {
-        let overflowRegions = containerOverflowRegions(
-            for: renderedRect,
-            viewportFrame: viewportFrame,
-            orientation: orientation
+        return NiriLayoutKernelProjection(
+            snapshot: snapshot,
+            containerOutputs: containerOutputs,
+            windowOutputs: windowOutputs
         )
-        guard !overflowRegions.isEmpty else { return nil }
-
-        for overflowRegion in overflowRegions {
-            for otherMonitor in hiddenPlacementMonitors where !ownsViewport(
-                otherMonitor,
-                hiddenPlacementMonitor: hiddenPlacementMonitor,
-                viewportFrame: viewportFrame
-            ) {
-                if overflowRegion.rect.intersects(otherMonitor.frame) {
-                    return overflowRegion.edge
-                }
-            }
-        }
-
-        return nil
     }
 
-    private func containerOverflowRegions(
-        for renderedRect: CGRect,
-        viewportFrame: CGRect,
+    private func applyKernelProjection(
+        _ projection: NiriLayoutKernelProjection,
+        frames: inout [WindowToken: CGRect],
+        hiddenHandles: inout [WindowToken: HideSide],
         orientation: Monitor.Orientation
-    ) -> [ContainerOverflowRegion] {
-        var overflowRegions: [ContainerOverflowRegion] = []
-        overflowRegions.reserveCapacity(2)
-
-        switch orientation {
-        case .horizontal:
-            if renderedRect.minX < viewportFrame.minX {
-                let overflowMaxX = min(renderedRect.maxX, viewportFrame.minX)
-                if overflowMaxX > renderedRect.minX {
-                    overflowRegions.append(
-                        ContainerOverflowRegion(
-                            edge: .minimum,
-                            rect: CGRect(
-                                x: renderedRect.minX,
-                                y: renderedRect.minY,
-                                width: overflowMaxX - renderedRect.minX,
-                                height: renderedRect.height
-                            )
-                        )
-                    )
-                }
-            }
-            if renderedRect.maxX > viewportFrame.maxX {
-                let overflowMinX = max(renderedRect.minX, viewportFrame.maxX)
-                if renderedRect.maxX > overflowMinX {
-                    overflowRegions.append(
-                        ContainerOverflowRegion(
-                            edge: .maximum,
-                            rect: CGRect(
-                                x: overflowMinX,
-                                y: renderedRect.minY,
-                                width: renderedRect.maxX - overflowMinX,
-                                height: renderedRect.height
-                            )
-                        )
-                    )
-                }
-            }
-        case .vertical:
-            if renderedRect.minY < viewportFrame.minY {
-                let overflowMaxY = min(renderedRect.maxY, viewportFrame.minY)
-                if overflowMaxY > renderedRect.minY {
-                    overflowRegions.append(
-                        ContainerOverflowRegion(
-                            edge: .minimum,
-                            rect: CGRect(
-                                x: renderedRect.minX,
-                                y: renderedRect.minY,
-                                width: renderedRect.width,
-                                height: overflowMaxY - renderedRect.minY
-                            )
-                        )
-                    )
-                }
-            }
-            if renderedRect.maxY > viewportFrame.maxY {
-                let overflowMinY = max(renderedRect.minY, viewportFrame.maxY)
-                if renderedRect.maxY > overflowMinY {
-                    overflowRegions.append(
-                        ContainerOverflowRegion(
-                            edge: .maximum,
-                            rect: CGRect(
-                                x: renderedRect.minX,
-                                y: overflowMinY,
-                                width: renderedRect.width,
-                                height: renderedRect.maxY - overflowMinY
-                            )
-                        )
-                    )
-                }
-            }
+    ) {
+        for (index, container) in projection.snapshot.containers.enumerated() {
+            let output = projection.containerOutputs[index]
+            container.frame = output.canonicalRect
+            container.renderedFrame = output.renderedRect
         }
 
-        return overflowRegions
-    }
+        for (index, window) in projection.snapshot.windows.enumerated() {
+            let output = projection.windowOutputs[index]
+            let canonicalFrame = output.canonicalRect
+            let renderedFrame = output.renderedRect
 
-    private func ownsViewport(
-        _ candidateMonitor: HiddenPlacementMonitorContext,
-        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
-        viewportFrame: CGRect
-    ) -> Bool {
-        if let hiddenPlacementMonitor {
-            return candidateMonitor.id == hiddenPlacementMonitor.id
-        }
+            window.frame = canonicalFrame
+            switch orientation {
+            case .horizontal:
+                window.resolvedHeight = output.resolved_span
+            case .vertical:
+                window.resolvedWidth = output.resolved_span
+            }
+            window.renderedFrame = renderedFrame
+            frames[window.token] = renderedFrame
 
-        return candidateMonitor.frame.intersects(viewportFrame)
-            || candidateMonitor.visibleFrame.intersects(viewportFrame)
-    }
-
-    private func hiddenEdge(
-        for renderedRect: CGRect,
-        viewportFrame: CGRect,
-        fallback: AxisHideEdge,
-        orientation: Monitor.Orientation
-    ) -> AxisHideEdge {
-        switch orientation {
-        case .horizontal:
-            let leftOverflow = viewportFrame.minX - renderedRect.minX
-            let rightOverflow = renderedRect.maxX - viewportFrame.maxX
-            if leftOverflow > rightOverflow, leftOverflow > 0 {
-                return .minimum
-            }
-            if rightOverflow > leftOverflow, rightOverflow > 0 {
-                return .maximum
-            }
-        case .vertical:
-            let topOverflow = viewportFrame.minY - renderedRect.minY
-            let bottomOverflow = renderedRect.maxY - viewportFrame.maxY
-            if topOverflow > bottomOverflow, topOverflow > 0 {
-                return .minimum
-            }
-            if bottomOverflow > topOverflow, bottomOverflow > 0 {
-                return .maximum
+            if let hiddenEdge = AxisHideEdge(kernelRawValue: output.hidden_edge) {
+                hiddenHandles[window.token] = hiddenEdge.encodedHideSide
             }
         }
-        return fallback
-    }
-
-    private func hiddenRenderedContainerRect(
-        canonicalRect: CGRect,
-        edge: AxisHideEdge,
-        viewFrame: CGRect,
-        scale: CGFloat,
-        orientation: Monitor.Orientation,
-        hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
-    ) -> CGRect {
-        switch orientation {
-        case .horizontal:
-            if let hiddenPlacementMonitor {
-                return HiddenWindowPlacementResolver.placement(
-                    for: canonicalRect.size,
-                    requestedEdge: edge,
-                    orthogonalOrigin: canonicalRect.minY,
-                    baseReveal: 1.0,
-                    scale: scale,
-                    orientation: .horizontal,
-                    monitor: hiddenPlacementMonitor,
-                    monitors: hiddenPlacementMonitors
-                )
-                .frame(for: canonicalRect.size)
-                .roundedToPhysicalPixels(scale: scale)
-            }
-
-            return hiddenColumnRect(
-                edge: edge,
-                width: canonicalRect.width,
-                height: canonicalRect.height,
-                screenY: canonicalRect.minY,
-                edgeFrame: viewFrame,
-                scale: scale
-            ).roundedToPhysicalPixels(scale: scale)
-        case .vertical:
-            if let hiddenPlacementMonitor {
-                return HiddenWindowPlacementResolver.placement(
-                    for: canonicalRect.size,
-                    requestedEdge: edge,
-                    orthogonalOrigin: canonicalRect.minX,
-                    baseReveal: 1.0,
-                    scale: scale,
-                    orientation: .vertical,
-                    monitor: hiddenPlacementMonitor,
-                    monitors: hiddenPlacementMonitors
-                )
-                .frame(for: canonicalRect.size)
-                .roundedToPhysicalPixels(scale: scale)
-            }
-
-            return hiddenRowRect(
-                edge: edge,
-                width: canonicalRect.width,
-                height: canonicalRect.height,
-                screenX: canonicalRect.minX,
-                edgeFrame: viewFrame,
-                scale: scale
-            ).roundedToPhysicalPixels(scale: scale)
-        }
-    }
-
-    func aspectFittedSingleWindowRect(
-        in workingFrame: CGRect,
-        aspectRatio: CGFloat,
-        scale: CGFloat
-    ) -> CGRect {
-        guard aspectRatio > 0,
-              workingFrame.width > 0,
-              workingFrame.height > 0
-        else {
-            return workingFrame.roundedToPhysicalPixels(scale: scale)
-        }
-
-        let currentRatio = workingFrame.width / workingFrame.height
-        if abs(currentRatio - aspectRatio) < 0.001 {
-            return workingFrame.roundedToPhysicalPixels(scale: scale)
-        }
-
-        var width = workingFrame.width
-        var height = workingFrame.height
-
-        if currentRatio > aspectRatio {
-            width = height * aspectRatio
-        } else {
-            height = width / aspectRatio
-        }
-
-        return CGRect(
-            x: workingFrame.minX + (workingFrame.width - width) / 2,
-            y: workingFrame.minY + (workingFrame.height - height) / 2,
-            width: width,
-            height: height
-        ).roundedToPhysicalPixels(scale: scale)
-    }
-
-    private func centeredSingleWindowRect(
-        in workingFrame: CGRect,
-        width: CGFloat,
-        scale: CGFloat
-    ) -> CGRect {
-        CGRect(
-            x: workingFrame.minX + (workingFrame.width - width) / 2,
-            y: workingFrame.minY,
-            width: width,
-            height: workingFrame.height
-        ).roundedToPhysicalPixels(scale: scale)
     }
 
     func resolvedSingleWindowRect(
@@ -645,298 +603,107 @@ extension NiriLayoutEngine {
         scale: CGFloat,
         gaps: CGFloat
     ) -> CGRect {
-        guard context.container.hasManualSingleWindowWidthOverride else {
-            return aspectFittedSingleWindowRect(
-                in: workingFrame,
-                aspectRatio: context.aspectRatio,
-                scale: scale
+        if context.container.hasManualSingleWindowWidthOverride,
+           context.container.cachedWidth <= 0 {
+            context.container.resolveAndCacheWidth(
+                workingAreaWidth: workingFrame.width,
+                gaps: gaps
             )
         }
 
-        if context.container.cachedWidth <= 0 {
-            context.container.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
-        }
-
-        let resolvedWidth = min(workingFrame.width, max(0, context.container.cachedWidth))
-        guard resolvedWidth > 0 else {
-            return workingFrame.roundedToPhysicalPixels(scale: scale)
-        }
-
-        // Manual lone-window width commands bypass ratio mode but remain centered.
-        return centeredSingleWindowRect(
-            in: workingFrame,
-            width: resolvedWidth,
-            scale: scale
-        )
-    }
-
-    private func layoutSingleWindowWorkspace(
-        _ context: SingleWindowLayoutContext,
-        workingFrame: CGRect,
-        fullscreenRect: CGRect,
-        renderedFullscreenRect: CGRect,
-        workspaceOffset: CGFloat,
-        scale: CGFloat,
-        gaps: CGFloat,
-        time: TimeInterval,
-        result: inout [WindowToken: CGRect],
-        orientation: Monitor.Orientation
-    ) {
-        let canonicalRect = resolvedSingleWindowRect(
-            for: context,
-            in: workingFrame,
+        var rawInput = omniwm_niri_layout_input(
+            working_x: workingFrame.minX,
+            working_y: workingFrame.minY,
+            working_width: workingFrame.width,
+            working_height: workingFrame.height,
+            view_x: workingFrame.minX,
+            view_y: workingFrame.minY,
+            view_width: workingFrame.width,
+            view_height: workingFrame.height,
             scale: scale,
-            gaps: gaps
+            primary_gap: 0,
+            secondary_gap: 0,
+            tab_indicator_width: 0,
+            view_offset: 0,
+            workspace_offset: 0,
+            single_window_aspect_ratio: context.aspectRatio,
+            single_window_aspect_tolerance: NiriKernelConstants.singleWindowAspectTolerance,
+            active_container_index: 0,
+            hidden_placement_monitor_index: -1,
+            orientation: UInt32(OMNIWM_NIRI_ORIENTATION_HORIZONTAL),
+            single_window_mode: 1
         )
-        let renderOffset = context.container.renderOffset(at: time)
-        let renderedRect = canonicalRect
-            .offsetBy(dx: workspaceOffset + renderOffset.x, dy: renderOffset.y)
-            .roundedToPhysicalPixels(scale: scale)
-
-        layoutContainer(
-            container: context.container,
-            canonicalContainerRect: canonicalRect,
-            renderedContainerRect: renderedRect,
-            fullscreenRect: fullscreenRect,
-            renderedFullscreenRect: renderedFullscreenRect,
-            secondaryGap: 0,
-            scale: scale,
-            animationTime: time,
-            result: &result,
-            orientation: orientation
+        let rawContainer = omniwm_niri_container_input(
+            span: context.container.cachedWidth,
+            render_offset_x: 0,
+            render_offset_y: 0,
+            window_start_index: 0,
+            window_count: 1,
+            is_tabbed: 0,
+            has_manual_single_window_width_override: context.container.hasManualSingleWindowWidthOverride ? 1 : 0
         )
-    }
-
-    private func layoutContainer(
-        container: NiriContainer,
-        canonicalContainerRect: CGRect,
-        renderedContainerRect: CGRect,
-        fullscreenRect: CGRect,
-        renderedFullscreenRect: CGRect,
-        secondaryGap: CGFloat,
-        scale: CGFloat,
-        animationTime: TimeInterval? = nil,
-        result: inout [WindowToken: CGRect],
-        orientation: Monitor.Orientation
-    ) {
-        container.frame = canonicalContainerRect
-        container.renderedFrame = renderedContainerRect
-
-        let tabOffset = container.isTabbed ? renderStyle.tabIndicatorWidth : 0
-        let contentRect = CGRect(
-            x: canonicalContainerRect.origin.x + tabOffset,
-            y: canonicalContainerRect.origin.y,
-            width: max(0, canonicalContainerRect.width - tabOffset),
-            height: canonicalContainerRect.height
+        let rawWindow = omniwm_niri_window_input(
+            weight: 1,
+            min_constraint: 1,
+            max_constraint: 0,
+            fixed_value: 0,
+            render_offset_x: 0,
+            render_offset_y: 0,
+            has_max_constraint: 0,
+            is_constraint_fixed: 0,
+            has_fixed_value: 0,
+            sizing_mode: UInt8(OMNIWM_NIRI_WINDOW_SIZING_NORMAL)
         )
-
-        let windows = container.windowNodes
-        guard !windows.isEmpty else { return }
-
-        let isTabbed = container.isTabbed
-        let time = animationTime ?? CACurrentMediaTime()
-
-        let availableSpace: CGFloat = switch orientation {
-        case .horizontal: contentRect.height
-        case .vertical: contentRect.width
-        }
-
-        let resolvedSpans = resolveWindowSpans(
-            windows: windows,
-            availableSpace: availableSpace,
-            gap: secondaryGap,
-            isTabbed: isTabbed,
-            orientation: orientation
+        var containerOutput = omniwm_niri_container_output(
+            canonical_x: 0,
+            canonical_y: 0,
+            canonical_width: 0,
+            canonical_height: 0,
+            rendered_x: 0,
+            rendered_y: 0,
+            rendered_width: 0,
+            rendered_height: 0
+        )
+        var windowOutput = omniwm_niri_window_output(
+            canonical_x: 0,
+            canonical_y: 0,
+            canonical_width: 0,
+            canonical_height: 0,
+            rendered_x: 0,
+            rendered_y: 0,
+            rendered_width: 0,
+            rendered_height: 0,
+            resolved_span: 0,
+            hidden_edge: 0
         )
 
-        let sizingModes = windows.map { $0.sizingMode }
-        let windowRenderOffsets = windows.map { $0.renderOffset(at: time) }
-        let windowTokens = windows.map { $0.token }
-
-        var pos: CGFloat = switch orientation {
-        case .horizontal: contentRect.origin.y
-        case .vertical: contentRect.origin.x
-        }
-
-        for i in 0 ..< windows.count {
-            let span = resolvedSpans[i]
-            let sizingMode = sizingModes[i]
-
-            let frame: CGRect
-            let renderedBaseFrame: CGRect
-            let resolvedSpan: CGFloat
-            switch sizingMode {
-            case .fullscreen:
-                frame = fullscreenRect.roundedToPhysicalPixels(scale: scale)
-                renderedBaseFrame = renderedFullscreenRect
-                resolvedSpan = switch orientation {
-                case .horizontal: frame.height
-                case .vertical: frame.width
-                }
-            case .normal:
-                switch orientation {
-                case .horizontal:
-                    frame = CGRect(
-                        x: contentRect.origin.x,
-                        y: isTabbed ? contentRect.origin.y : pos,
-                        width: contentRect.width,
-                        height: span
-                    ).roundedToPhysicalPixels(scale: scale)
-                case .vertical:
-                    frame = CGRect(
-                        x: isTabbed ? contentRect.origin.x : pos,
-                        y: contentRect.origin.y,
-                        width: span,
-                        height: contentRect.height
-                    ).roundedToPhysicalPixels(scale: scale)
-                }
-                renderedBaseFrame = frame.offsetBy(
-                    dx: renderedContainerRect.origin.x - canonicalContainerRect.origin.x,
-                    dy: renderedContainerRect.origin.y - canonicalContainerRect.origin.y
-                )
-                .roundedToPhysicalPixels(scale: scale)
-                resolvedSpan = span
-            }
-
-            windows[i].frame = frame
-            switch orientation {
-            case .horizontal:
-                windows[i].resolvedHeight = resolvedSpan
-            case .vertical:
-                windows[i].resolvedWidth = resolvedSpan
-            }
-
-            let animatedFrame: CGRect
-            switch sizingMode {
-            case .fullscreen:
-                animatedFrame = renderedBaseFrame.roundedToPhysicalPixels(scale: scale)
-            case .normal:
-                let windowOffset = windowRenderOffsets[i]
-                animatedFrame = renderedBaseFrame.offsetBy(dx: windowOffset.x, dy: windowOffset.y)
-                    .roundedToPhysicalPixels(scale: scale)
-            }
-            windows[i].renderedFrame = animatedFrame
-            result[windowTokens[i]] = animatedFrame
-
-            if !isTabbed {
-                pos += span
-                if i < windows.count - 1 {
-                    pos += secondaryGap
+        let status = withUnsafePointer(to: rawContainer) { containerPointer in
+            withUnsafePointer(to: rawWindow) { windowPointer in
+                withUnsafeMutablePointer(to: &containerOutput) { containerOutputPointer in
+                    withUnsafeMutablePointer(to: &windowOutput) { windowOutputPointer in
+                        omniwm_niri_layout_solve(
+                            &rawInput,
+                            containerPointer,
+                            1,
+                            windowPointer,
+                            1,
+                            nil,
+                            0,
+                            containerOutputPointer,
+                            1,
+                            windowOutputPointer,
+                            1
+                        )
+                    }
                 }
             }
         }
-    }
 
-    private func resolveWindowSpans(
-        windows: [NiriWindow],
-        availableSpace: CGFloat,
-        gap: CGFloat,
-        isTabbed: Bool,
-        orientation: Monitor.Orientation
-    ) -> [CGFloat] {
-        guard !windows.isEmpty else { return [] }
-
-        let inputs: [NiriAxisSolver.Input] = windows.map { window in
-            switch orientation {
-            case .horizontal:
-                let isFixed: Bool
-                let fixedValue: CGFloat?
-                switch window.height {
-                case let .fixed(h):
-                    isFixed = true
-                    fixedValue = h
-                case .auto:
-                    isFixed = false
-                    fixedValue = nil
-                }
-                return NiriAxisSolver.Input(
-                    weight: max(0.1, window.heightWeight),
-                    minConstraint: window.constraints.minSize.height,
-                    maxConstraint: window.constraints.maxSize.height,
-                    hasMaxConstraint: window.constraints.hasMaxHeight,
-                    isConstraintFixed: window.constraints.isFixed,
-                    hasFixedValue: isFixed,
-                    fixedValue: fixedValue
-                )
-            case .vertical:
-                let isFixed: Bool
-                let fixedValue: CGFloat?
-                switch window.windowWidth {
-                case let .fixed(w):
-                    isFixed = true
-                    fixedValue = w
-                case .auto:
-                    isFixed = false
-                    fixedValue = nil
-                }
-                return NiriAxisSolver.Input(
-                    weight: max(0.1, window.widthWeight),
-                    minConstraint: window.constraints.minSize.width,
-                    maxConstraint: window.constraints.maxSize.width,
-                    hasMaxConstraint: window.constraints.hasMaxWidth,
-                    isConstraintFixed: window.constraints.isFixed,
-                    hasFixedValue: isFixed,
-                    fixedValue: fixedValue
-                )
-            }
-        }
-
-        let outputs = NiriAxisSolver.solve(
-            windows: inputs,
-            availableSpace: availableSpace,
-            gapSize: gap,
-            isTabbed: isTabbed
+        precondition(
+            status == OMNIWM_KERNELS_STATUS_OK,
+            "omniwm_niri_layout_solve returned \(status)"
         )
 
-        for (i, output) in outputs.enumerated() {
-            switch orientation {
-            case .horizontal:
-                windows[i].heightFixedByConstraint = output.wasConstrained
-            case .vertical:
-                windows[i].widthFixedByConstraint = output.wasConstrained
-            }
-        }
-
-        return outputs.map(\.value)
-    }
-
-    private func hiddenRowRect(
-        edge: AxisHideEdge,
-        width: CGFloat,
-        height: CGFloat,
-        screenX: CGFloat,
-        edgeFrame: CGRect,
-        scale: CGFloat
-    ) -> CGRect {
-        let edgeReveal = 1.0 / max(1.0, scale)
-        let y: CGFloat
-        switch edge {
-        case .minimum:
-            y = edgeFrame.minY - height + edgeReveal
-        case .maximum:
-            y = edgeFrame.maxY - edgeReveal
-        }
-        let origin = CGPoint(x: screenX, y: y)
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
-    }
-
-    private func hiddenColumnRect(
-        edge: AxisHideEdge,
-        width: CGFloat,
-        height: CGFloat,
-        screenY: CGFloat,
-        edgeFrame: CGRect,
-        scale: CGFloat
-    ) -> CGRect {
-        let edgeReveal = 1.0 / max(1.0, scale)
-        let x: CGFloat
-        switch edge {
-        case .minimum:
-            x = edgeFrame.minX - width + edgeReveal
-        case .maximum:
-            x = edgeFrame.maxX - edgeReveal
-        }
-        let origin = CGPoint(x: x, y: screenY)
-        return CGRect(origin: origin, size: CGSize(width: width, height: height))
+        return containerOutput.canonicalRect
     }
 }
