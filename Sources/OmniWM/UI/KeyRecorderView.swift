@@ -20,7 +20,6 @@ class KeyRecorderNSView: NSView {
     var onCapture: ((KeyBinding) -> Void)?
     var onCancel: (() -> Void)?
 
-    private var monitor: Any?
     private let label = NSTextField(labelWithString: "Press keys...")
 
     override init(frame frameRect: NSRect) {
@@ -60,46 +59,41 @@ class KeyRecorderNSView: NSView {
     }
 
     private func startRecording() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-            self?.handleKeyEvent(event)
-            return nil
-        }
-
-        window?.makeFirstResponder(self)
-    }
-
-    private func stopRecording() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
+        guard let window else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
+            _ = window.makeFirstResponder(self)
         }
     }
 
-    private func handleKeyEvent(_ event: NSEvent) {
+    private func stopRecording() {}
+
+    @discardableResult
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
         if event.keyCode == UInt16(kVK_Escape) {
             stopRecording()
             onCancel?()
-            return
+            return true
         }
 
-        if event.type == .flagsChanged {
-            return
-        }
-
-        let carbonModifiers = carbonModifiersFromNSEvent(event)
-
-        let requiresModifier = !isSpecialKey(Int(event.keyCode))
-        if requiresModifier, carbonModifiers == 0 {
-            return
-        }
-
-        let binding = KeyBinding(
-            keyCode: UInt32(event.keyCode),
-            modifiers: carbonModifiers
-        )
+        guard let binding = binding(from: event) else { return false }
 
         stopRecording()
         onCapture?(binding)
+        return true
+    }
+
+    private func binding(from event: NSEvent) -> KeyBinding? {
+        guard event.type != .flagsChanged else { return nil }
+
+        let carbonModifiers = carbonModifiersFromNSEvent(event)
+        let requiresModifier = !isSpecialKey(Int(event.keyCode))
+        guard !requiresModifier || carbonModifiers != 0 else { return nil }
+
+        return KeyBinding(
+            keyCode: UInt32(event.keyCode),
+            modifiers: carbonModifiers
+        )
     }
 
     private func carbonModifiersFromNSEvent(_ event: NSEvent) -> UInt32 {
@@ -120,6 +114,20 @@ class KeyRecorderNSView: NSView {
             keyCode == kVK_F15 || keyCode == kVK_F16 ||
             keyCode == kVK_F17 || keyCode == kVK_F18 ||
             keyCode == kVK_F19 || keyCode == kVK_F20
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard !handleKeyEvent(event) else { return }
+        super.keyDown(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        _ = handleKeyEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        return handleKeyEvent(event)
     }
 
     override var acceptsFirstResponder: Bool { true }
