@@ -1040,6 +1040,23 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         _ = restoreManagedWindowFromNativeFullscreen(entry)
+        if controller.workspaceManager.nativeFullscreenRestoreContext(for: entry.token) != nil {
+            let wsId = entry.workspaceId
+            let monitorId = controller.workspaceManager.monitorId(for: wsId)
+            let shouldActivateWorkspace = !isWorkspaceActive && !controller.isTransferringWindow
+            if shouldActivateWorkspace, let monitorId {
+                _ = controller.workspaceManager.setActiveWorkspace(wsId, on: monitorId)
+            }
+            _ = controller.workspaceManager.beginManagedFocusRequest(
+                entry.token,
+                in: wsId,
+                onMonitor: monitorId
+            )
+            controller.layoutRefreshController.requestImmediateRelayout(
+                reason: .appActivationTransition
+            )
+            return
+        }
         let wsId = entry.workspaceId
         let monitorId = controller.workspaceManager.monitorId(for: wsId)
         let shouldActivateWorkspace = !isWorkspaceActive && !controller.isTransferringWindow
@@ -1147,7 +1164,10 @@ final class AXEventHandler: CGSEventDelegate {
     private func suspendManagedWindowForNativeFullscreen(_ entry: WindowModel.Entry) -> Bool {
         guard let controller else { return false }
         cancelNativeFullscreenLifecycleTasks(containing: entry.token)
-        let changed = controller.workspaceManager.markNativeFullscreenSuspended(entry.token)
+        let changed = controller.suspendManagedWindowForNativeFullscreen(
+            entry.token,
+            path: .directActivationEnter
+        )
         controller.hideKeyboardFocusBorder(
             source: .nativeFullscreenEnter,
             reason: "managed window entered native fullscreen",
@@ -1164,7 +1184,10 @@ final class AXEventHandler: CGSEventDelegate {
             return false
         }
         cancelNativeFullscreenLifecycleTasks(containing: entry.token)
-        return controller.workspaceManager.restoreNativeFullscreenRecord(for: entry.token) != nil || hadRecord
+        if hadRecord {
+            return controller.workspaceManager.beginNativeFullscreenRestore(for: entry.token) != nil
+        }
+        return controller.workspaceManager.restoreNativeFullscreenRecord(for: entry.token) != nil
     }
 
     @discardableResult
@@ -1188,9 +1211,12 @@ final class AXEventHandler: CGSEventDelegate {
             }
             cancelNativeFullscreenLifecycleTasks(for: record.originalToken)
             if appFullscreen {
-                _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
+                _ = controller.suspendManagedWindowForNativeFullscreen(
+                    token,
+                    path: .delayedSameTokenFullscreenReappearance
+                )
             } else {
-                _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
+                _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
             }
             return true
         }
@@ -1201,9 +1227,12 @@ final class AXEventHandler: CGSEventDelegate {
         cancelNativeFullscreenLifecycleTasks(for: record.originalToken)
 
         if appFullscreen {
-            _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
+            _ = controller.suspendManagedWindowForNativeFullscreen(
+                token,
+                path: .delayedReplacementTokenFullscreenReappearance
+            )
         } else {
-            _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
+            _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
         }
 
         return true

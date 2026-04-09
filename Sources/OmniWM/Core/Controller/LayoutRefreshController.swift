@@ -459,6 +459,9 @@ import QuartzCore
             plan.animationDirectives,
             focusedFrame: plan.diff.focusedFrame
         )
+        for token in plan.nativeFullscreenRestoreFinalizeTokens {
+            _ = controller?.workspaceManager.finalizeNativeFullscreenRestore(for: token)
+        }
     }
 
     private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) {
@@ -481,6 +484,17 @@ import QuartzCore
 
         if let visibility = plan.effects.visibility {
             hideInactiveWorkspaces(activeWorkspaceIds: visibility.activeWorkspaceIds)
+        }
+
+        if !plan.effects.nativeFullscreenRestoreWorkspaceIds.isEmpty,
+           !controller.workspaceManager.isAppFullscreenActive,
+           !controller.workspaceManager.hasPendingNativeFullscreenTransition,
+           !controller.shouldSuppressManagedFocusRecovery
+        {
+            for workspaceId in plan.effects.nativeFullscreenRestoreWorkspaceIds {
+                controller.ensureFocusedTokenValid(in: workspaceId)
+            }
+            refreshFocusedBorderForVisibilityState(on: controller)
         }
 
         if plan.effects.updateTabbedOverlays {
@@ -556,7 +570,10 @@ import QuartzCore
                     token: entry.token,
                     constraints: mergedConstraints,
                     hiddenState: controller.workspaceManager.hiddenState(for: entry.token),
-                    layoutReason: controller.workspaceManager.layoutReason(for: entry.token)
+                    layoutReason: controller.workspaceManager.layoutReason(for: entry.token),
+                    nativeFullscreenRestore: controller.workspaceManager.nativeFullscreenRestoreContext(
+                        for: entry.token
+                    )
                 )
             )
         }
@@ -1018,6 +1035,9 @@ import QuartzCore
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
         effects.requestWorkspaceBarRefresh = true
         effects.updateTabbedOverlays = updateTabbedOverlays
+        effects.nativeFullscreenRestoreWorkspaceIds = nativeFullscreenRestoreWorkspaceIds(
+            from: workspacePlans
+        )
         if recoverFocus,
            !controller.workspaceManager.isAppFullscreenActive,
            !controller.workspaceManager.hasPendingNativeFullscreenTransition,
@@ -1100,6 +1120,9 @@ import QuartzCore
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
         effects.requestWorkspaceBarRefresh = true
         effects.updateTabbedOverlays = updateTabbedOverlays
+        effects.nativeFullscreenRestoreWorkspaceIds = nativeFullscreenRestoreWorkspaceIds(
+            from: workspacePlans
+        )
         effects.focusValidationWorkspaceIds = focusValidationWorkspaceIds
 
         return RefreshExecutionPlan(workspacePlans: workspacePlans, effects: effects)
@@ -1191,11 +1214,18 @@ import QuartzCore
             let ruleEffects: ManagedWindowRuleEffects
             if let existingEntry {
                 if shouldPreservePreFullscreenState {
-                    _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
+                    if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil {
+                        _ = controller.workspaceManager.beginNativeFullscreenRestore(for: existingEntry.token)
+                    } else {
+                        _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
+                    }
                     wsForWindow = existingEntry.workspaceId
                     ruleEffects = existingEntry.ruleEffects
                 } else if appFullscreen {
-                    _ = controller.workspaceManager.markNativeFullscreenSuspended(existingEntry.token)
+                    _ = controller.suspendManagedWindowForNativeFullscreen(
+                        existingEntry.token,
+                        path: .fullRescanExistingEntryFullscreen
+                    )
                     let existingAssignment = controller.workspaceAssignment(pid: pid, windowId: winId)
                     wsForWindow = existingAssignment ?? defaultWorkspace
                     ruleEffects = decision.ruleEffects
@@ -1304,6 +1334,9 @@ import QuartzCore
         effects.visibility = .init(activeWorkspaceIds: activeWorkspaceIds)
         effects.requestWorkspaceBarRefresh = true
         effects.updateTabbedOverlays = updateTabbedOverlays
+        effects.nativeFullscreenRestoreWorkspaceIds = nativeFullscreenRestoreWorkspaceIds(
+            from: workspacePlans
+        )
         if !controller.workspaceManager.isAppFullscreenActive,
            !controller.workspaceManager.hasPendingNativeFullscreenTransition,
            !controller.shouldSuppressManagedFocusRecovery,
@@ -1322,6 +1355,19 @@ import QuartzCore
         controller: WMController
     ) -> Bool {
         controller.workspaceManager.hasNativeFullscreenLifecycleContext
+    }
+
+    private func nativeFullscreenRestoreWorkspaceIds(
+        from workspacePlans: [WorkspaceLayoutPlan]
+    ) -> [WorkspaceDescriptor.ID] {
+        Array(
+            Set(
+                workspacePlans.compactMap { plan in
+                    plan.nativeFullscreenRestoreFinalizeTokens.isEmpty ? nil : plan.workspaceId
+                }
+            )
+        )
+        .sorted { $0.uuidString < $1.uuidString }
     }
 
     private func partitionWorkspacesByLayoutType(

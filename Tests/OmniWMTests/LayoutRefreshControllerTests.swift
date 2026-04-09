@@ -93,6 +93,137 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == token)
     }
 
+    @Test @MainActor func nativeFullscreenRestoreStatePersistsUntilLayoutPlanCommit() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for native fullscreen restore commit test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 111)
+        let frozenFrame = CGRect(x: 120, y: 80, width: 900, height: 640)
+        let restoreSnapshot = WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(
+            frame: frozenFrame,
+            topologyProfile: controller.workspaceManager.topologyProfile
+        )
+
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(
+            token,
+            in: workspaceId,
+            restoreSnapshot: restoreSnapshot
+        )
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(
+            token,
+            restoreSnapshot: restoreSnapshot
+        )
+        _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
+        _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
+
+        guard let restoringRecord = controller.workspaceManager.nativeFullscreenRecord(for: token) else {
+            Issue.record("Missing restoring native fullscreen record before layout plan commit")
+            return
+        }
+        if case .restoring = restoringRecord.transition {} else {
+            Issue.record("Expected native fullscreen record to remain restoring before layout commit")
+        }
+        #expect(controller.workspaceManager.layoutReason(for: token) == .standard)
+        #expect(controller.workspaceManager.hasPendingNativeFullscreenTransition)
+        #expect(controller.workspaceManager.isAppFullscreenActive)
+
+        var diff = WorkspaceLayoutDiff()
+        diff.frameChanges = [LayoutFrameChange(token: token, frame: frozenFrame, forceApply: false)]
+
+        var plan = WorkspaceLayoutPlan(
+            workspaceId: workspaceId,
+            monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+            sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+            diff: diff
+        )
+        plan.nativeFullscreenRestoreFinalizeTokens = [token]
+
+        controller.layoutRefreshController.executeLayoutPlan(plan)
+
+        #expect(controller.workspaceManager.nativeFullscreenRecord(for: token) == nil)
+        #expect(controller.workspaceManager.hasPendingNativeFullscreenTransition == false)
+        #expect(controller.workspaceManager.isAppFullscreenActive == false)
+    }
+
+    @Test @MainActor func nativeFullscreenRestoreLayoutPlanForceAppliesFirstRestoreFrame() {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for native fullscreen force-apply test")
+            return
+        }
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 112)
+        let frozenFrame = CGRect(x: 120, y: 80, width: 900, height: 640)
+        var submittedRequests: [AXFrameApplicationRequest] = []
+        controller.axManager.frameApplyOverrideForTests = { requests in
+            submittedRequests.append(contentsOf: requests)
+            return requests.map { request in
+                AXFrameApplyResult(
+                    requestId: request.requestId,
+                    pid: request.pid,
+                    windowId: request.windowId,
+                    targetFrame: request.frame,
+                    currentFrameHint: request.currentFrameHint,
+                    writeResult: AXFrameWriteResult(
+                        targetFrame: request.frame,
+                        observedFrame: request.frame,
+                        writeOrder: AXWindowService.frameWriteOrder(
+                            currentFrame: request.currentFrameHint,
+                            targetFrame: request.frame
+                        ),
+                        sizeError: .success,
+                        positionError: .success,
+                        failureReason: nil
+                    )
+                )
+            }
+        }
+
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, frozenFrame)])
+        submittedRequests.removeAll()
+
+        let restoreSnapshot = WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(
+            frame: frozenFrame,
+            topologyProfile: controller.workspaceManager.topologyProfile
+        )
+        _ = controller.workspaceManager.requestNativeFullscreenEnter(
+            token,
+            in: workspaceId,
+            restoreSnapshot: restoreSnapshot
+        )
+        _ = controller.workspaceManager.markNativeFullscreenSuspended(
+            token,
+            restoreSnapshot: restoreSnapshot
+        )
+        _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
+        _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
+
+        var diff = WorkspaceLayoutDiff()
+        diff.frameChanges = [LayoutFrameChange(token: token, frame: frozenFrame, forceApply: true)]
+
+        var plan = WorkspaceLayoutPlan(
+            workspaceId: workspaceId,
+            monitor: controller.layoutRefreshController.buildMonitorSnapshot(for: monitor),
+            sessionPatch: WorkspaceSessionPatch(workspaceId: workspaceId),
+            diff: diff
+        )
+        plan.nativeFullscreenRestoreFinalizeTokens = [token]
+
+        controller.layoutRefreshController.executeLayoutPlan(plan)
+
+        #expect(submittedRequests.count == 1)
+        #expect(submittedRequests.first?.windowId == 112)
+        #expect(submittedRequests.first?.frame == frozenFrame)
+        #expect(controller.axManager.lastAppliedFrame(for: 112) == frozenFrame)
+    }
+
     @Test @MainActor func executeLayoutPlanPreservesHiddenStateOnHideAndClearsItOnShow() {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,

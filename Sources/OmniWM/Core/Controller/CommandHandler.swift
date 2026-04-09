@@ -357,13 +357,20 @@ final class CommandHandler {
             if currentState {
                 _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
                 guard setFullscreen(entry.axRef, false) else {
-                    _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
+                    _ = controller.suspendManagedWindowForNativeFullscreen(
+                        token,
+                        path: .commandExitSetFailure
+                    )
                     return
                 }
                 return
             }
 
-            _ = controller.workspaceManager.requestNativeFullscreenEnter(token, in: entry.workspaceId)
+            _ = controller.requestManagedNativeFullscreenEnter(
+                token,
+                in: entry.workspaceId,
+                path: .commandDrivenEnter
+            )
             guard setFullscreen(entry.axRef, true) else {
                 _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
                 return
@@ -388,7 +395,10 @@ final class CommandHandler {
 
         _ = controller.workspaceManager.requestNativeFullscreenExit(token, initiatedByCommand: true)
         guard setFullscreen(entry.axRef, false) else {
-            _ = controller.workspaceManager.markNativeFullscreenSuspended(token)
+            _ = controller.suspendManagedWindowForNativeFullscreen(
+                token,
+                path: .commandExitSetFailure
+            )
             return
         }
     }

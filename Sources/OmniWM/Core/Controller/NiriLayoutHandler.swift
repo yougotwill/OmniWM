@@ -327,7 +327,12 @@ private func hasPendingNiriAnimationWork(
         engine: NiriLayoutEngine,
         monitor: Monitor
     ) -> WorkspaceLayoutPlan {
-        let motion = controller?.motionPolicy.snapshot() ?? .enabled
+        let hasNativeFullscreenRestoreCycle = snapshot.windows.contains {
+            $0.isRestoringNativeFullscreen
+        }
+        let motion = hasNativeFullscreenRestoreCycle
+            ? .disabled
+            : (controller?.motionPolicy.snapshot() ?? .enabled)
         var state = snapshot.viewportState
         let pass = NiriLayoutPass(
             wsId: snapshot.workspaceId,
@@ -336,6 +341,9 @@ private func hasPendingNiriAnimationWork(
             insetFrame: snapshot.monitor.workingFrame,
             gap: snapshot.gap
         )
+        if hasNativeFullscreenRestoreCycle {
+            suppressAnimationsForNativeFullscreenRestore(pass: pass, state: &state)
+        }
         let windowTokens = snapshot.windows.map(\.token)
         let currentSelection = state.selectedNodeId
 
@@ -386,7 +394,8 @@ private func hasPendingNiriAnimationWork(
             rememberedFocusToken: arrival.rememberedFocusToken ?? selection.rememberedFocusToken,
             newWindowToken: arrival.newWindowToken,
             viewportNeedsRecalc: selection.viewportNeedsRecalc,
-            snapshot: snapshot
+            snapshot: snapshot,
+            suppressAnimationDirectives: hasNativeFullscreenRestoreCycle
         )
     }
 
@@ -709,7 +718,8 @@ private func hasPendingNiriAnimationWork(
         rememberedFocusToken: WindowToken?,
         newWindowToken: WindowToken?,
         viewportNeedsRecalc: Bool,
-        snapshot: NiriWorkspaceSnapshot
+        snapshot: NiriWorkspaceSnapshot,
+        suppressAnimationDirectives: Bool = false
     ) -> WorkspaceLayoutPlan {
         let gaps = LayoutGaps(
             horizontal: pass.gap,
@@ -732,10 +742,24 @@ private func hasPendingNiriAnimationWork(
             animationTime: nil
         )
 
-        let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
+        let restoreFrameOverrides = resolvedNativeFullscreenRestoreFrames(
+            for: snapshot.windows,
+            workspaceId: pass.wsId
+        )
+        for (token, restoreFrame) in restoreFrameOverrides {
+            if let window = pass.engine.findNode(for: token) {
+                window.frame = restoreFrame
+                window.renderedFrame = restoreFrame
+            }
+        }
+        let resolvedFrames = frames.merging(restoreFrameOverrides) { _, restoreFrame in restoreFrame }
+
+        let hasColumnAnimations = suppressAnimationDirectives
+            ? false
+            : pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
         var directives: [AnimationDirective] = []
 
-        if !snapshot.useScrollAnimationPath {
+        if !snapshot.useScrollAnimationPath && !suppressAnimationDirectives {
             if viewportNeedsRecalc, newWindowToken == nil {
                 directives.append(.startNiriScroll(workspaceId: pass.wsId))
             } else if hasColumnAnimations {
@@ -743,12 +767,15 @@ private func hasPendingNiriAnimationWork(
             }
         }
 
-        if let newWindowToken {
+        if let newWindowToken, !suppressAnimationDirectives {
             directives.append(.startNiriScroll(workspaceId: pass.wsId))
             directives.append(.activateWindow(token: newWindowToken))
         }
 
-        if let removalSeed = snapshot.removalSeed, !removalSeed.oldFrames.isEmpty {
+        if let removalSeed = snapshot.removalSeed,
+           !removalSeed.oldFrames.isEmpty,
+           !suppressAnimationDirectives
+        {
             let newFrames = pass.engine.captureWindowFrames(in: pass.wsId)
             let animationsTriggered = pass.engine.triggerMoveAnimations(
                 in: pass.wsId,
@@ -765,7 +792,7 @@ private func hasPendingNiriAnimationWork(
 
         let diff = layoutDiff(
             windows: snapshot.windows,
-            frames: frames,
+            frames: resolvedFrames,
             hiddenHandles: hiddenHandles,
             confirmedFocusedToken: snapshot.confirmedFocusedToken,
             pendingFocusedToken: snapshot.pendingFocusedToken,
@@ -778,7 +805,7 @@ private func hasPendingNiriAnimationWork(
             canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
         )
 
-        return WorkspaceLayoutPlan(
+        var plan = WorkspaceLayoutPlan(
             workspaceId: pass.wsId,
             monitor: snapshot.monitor,
             sessionPatch: WorkspaceSessionPatch(
@@ -789,6 +816,11 @@ private func hasPendingNiriAnimationWork(
             diff: diff,
             animationDirectives: directives
         )
+        plan.nativeFullscreenRestoreFinalizeTokens = nativeFullscreenRestoreFinalizeTokens(
+            windows: snapshot.windows,
+            frames: resolvedFrames
+        )
+        return plan
     }
 
     private func layoutDiff(
@@ -863,9 +895,9 @@ private func hasPendingNiriAnimationWork(
 
             guard let frame = frames[token] else { continue }
             let forceApply = if let node = engine.findNode(for: token) {
-                node.sizingMode == .fullscreen
+                window.isRestoringNativeFullscreen || node.sizingMode == .fullscreen
             } else {
-                false
+                window.isRestoringNativeFullscreen
             }
             diff.frameChanges.append(
                 LayoutFrameChange(
@@ -1382,6 +1414,71 @@ private func hasPendingNiriAnimationWork(
             )
         }
         return didMove
+    }
+}
+
+private extension NiriLayoutHandler {
+    func suppressAnimationsForNativeFullscreenRestore(
+        pass: NiriLayoutPass,
+        state: inout ViewportState
+    ) {
+        if let controller {
+            let displayIds = scrollAnimationByDisplay.compactMap { displayId, workspaceId in
+                workspaceId == pass.wsId ? displayId : nil
+            }
+            for displayId in displayIds {
+                controller.layoutRefreshController.stopScrollAnimation(for: displayId)
+            }
+        }
+
+        state.cancelAnimation()
+
+        for column in pass.engine.columns(in: pass.wsId) {
+            column.moveAnimation = nil
+            column.widthAnimation = nil
+            column.targetWidth = nil
+        }
+
+        if let root = pass.engine.root(for: pass.wsId) {
+            for window in root.allWindows {
+                window.stopMoveAnimations()
+            }
+        }
+    }
+
+    func resolvedNativeFullscreenRestoreFrames(
+        for windows: [LayoutWindowSnapshot],
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> [WindowToken: CGRect] {
+        guard let topologyProfile = controller?.workspaceManager.topologyProfile else { return [:] }
+
+        var restoreFrames: [WindowToken: CGRect] = [:]
+        for window in windows {
+            guard let restoreContext = window.nativeFullscreenRestore,
+                  restoreContext.currentToken == window.token,
+                  restoreContext.workspaceId == workspaceId,
+                  restoreContext.capturedTopologyProfile == topologyProfile,
+                  let restoreFrame = restoreContext.restoreFrame
+            else {
+                continue
+            }
+            restoreFrames[window.token] = restoreFrame
+        }
+        return restoreFrames
+    }
+
+    func nativeFullscreenRestoreFinalizeTokens(
+        windows: [LayoutWindowSnapshot],
+        frames: [WindowToken: CGRect]
+    ) -> [WindowToken] {
+        return windows.compactMap { window in
+            guard window.isRestoringNativeFullscreen,
+                  frames[window.token] != nil
+            else {
+                return nil
+            }
+            return window.token
+        }
     }
 }
 

@@ -23,6 +23,7 @@ final class WorkspaceManager {
         case enterRequested
         case suspended
         case exitRequested
+        case restoring
     }
 
     enum NativeFullscreenAvailability: Equatable {
@@ -31,9 +32,21 @@ final class WorkspaceManager {
     }
 
     struct NativeFullscreenRecord {
+        struct RestoreSnapshot: Equatable {
+            let frame: CGRect
+            let topologyProfile: TopologyProfile
+        }
+
+        struct RestoreFailure: Equatable {
+            let path: String
+            let detail: String
+        }
+
         let originalToken: WindowToken
         var currentToken: WindowToken
         let workspaceId: WorkspaceDescriptor.ID
+        var restoreSnapshot: RestoreSnapshot?
+        var restoreFailure: RestoreFailure?
         var exitRequestedByCommand: Bool
         var transition: NativeFullscreenTransition
         var availability: NativeFullscreenAvailability
@@ -752,8 +765,14 @@ final class WorkspaceManager {
 
     var hasPendingNativeFullscreenTransition: Bool {
         nativeFullscreenRecordsByOriginalToken.values.contains {
-            $0.transition == .enterRequested || $0.availability == .temporarilyUnavailable
+            $0.transition == .enterRequested
+                || $0.transition == .restoring
+                || $0.availability == .temporarilyUnavailable
         }
+    }
+
+    var topologyProfile: TopologyProfile {
+        TopologyProfile(monitors: monitors)
     }
 
     @discardableResult
@@ -903,7 +922,9 @@ final class WorkspaceManager {
     @discardableResult
     func requestNativeFullscreenEnter(
         _ token: WindowToken,
-        in workspaceId: WorkspaceDescriptor.ID
+        in workspaceId: WorkspaceDescriptor.ID,
+        restoreSnapshot: NativeFullscreenRecord.RestoreSnapshot? = nil,
+        restoreFailure: NativeFullscreenRecord.RestoreFailure? = nil
     ) -> Bool {
         var changed = rememberFocus(token, in: workspaceId)
         let originalToken = nativeFullscreenOriginalToken(for: token) ?? token
@@ -912,6 +933,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
+            restoreSnapshot: restoreSnapshot,
+            restoreFailure: restoreFailure,
             exitRequestedByCommand: false,
             transition: .enterRequested,
             availability: .present,
@@ -938,6 +961,11 @@ final class WorkspaceManager {
             record.unavailableSince = nil
             changed = true
         }
+        changed = applyNativeFullscreenRestoreState(
+            to: &record,
+            restoreSnapshot: restoreSnapshot,
+            restoreFailure: restoreFailure
+        ) || changed
         if existing == nil || changed {
             upsertNativeFullscreenRecord(record)
         }
@@ -947,6 +975,15 @@ final class WorkspaceManager {
 
     @discardableResult
     func markNativeFullscreenSuspended(_ token: WindowToken) -> Bool {
+        markNativeFullscreenSuspended(token, restoreSnapshot: nil)
+    }
+
+    @discardableResult
+    func markNativeFullscreenSuspended(
+        _ token: WindowToken,
+        restoreSnapshot: NativeFullscreenRecord.RestoreSnapshot?,
+        restoreFailure: NativeFullscreenRecord.RestoreFailure? = nil
+    ) -> Bool {
         guard let entry = entry(for: token) else { return false }
 
         var changed = rememberFocus(token, in: entry.workspaceId)
@@ -956,6 +993,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: entry.workspaceId,
+            restoreSnapshot: restoreSnapshot,
+            restoreFailure: restoreFailure,
             exitRequestedByCommand: false,
             transition: .suspended,
             availability: .present,
@@ -982,6 +1021,11 @@ final class WorkspaceManager {
             record.unavailableSince = nil
             changed = true
         }
+        changed = applyNativeFullscreenRestoreState(
+            to: &record,
+            restoreSnapshot: restoreSnapshot,
+            restoreFailure: restoreFailure
+        ) || changed
         if existing == nil || changed {
             upsertNativeFullscreenRecord(record)
         }
@@ -1012,6 +1056,8 @@ final class WorkspaceManager {
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
+            restoreSnapshot: existing?.restoreSnapshot,
+            restoreFailure: existing?.restoreFailure,
             exitRequestedByCommand: initiatedByCommand,
             transition: .exitRequested,
             availability: .present,
@@ -1117,6 +1163,73 @@ final class WorkspaceManager {
         return true
     }
 
+    func nativeFullscreenRestoreContext(for token: WindowToken) -> NativeFullscreenRestoreContext? {
+        guard let record = nativeFullscreenRecord(for: token),
+              record.currentToken == token,
+              record.transition == .restoring
+        else {
+            return nil
+        }
+
+        return NativeFullscreenRestoreContext(
+            originalToken: record.originalToken,
+            currentToken: record.currentToken,
+            workspaceId: record.workspaceId,
+            restoreFrame: record.restoreSnapshot?.frame,
+            capturedTopologyProfile: record.restoreSnapshot?.topologyProfile
+        )
+    }
+
+    @discardableResult
+    func beginNativeFullscreenRestore(for token: WindowToken) -> NativeFullscreenRecord? {
+        guard var record = nativeFullscreenRecord(for: token) else {
+            return nil
+        }
+
+        let resolvedToken = record.currentToken == token ? record.currentToken : token
+        var changed = false
+        if record.currentToken != resolvedToken {
+            record.currentToken = resolvedToken
+            changed = true
+        }
+        if record.transition != .restoring {
+            record.transition = .restoring
+            changed = true
+        }
+        if record.availability != .present {
+            record.availability = .present
+            changed = true
+        }
+        if record.unavailableSince != nil {
+            record.unavailableSince = nil
+            changed = true
+        }
+        changed = ensureNativeFullscreenRestoreInvariant(on: &record) || changed
+        if changed {
+            upsertNativeFullscreenRecord(record)
+        }
+
+        _ = restoreFromNativeState(for: resolvedToken)
+        return nativeFullscreenRecordsByOriginalToken[record.originalToken]
+    }
+
+    @discardableResult
+    func finalizeNativeFullscreenRestore(for token: WindowToken) -> ParentKind? {
+        guard let record = nativeFullscreenRecord(for: token),
+              record.transition == .restoring
+        else {
+            return nil
+        }
+
+        let removed = removeNativeFullscreenRecord(originalToken: record.originalToken)
+        if nativeFullscreenRecordsByOriginalToken.isEmpty {
+            _ = setManagedAppFullscreen(false)
+        }
+        return removed.flatMap { _ in
+            restoreFromNativeState(for: record.currentToken)
+        }
+    }
+
     @discardableResult
     func restoreNativeFullscreenRecord(for token: WindowToken) -> ParentKind? {
         let record = nativeFullscreenRecord(for: token)
@@ -1125,7 +1238,9 @@ final class WorkspaceManager {
             _ = removeNativeFullscreenRecord(originalToken: record.originalToken)
         }
         let restoredParentKind = restoreFromNativeState(for: resolvedToken)
-        _ = setManagedAppFullscreen(false)
+        if nativeFullscreenRecordsByOriginalToken.isEmpty {
+            _ = setManagedAppFullscreen(false)
+        }
         return restoredParentKind
     }
 
@@ -2409,6 +2524,66 @@ final class WorkspaceManager {
             return token
         }
         return nativeFullscreenOriginalTokenByCurrentToken[token]
+    }
+
+    @discardableResult
+    private func applyNativeFullscreenRestoreState(
+        to record: inout NativeFullscreenRecord,
+        restoreSnapshot: NativeFullscreenRecord.RestoreSnapshot?,
+        restoreFailure: NativeFullscreenRecord.RestoreFailure?
+    ) -> Bool {
+        var changed = false
+
+        if record.restoreSnapshot == nil, let restoreSnapshot {
+            record.restoreSnapshot = restoreSnapshot
+            changed = true
+        }
+
+        if record.restoreSnapshot != nil {
+            if record.restoreFailure != nil {
+                record.restoreFailure = nil
+                changed = true
+            }
+            return changed
+        }
+
+        if let restoreFailure,
+           record.restoreFailure != restoreFailure
+        {
+            record.restoreFailure = restoreFailure
+            changed = true
+        }
+
+        return changed
+    }
+
+    @discardableResult
+    private func ensureNativeFullscreenRestoreInvariant(
+        on record: inout NativeFullscreenRecord
+    ) -> Bool {
+        guard record.restoreSnapshot == nil else {
+            if record.restoreFailure != nil {
+                record.restoreFailure = nil
+                return true
+            }
+            return false
+        }
+
+        let failure = record.restoreFailure ?? NativeFullscreenRecord.RestoreFailure(
+            path: "restoring_invariant",
+            detail: "entered restoring without a frozen pre-fullscreen restore snapshot"
+        )
+        let message =
+            "[NativeFullscreenRestore] path=\(failure.path) token=\(record.currentToken) original=\(record.originalToken) detail=\(failure.detail)"
+        if record.restoreFailure == nil {
+            assertionFailure(message)
+            fputs("\(message)\n", stderr)
+            record.restoreFailure = failure
+            return true
+        }
+
+        fputs("\(message)\n", stderr)
+        return false
     }
 
     private func upsertNativeFullscreenRecord(_ record: NativeFullscreenRecord) {

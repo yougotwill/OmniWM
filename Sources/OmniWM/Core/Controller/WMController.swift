@@ -23,6 +23,16 @@ struct WindowFocusOperations {
     )
 }
 
+enum NativeFullscreenRestoreSeedPath: String {
+    case manualCapture = "manual_capture"
+    case commandDrivenEnter = "command_driven_enter"
+    case commandExitSetFailure = "command_exit_set_failure"
+    case directActivationEnter = "direct_activation_enter"
+    case fullRescanExistingEntryFullscreen = "full_rescan_existing_entry_fullscreen"
+    case delayedSameTokenFullscreenReappearance = "delayed_same_token_fullscreen_reappearance"
+    case delayedReplacementTokenFullscreenReappearance = "delayed_replacement_token_fullscreen_reappearance"
+}
+
 @MainActor @Observable
 final class WMController {
     private static let frontingTraceLoggingEnabled =
@@ -2183,6 +2193,173 @@ extension WMController {
             return floatingState.lastFrame
         }
         return nil
+    }
+
+    private enum NativeFullscreenRestoreSeedStrategy {
+        case preTransitionCapture
+        case fullscreenDetectedManagedGeometryOnly
+    }
+
+    private struct NativeFullscreenRestoreSeedResolution {
+        let restoreSnapshot: WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot?
+        let restoreFailure: WorkspaceManager.NativeFullscreenRecord.RestoreFailure?
+    }
+
+    private func preservedManagedGeometryFrame(
+        for token: WindowToken
+    ) -> CGRect? {
+        if let node = niriEngine?.findNode(for: token) {
+            if let renderedFrame = node.renderedFrame {
+                return renderedFrame
+            }
+            if let frame = node.frame {
+                return frame
+            }
+        }
+        if let node = dwindleEngine?.findNode(for: token),
+           let cachedFrame = node.cachedFrame
+        {
+            return cachedFrame
+        }
+        if let floatingFrame = workspaceManager.floatingState(for: token)?.lastFrame {
+            return floatingFrame
+        }
+        if let appliedFrame = axManager.lastAppliedFrame(for: token.windowId) {
+            return appliedFrame
+        }
+        return nil
+    }
+
+    private func currentAXRestoreFrame(
+        for token: WindowToken
+    ) -> CGRect? {
+        guard let entry = workspaceManager.entry(for: token) else { return nil }
+        if let frame = AXWindowService.framePreferFast(entry.axRef) {
+            return frame
+        }
+        if let frame = try? AXWindowService.frame(entry.axRef) {
+            return frame
+        }
+        return nil
+    }
+
+    private func makeNativeFullscreenRestoreSnapshot(
+        frame: CGRect
+    ) -> WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot {
+        WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(
+            frame: frame,
+            topologyProfile: workspaceManager.topologyProfile
+        )
+    }
+
+    private func logIrrecoverableNativeFullscreenRestore(
+        token: WindowToken,
+        path: NativeFullscreenRestoreSeedPath,
+        detail: String
+    ) -> WorkspaceManager.NativeFullscreenRecord.RestoreFailure {
+        let failure = WorkspaceManager.NativeFullscreenRecord.RestoreFailure(
+            path: path.rawValue,
+            detail: detail
+        )
+        let message =
+            "[NativeFullscreenRestore] path=\(failure.path) token=\(token) detail=\(failure.detail)"
+        fputs("\(message)\n", stderr)
+        return failure
+    }
+
+    private func resolveNativeFullscreenRestoreSeed(
+        for token: WindowToken,
+        path: NativeFullscreenRestoreSeedPath,
+        strategy: NativeFullscreenRestoreSeedStrategy
+    ) -> NativeFullscreenRestoreSeedResolution {
+        if let existingSnapshot = workspaceManager.nativeFullscreenRecord(for: token)?.restoreSnapshot {
+            return .init(restoreSnapshot: existingSnapshot, restoreFailure: nil)
+        }
+
+        if strategy == .preTransitionCapture,
+           let axFrame = currentAXRestoreFrame(for: token)
+        {
+            return .init(
+                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(frame: axFrame),
+                restoreFailure: nil
+            )
+        }
+
+        if let preservedFrame = preservedManagedGeometryFrame(for: token) {
+            return .init(
+                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(frame: preservedFrame),
+                restoreFailure: nil
+            )
+        }
+
+        if let existingFailure = workspaceManager.nativeFullscreenRecord(for: token)?.restoreFailure {
+            return .init(restoreSnapshot: nil, restoreFailure: existingFailure)
+        }
+
+        let detail: String
+        switch strategy {
+        case .preTransitionCapture:
+            detail =
+                "missing restore geometry from niri renderedFrame/frame, dwindle cachedFrame, floating lastFrame, cached applied frame, and current AX frame"
+        case .fullscreenDetectedManagedGeometryOnly:
+            detail =
+                "missing preserved managed geometry from niri renderedFrame/frame, dwindle cachedFrame, floating lastFrame, and cached applied frame; fullscreen AX geometry refused"
+        }
+
+        return .init(
+            restoreSnapshot: nil,
+            restoreFailure: logIrrecoverableNativeFullscreenRestore(
+                token: token,
+                path: path,
+                detail: detail
+            )
+        )
+    }
+
+    @discardableResult
+    func requestManagedNativeFullscreenEnter(
+        _ token: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID,
+        path: NativeFullscreenRestoreSeedPath
+    ) -> Bool {
+        let seed = resolveNativeFullscreenRestoreSeed(
+            for: token,
+            path: path,
+            strategy: .preTransitionCapture
+        )
+        return workspaceManager.requestNativeFullscreenEnter(
+            token,
+            in: workspaceId,
+            restoreSnapshot: seed.restoreSnapshot,
+            restoreFailure: seed.restoreFailure
+        )
+    }
+
+    @discardableResult
+    func suspendManagedWindowForNativeFullscreen(
+        _ token: WindowToken,
+        path: NativeFullscreenRestoreSeedPath
+    ) -> Bool {
+        let seed = resolveNativeFullscreenRestoreSeed(
+            for: token,
+            path: path,
+            strategy: .fullscreenDetectedManagedGeometryOnly
+        )
+        return workspaceManager.markNativeFullscreenSuspended(
+            token,
+            restoreSnapshot: seed.restoreSnapshot,
+            restoreFailure: seed.restoreFailure
+        )
+    }
+
+    func captureNativeFullscreenRestoreSnapshot(
+        for token: WindowToken
+    ) -> WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot? {
+        resolveNativeFullscreenRestoreSeed(
+            for: token,
+            path: .manualCapture,
+            strategy: .preTransitionCapture
+        ).restoreSnapshot
     }
 
     @discardableResult
