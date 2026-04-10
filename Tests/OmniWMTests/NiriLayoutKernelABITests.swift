@@ -132,7 +132,169 @@ private func sentinelWindowOutput() -> omniwm_niri_window_output {
     )
 }
 
-@Suite struct NiriLayoutKernelABITests {
+private func makeNiriTopologyInput(
+    operation: UInt32,
+    direction: UInt32 = UInt32(OMNIWM_NIRI_TOPOLOGY_DIRECTION_RIGHT),
+    subjectWindowId: UInt64 = 0,
+    targetWindowId: UInt64 = 0,
+    selectedWindowId: UInt64 = 0,
+    activeColumnIndex: Int32 = 0,
+    insertIndex: Int32 = 0,
+    targetIndex: Int32 = 0,
+    fromColumnIndex: Int32 = -1,
+    maxWindowsPerColumn: UInt32 = 3,
+    gap: Double = 8,
+    viewportSpan: Double = 1000,
+    currentViewOffset: Double = 0,
+    stationaryViewOffset: Double = 0,
+    defaultNewColumnSpan: Double = 400,
+    infiniteLoop: Bool = false,
+    animate: Bool = false
+) -> omniwm_niri_topology_input {
+    omniwm_niri_topology_input(
+        operation: operation,
+        direction: direction,
+        orientation: UInt32(OMNIWM_NIRI_ORIENTATION_HORIZONTAL),
+        center_mode: UInt32(OMNIWM_CENTER_FOCUSED_COLUMN_ON_OVERFLOW),
+        subject_window_id: subjectWindowId,
+        target_window_id: targetWindowId,
+        selected_window_id: selectedWindowId,
+        focused_window_id: 0,
+        active_column_index: activeColumnIndex,
+        insert_index: insertIndex,
+        target_index: targetIndex,
+        from_column_index: fromColumnIndex,
+        max_windows_per_column: maxWindowsPerColumn,
+        gap: gap,
+        viewport_span: viewportSpan,
+        current_view_offset: currentViewOffset,
+        stationary_view_offset: stationaryViewOffset,
+        scale: 2,
+        default_new_column_span: defaultNewColumnSpan,
+        previous_active_position: 0,
+        activate_prev_column_on_removal: 0,
+        infinite_loop: infiniteLoop ? 1 : 0,
+        always_center_single_column: 0,
+        animate: animate ? 1 : 0,
+        has_previous_active_position: 0,
+        has_activate_prev_column_on_removal: 0,
+        reset_for_single_window: 0,
+        is_active_workspace: 1,
+        has_completed_initial_refresh: 1,
+        viewport_is_gesture_or_animation: 0
+    )
+}
+
+private func makeNiriTopologyColumn(
+    id: UInt64,
+    span: Double,
+    windowStartIndex: UInt32,
+    windowCount: UInt32,
+    activeWindowIndex: Int32 = 0,
+    isTabbed: Bool = false
+) -> omniwm_niri_topology_column_input {
+    omniwm_niri_topology_column_input(
+        id: id,
+        span: span,
+        window_start_index: windowStartIndex,
+        window_count: windowCount,
+        active_window_index: activeWindowIndex,
+        is_tabbed: isTabbed ? 1 : 0
+    )
+}
+
+private func makeNiriTopologyResult() -> omniwm_niri_topology_result {
+    omniwm_niri_topology_result(
+        column_count: 0,
+        window_count: 0,
+        selected_window_id: 0,
+        remembered_focus_window_id: 0,
+        new_window_id: 0,
+        fallback_window_id: 0,
+        active_column_index: -1,
+        source_column_index: -1,
+        target_column_index: -1,
+        source_window_index: -1,
+        target_window_index: -1,
+        viewport_action: UInt32(OMNIWM_NIRI_TOPOLOGY_VIEWPORT_NONE),
+        effect_kind: UInt32(OMNIWM_NIRI_TOPOLOGY_EFFECT_NONE),
+        viewport_offset_delta: 0,
+        viewport_target_offset: 0,
+        restore_previous_view_offset: 0,
+        activate_prev_column_on_removal: 0,
+        has_restore_previous_view_offset: 0,
+        has_activate_prev_column_on_removal: 0,
+        should_clear_activate_prev_column_on_removal: 0,
+        source_column_became_empty: 0,
+        inserted_before_active: 0
+    )
+}
+
+private func callNiriTopology(
+    input: inout omniwm_niri_topology_input,
+    columns: [omniwm_niri_topology_column_input],
+    windows: [omniwm_niri_topology_window_input],
+    desiredIds: [UInt64] = [],
+    removedIds: [UInt64] = [],
+    columnCapacity: Int? = nil,
+    windowCapacity: Int? = nil
+) -> (
+    status: Int32,
+    columns: [omniwm_niri_topology_column_output],
+    windows: [omniwm_niri_topology_window_output],
+    result: omniwm_niri_topology_result
+) {
+    var columnOutputs = Array(
+        repeating: omniwm_niri_topology_column_output(
+            id: 0,
+            window_start_index: 0,
+            window_count: 0,
+            active_window_index: 0,
+            is_tabbed: 0
+        ),
+        count: columnCapacity ?? max(columns.count + desiredIds.count + 2, 1)
+    )
+    var windowOutputs = Array(
+        repeating: omniwm_niri_topology_window_output(id: 0),
+        count: windowCapacity ?? max(windows.count + desiredIds.count + 1, 1)
+    )
+    var result = makeNiriTopologyResult()
+
+    let status = columns.withUnsafeBufferPointer { columnBuffer in
+        windows.withUnsafeBufferPointer { windowBuffer in
+            desiredIds.withUnsafeBufferPointer { desiredBuffer in
+                removedIds.withUnsafeBufferPointer { removedBuffer in
+                    columnOutputs.withUnsafeMutableBufferPointer { columnOutputBuffer in
+                        windowOutputs.withUnsafeMutableBufferPointer { windowOutputBuffer in
+                            omniwm_niri_topology_plan(
+                                &input,
+                                columnBuffer.baseAddress,
+                                columnBuffer.count,
+                                windowBuffer.baseAddress,
+                                windowBuffer.count,
+                                desiredBuffer.baseAddress,
+                                desiredBuffer.count,
+                                removedBuffer.baseAddress,
+                                removedBuffer.count,
+                                columnOutputBuffer.baseAddress,
+                                columnOutputBuffer.count,
+                                windowOutputBuffer.baseAddress,
+                                windowOutputBuffer.count,
+                                &result
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    columnOutputs.removeSubrange(min(Int(result.column_count), columnOutputs.count) ..< columnOutputs.count)
+    windowOutputs.removeSubrange(min(Int(result.window_count), windowOutputs.count) ..< windowOutputs.count)
+    return (status, columnOutputs, windowOutputs, result)
+}
+
+struct NiriLayoutKernelABITests {
     @Test func emptyBuffersReturnSuccess() {
         #expect(
             omniwm_niri_layout_solve(
@@ -199,7 +361,7 @@ private func sentinelWindowOutput() -> omniwm_niri_window_output {
         )
         let containers = [
             makeNiriContainerInput(span: 600, windowStartIndex: 0, windowCount: 1),
-            makeNiriContainerInput(span: 600, windowStartIndex: 1, windowCount: 1),
+            makeNiriContainerInput(span: 600, windowStartIndex: 1, windowCount: 1)
         ]
         let windows = [makeNiriWindowInput(), makeNiriWindowInput()]
         var containerOutputs = [zeroContainerOutput(), zeroContainerOutput()]
@@ -266,5 +428,219 @@ private func sentinelWindowOutput() -> omniwm_niri_window_output {
         }
 
         #expect(status == OMNIWM_KERNELS_STATUS_INVALID_ARGUMENT)
+    }
+}
+
+struct NiriTopologyKernelABITests {
+    @Test func addWindowIntoEmptyTopologyCreatesColumnAndSelection() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_ADD_WINDOW),
+            subjectWindowId: 42
+        )
+
+        let output = callNiriTopology(input: &input, columns: [], windows: [])
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.column_count == 1)
+        #expect(output.result.window_count == 1)
+        #expect(output.result.new_window_id == 42)
+        #expect(output.result.selected_window_id == 42)
+        #expect(output.result.effect_kind == UInt32(OMNIWM_NIRI_TOPOLOGY_EFFECT_ADD_COLUMN))
+        #expect(output.windows.map(\.id) == [42])
+    }
+
+    @Test func removeFocusedWindowReturnsSiblingFallbackAndCompactedMembership() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_REMOVE_WINDOW),
+            subjectWindowId: 20,
+            selectedWindowId: 20
+        )
+        let columns = [
+            makeNiriTopologyColumn(
+                id: 1,
+                span: 500,
+                windowStartIndex: 0,
+                windowCount: 3,
+                activeWindowIndex: 1
+            )
+        ]
+        let windows = [10, 20, 30].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.column_count == 1)
+        #expect(output.result.window_count == 2)
+        #expect(output.result.fallback_window_id == 30)
+        #expect(output.result.selected_window_id == 30)
+        #expect(output.columns[0].window_count == 2)
+        #expect(output.windows.map(\.id) == [10, 30])
+    }
+
+    @Test func ensureVisibleNoOpsWhenTargetColumnAlreadyFits() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_ENSURE_VISIBLE),
+            subjectWindowId: 10,
+            selectedWindowId: 10,
+            activeColumnIndex: 0,
+            viewportSpan: 900
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 1),
+            makeNiriTopologyColumn(id: 2, span: 400, windowStartIndex: 1, windowCount: 1)
+        ]
+        let windows = [10, 20].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.viewport_action == UInt32(OMNIWM_NIRI_TOPOLOGY_VIEWPORT_NONE))
+        #expect(abs(output.result.viewport_offset_delta) < 0.001)
+        #expect(output.result.active_column_index == 0)
+        #expect(output.windows.map(\.id) == [10, 20])
+    }
+
+    @Test func insufficientTopologyOutputCapacityReportsRequiredCounts() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_MOVE_WINDOW),
+            direction: UInt32(OMNIWM_NIRI_TOPOLOGY_DIRECTION_LEFT),
+            subjectWindowId: 20,
+            selectedWindowId: 20,
+            activeColumnIndex: 1
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 1),
+            makeNiriTopologyColumn(id: 2, span: 400, windowStartIndex: 1, windowCount: 1)
+        ]
+        let windows = [10, 20].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(
+            input: &input,
+            columns: columns,
+            windows: windows,
+            columnCapacity: 1,
+            windowCapacity: 1
+        )
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_BUFFER_TOO_SMALL)
+        #expect(output.result.column_count == 1)
+        #expect(output.result.window_count == 2)
+    }
+
+    @Test func swapWindowsExchangesCrossColumnMembership() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_SWAP_WINDOWS),
+            subjectWindowId: 10,
+            targetWindowId: 20,
+            selectedWindowId: 10
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 1),
+            makeNiriTopologyColumn(id: 2, span: 400, windowStartIndex: 1, windowCount: 1)
+        ]
+        let windows = [10, 20].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.effect_kind == UInt32(OMNIWM_NIRI_TOPOLOGY_EFFECT_REORDER_WINDOW))
+        #expect(output.result.source_column_index == 0)
+        #expect(output.result.target_column_index == 1)
+        #expect(output.columns.map(\.window_count) == [1, 1])
+        #expect(output.windows.map(\.id) == [20, 10])
+    }
+
+    @Test func insertWindowByMoveReordersWithinColumn() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_INSERT_WINDOW_BY_MOVE),
+            subjectWindowId: 10,
+            targetWindowId: 30,
+            selectedWindowId: 10,
+            insertIndex: Int32(OMNIWM_NIRI_TOPOLOGY_INSERT_AFTER)
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 3)
+        ]
+        let windows = [10, 20, 30].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.effect_kind == UInt32(OMNIWM_NIRI_TOPOLOGY_EFFECT_REORDER_WINDOW))
+        #expect(output.result.source_column_became_empty == 0)
+        #expect(output.result.target_window_index == 2)
+        #expect(output.windows.map(\.id) == [20, 30, 10])
+    }
+
+    @Test func insertWindowByMoveRemovesEmptySourceColumn() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_INSERT_WINDOW_BY_MOVE),
+            subjectWindowId: 10,
+            targetWindowId: 30,
+            selectedWindowId: 10,
+            insertIndex: Int32(OMNIWM_NIRI_TOPOLOGY_INSERT_BEFORE)
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 1),
+            makeNiriTopologyColumn(id: 2, span: 400, windowStartIndex: 1, windowCount: 2)
+        ]
+        let windows = [10, 20, 30].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.column_count == 1)
+        #expect(output.result.source_column_became_empty == 1)
+        #expect(output.result.target_column_index == 0)
+        #expect(output.result.target_window_index == 1)
+        #expect(output.windows.map(\.id) == [20, 10, 30])
+    }
+
+    @Test func insertWindowByMovePreservesTabbedSourceActiveIndex() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_INSERT_WINDOW_BY_MOVE),
+            subjectWindowId: 10,
+            targetWindowId: 40,
+            selectedWindowId: 10,
+            insertIndex: Int32(OMNIWM_NIRI_TOPOLOGY_INSERT_BEFORE)
+        )
+        let columns = [
+            makeNiriTopologyColumn(
+                id: 1,
+                span: 400,
+                windowStartIndex: 0,
+                windowCount: 3,
+                activeWindowIndex: 1,
+                isTabbed: true
+            ),
+            makeNiriTopologyColumn(id: 2, span: 400, windowStartIndex: 3, windowCount: 1)
+        ]
+        let windows = [10, 20, 30, 40].map { omniwm_niri_topology_window_input(id: UInt64($0)) }
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.columns.map(\.active_window_index) == [1, 0])
+        #expect(output.windows.map(\.id) == [20, 30, 10, 40])
+    }
+
+    @Test func focusAtEdgeReturnsNoSelectedTarget() {
+        var input = makeNiriTopologyInput(
+            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_FOCUS),
+            direction: UInt32(OMNIWM_NIRI_TOPOLOGY_DIRECTION_LEFT),
+            subjectWindowId: 0,
+            selectedWindowId: 10,
+            activeColumnIndex: 0
+        )
+        let columns = [
+            makeNiriTopologyColumn(id: 1, span: 400, windowStartIndex: 0, windowCount: 1)
+        ]
+        let windows = [omniwm_niri_topology_window_input(id: 10)]
+
+        let output = callNiriTopology(input: &input, columns: columns, windows: windows)
+
+        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
+        #expect(output.result.selected_window_id == 0)
+        #expect(output.windows.map(\.id) == [10])
     }
 }

@@ -106,7 +106,7 @@ extension NiriLayoutEngine {
                     workingFrame: workingFrame,
                     gaps: gaps
                 )
-            case .before, .after:
+            case .after, .before:
                 return insertWindowByMove(
                     sourceWindowId: move.windowId,
                     targetWindowId: targetNodeId,
@@ -176,57 +176,34 @@ extension NiriLayoutEngine {
             return false
         }
 
-        guard let sourceColumn = findColumn(containing: sourceWindow, in: workspaceId),
-              let targetColumn = findColumn(containing: targetWindow, in: workspaceId)
-        else {
+        let sourceSize = sourceWindow.size
+        let sourceHeight = sourceWindow.height
+        let targetSize = targetWindow.size
+        let targetHeight = targetWindow.height
+
+        guard let plan = callTopologyKernel(
+            operation: .swapWindows,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: workingFrame,
+            gaps: gaps,
+            subject: sourceWindow,
+            target: targetWindow,
+            fromColumnIndex: fromColumnIndex,
+            motion: motion
+        ), plan.effectKind != .none else {
             return false
         }
 
-        if sourceColumn.id == targetColumn.id {
-            sourceWindow.swapWith(targetWindow)
+        let swapsAcrossColumns = plan.result.source_column_index != plan.result.target_column_index
+        _ = applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
 
-            if sourceColumn.isTabbed {
-                sourceColumn.clampActiveTileIdx()
-            }
-        } else {
-            guard let sourceIdx = sourceColumn.children.firstIndex(where: { $0.id == sourceWindowId }),
-                  let targetIdx = targetColumn.children.firstIndex(where: { $0.id == targetWindowId })
-            else {
-                return false
-            }
-
-            let sourceSize = sourceWindow.size
-            let sourceHeight = sourceWindow.height
-            let targetSize = targetWindow.size
-            let targetHeight = targetWindow.height
-
-            sourceWindow.detach()
-            targetWindow.detach()
-
-            sourceColumn.insertChild(targetWindow, at: sourceIdx)
-            targetColumn.insertChild(sourceWindow, at: targetIdx)
-
+        if swapsAcrossColumns {
             sourceWindow.size = targetSize
             sourceWindow.height = targetHeight
             targetWindow.size = sourceSize
             targetWindow.height = sourceHeight
-
-            if sourceColumn.isTabbed {
-                sourceColumn.clampActiveTileIdx()
-            }
-            if targetColumn.isTabbed {
-                targetColumn.clampActiveTileIdx()
-            }
         }
-
-        ensureSelectionVisible(
-            node: sourceWindow,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
 
         return true
     }
@@ -241,59 +218,41 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> Bool {
+        if position == .swap {
+            return swapWindowsByMove(
+                sourceWindowId: sourceWindowId,
+                targetWindowId: targetWindowId,
+                in: workspaceId,
+                motion: motion,
+                state: &state,
+                workingFrame: workingFrame,
+                gaps: gaps
+            )
+        }
+
         guard let sourceWindow = findNode(by: sourceWindowId) as? NiriWindow,
               let targetWindow = findNode(by: targetWindowId) as? NiriWindow
         else {
             return false
         }
 
-        guard let sourceColumn = findColumn(containing: sourceWindow, in: workspaceId),
-              let targetColumn = findColumn(containing: targetWindow, in: workspaceId)
-        else {
+        guard let plan = callTopologyKernel(
+            operation: .insertWindowByMove,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: workingFrame,
+            gaps: gaps,
+            subject: sourceWindow,
+            target: targetWindow,
+            insertIndex: topologyInsertIndex(for: position),
+            motion: motion
+        ), plan.effectKind != .none else {
             return false
         }
 
-        guard let targetIdx = targetColumn.children.firstIndex(where: { $0.id == targetWindowId }) else {
-            return false
-        }
-
-        let sameColumn = sourceColumn.id == targetColumn.id
-        let sourceColumnWillBeEmpty = sourceColumn.children.count == 1 && !sameColumn
-
-        sourceWindow.detach()
-
-        let insertIdx: Int
-        if sameColumn {
-            let currentTargetIdx = targetColumn.children.firstIndex(where: { $0.id == targetWindowId }) ?? targetIdx
-            insertIdx = position == .before ? currentTargetIdx : currentTargetIdx + 1
-        } else {
-            insertIdx = position == .before ? targetIdx : targetIdx + 1
-        }
-
-        targetColumn.insertChild(sourceWindow, at: insertIdx)
-
+        _ = applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
         sourceWindow.size = 1.0
         sourceWindow.height = .default
-
-        if sourceColumnWillBeEmpty {
-            sourceColumn.remove()
-        }
-
-        if sourceColumn.isTabbed {
-            sourceColumn.clampActiveTileIdx()
-        }
-        if targetColumn.isTabbed {
-            targetColumn.clampActiveTileIdx()
-        }
-
-        ensureSelectionVisible(
-            node: sourceWindow,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
 
         return true
     }

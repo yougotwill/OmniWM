@@ -47,6 +47,52 @@ enum {
     OMNIWM_NIRI_HIDDEN_EDGE_MAXIMUM = 2,
 };
 
+enum {
+    OMNIWM_NIRI_TOPOLOGY_OP_ADD_WINDOW = 0,
+    OMNIWM_NIRI_TOPOLOGY_OP_REMOVE_WINDOW = 1,
+    OMNIWM_NIRI_TOPOLOGY_OP_SYNC_WINDOWS = 2,
+    OMNIWM_NIRI_TOPOLOGY_OP_FOCUS = 3,
+    OMNIWM_NIRI_TOPOLOGY_OP_FOCUS_COLUMN = 4,
+    OMNIWM_NIRI_TOPOLOGY_OP_FOCUS_WINDOW_IN_COLUMN = 5,
+    OMNIWM_NIRI_TOPOLOGY_OP_FOCUS_COMBINED = 6,
+    OMNIWM_NIRI_TOPOLOGY_OP_ENSURE_VISIBLE = 7,
+    OMNIWM_NIRI_TOPOLOGY_OP_MOVE_COLUMN = 8,
+    OMNIWM_NIRI_TOPOLOGY_OP_MOVE_WINDOW = 9,
+    OMNIWM_NIRI_TOPOLOGY_OP_COLUMN_REMOVAL = 10,
+    OMNIWM_NIRI_TOPOLOGY_OP_INSERT_WINDOW_IN_NEW_COLUMN = 11,
+    OMNIWM_NIRI_TOPOLOGY_OP_SWAP_WINDOWS = 12,
+    OMNIWM_NIRI_TOPOLOGY_OP_INSERT_WINDOW_BY_MOVE = 13,
+};
+
+enum {
+    OMNIWM_NIRI_TOPOLOGY_DIRECTION_LEFT = 0,
+    OMNIWM_NIRI_TOPOLOGY_DIRECTION_RIGHT = 1,
+    OMNIWM_NIRI_TOPOLOGY_DIRECTION_UP = 2,
+    OMNIWM_NIRI_TOPOLOGY_DIRECTION_DOWN = 3,
+};
+
+enum {
+    OMNIWM_NIRI_TOPOLOGY_INSERT_BEFORE = 0,
+    OMNIWM_NIRI_TOPOLOGY_INSERT_AFTER = 1,
+};
+
+enum {
+    OMNIWM_NIRI_TOPOLOGY_VIEWPORT_NONE = 0,
+    OMNIWM_NIRI_TOPOLOGY_VIEWPORT_DELTA_ONLY = 1,
+    OMNIWM_NIRI_TOPOLOGY_VIEWPORT_SET_STATIC = 2,
+    OMNIWM_NIRI_TOPOLOGY_VIEWPORT_ANIMATE = 3,
+};
+
+enum {
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_NONE = 0,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_REMOVE_COLUMN = 1,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_ADD_COLUMN = 2,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_MOVE_COLUMN = 3,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_EXPEL_WINDOW = 4,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_CONSUME_WINDOW = 5,
+    OMNIWM_NIRI_TOPOLOGY_EFFECT_REORDER_WINDOW = 6,
+};
+
 typedef struct {
     double weight;
     double min_constraint;
@@ -186,6 +232,89 @@ typedef struct {
     uint8_t hidden_edge;
 } omniwm_niri_window_output;
 
+typedef struct {
+    uint64_t id;
+    double span;
+    uint32_t window_start_index;
+    uint32_t window_count;
+    int32_t active_window_index;
+    uint8_t is_tabbed;
+} omniwm_niri_topology_column_input;
+
+typedef struct {
+    uint64_t id;
+} omniwm_niri_topology_window_input;
+
+typedef struct {
+    uint32_t operation;
+    uint32_t direction;
+    uint32_t orientation;
+    uint32_t center_mode;
+    uint64_t subject_window_id;
+    uint64_t target_window_id;
+    uint64_t selected_window_id;
+    uint64_t focused_window_id;
+    int32_t active_column_index;
+    int32_t insert_index;
+    int32_t target_index;
+    int32_t from_column_index;
+    uint32_t max_windows_per_column;
+    double gap;
+    double viewport_span;
+    double current_view_offset;
+    double stationary_view_offset;
+    double scale;
+    double default_new_column_span;
+    double previous_active_position;
+    double activate_prev_column_on_removal;
+    uint8_t infinite_loop;
+    uint8_t always_center_single_column;
+    uint8_t animate;
+    uint8_t has_previous_active_position;
+    uint8_t has_activate_prev_column_on_removal;
+    uint8_t reset_for_single_window;
+    uint8_t is_active_workspace;
+    uint8_t has_completed_initial_refresh;
+    uint8_t viewport_is_gesture_or_animation;
+} omniwm_niri_topology_input;
+
+typedef struct {
+    uint64_t id;
+    uint32_t window_start_index;
+    uint32_t window_count;
+    int32_t active_window_index;
+    uint8_t is_tabbed;
+} omniwm_niri_topology_column_output;
+
+typedef struct {
+    uint64_t id;
+} omniwm_niri_topology_window_output;
+
+typedef struct {
+    size_t column_count;
+    size_t window_count;
+    uint64_t selected_window_id;
+    uint64_t remembered_focus_window_id;
+    uint64_t new_window_id;
+    uint64_t fallback_window_id;
+    int32_t active_column_index;
+    int32_t source_column_index;
+    int32_t target_column_index;
+    int32_t source_window_index;
+    int32_t target_window_index;
+    uint32_t viewport_action;
+    uint32_t effect_kind;
+    double viewport_offset_delta;
+    double viewport_target_offset;
+    double restore_previous_view_offset;
+    double activate_prev_column_on_removal;
+    uint8_t has_restore_previous_view_offset;
+    uint8_t has_activate_prev_column_on_removal;
+    uint8_t should_clear_activate_prev_column_on_removal;
+    uint8_t source_column_became_empty;
+    uint8_t inserted_before_active;
+} omniwm_niri_topology_result;
+
 int32_t omniwm_axis_solve(
     const omniwm_axis_input *inputs,
     size_t count,
@@ -215,6 +344,23 @@ int32_t omniwm_niri_layout_solve(
     size_t container_output_count,
     omniwm_niri_window_output *window_outputs,
     size_t window_output_count
+);
+
+int32_t omniwm_niri_topology_plan(
+    const omniwm_niri_topology_input *input,
+    const omniwm_niri_topology_column_input *columns,
+    size_t column_count,
+    const omniwm_niri_topology_window_input *windows,
+    size_t window_count,
+    const uint64_t *desired_window_ids,
+    size_t desired_window_count,
+    const uint64_t *removed_window_ids,
+    size_t removed_window_count,
+    omniwm_niri_topology_column_output *column_outputs,
+    size_t column_output_capacity,
+    omniwm_niri_topology_window_output *window_outputs,
+    size_t window_output_capacity,
+    omniwm_niri_topology_result *result
 );
 
 double omniwm_geometry_container_position(

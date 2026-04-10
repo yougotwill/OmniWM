@@ -324,6 +324,26 @@ class NiriNode {
         findRoot()?.registerNode(child)
     }
 
+    func replaceChildren(_ newChildren: [NiriNode]) {
+        let root = (self as? NiriRoot) ?? findRoot()
+        let retained = Set(newChildren.map(ObjectIdentifier.init))
+
+        for child in children where !retained.contains(ObjectIdentifier(child)) {
+            child.parent = nil
+            root?.unregisterNode(child)
+        }
+
+        for child in newChildren where child.parent !== self {
+            child.detach()
+        }
+
+        children = newChildren
+        for child in children {
+            child.parent = self
+            root?.registerNode(child)
+        }
+    }
+
     func findNode(by id: NodeId) -> NiriNode? {
         if self.id == id {
             return self

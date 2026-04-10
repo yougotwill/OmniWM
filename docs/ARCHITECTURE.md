@@ -522,9 +522,9 @@ Entries are indexed by both `WindowToken` and raw `windowId` for fast lookup fro
 
 Niri arranges windows in vertical columns that scroll horizontally, inspired by the [Niri](https://github.com/YaLTeR/niri) Wayland compositor.
 
-Nine leaf kernels now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, monitor restore assignment matching, the Niri bulk projection/layout solver, the Overview projection solver, the Dwindle frame solver, the Window Decision kernel, the Reconcile state-transition kernel, and the controller orchestration kernel. Their Swift counterparts remain thin wrappers so the surrounding layout engine, overview/controller policy, navigation, rule matching, controller runtime ownership, Reconcile runtime ownership, and AppKit-facing policy stay in Swift.
+Ten leaf kernels now live in `Zig/omniwm_kernels/src` and are imported through the checked-in `COmniWMKernels` C header target: axis constraint solving, viewport geometry, monitor restore assignment matching, the Niri topology/navigation planner, the Niri bulk projection/layout solver, the Overview projection solver, the Dwindle frame solver, the Window Decision kernel, the Reconcile state-transition kernel, and the controller orchestration kernel. Their Swift counterparts remain thin wrappers so the surrounding layout engine, overview/controller policy, rule matching, controller runtime ownership, Reconcile runtime ownership, and AppKit-facing policy stay in Swift.
 
-The Niri tree stays Swift-owned. Swift resolves workspace selection, monitor ownership, viewport state, and AppKit policy, then flattens the current columns/windows into compact snapshot arrays for one `omniwm_niri_layout_solve` call. Zig owns the deterministic bulk projection math for canonical/rendered container rects, window frames, resolved spans, and hidden-edge classification before Swift applies those outputs back onto the existing nodes.
+The Niri tree stays Swift-owned. For workspace-local topology decisions, Swift flattens the current columns/windows, selected node, active column, viewport state, and operation payload into one `omniwm_niri_topology_plan` call. Zig returns updated column membership, selected/focus ids, active column, viewport directives, and symbolic animation/effect tags; Swift applies those results back onto existing `NiriNode` objects and keeps geometry, effect execution, controller policy, AppKit, and AX ownership. For frame projection, Swift flattens the current columns/windows into compact snapshot arrays for one `omniwm_niri_layout_solve` call. Zig owns the deterministic bulk projection math for canonical/rendered container rects, window frames, resolved spans, and hidden-edge classification before Swift applies those outputs back onto the existing nodes.
 
 **Node Tree:**
 
@@ -558,14 +558,14 @@ All three types inherit from `NiriNode` (base class with `id: NodeId`, `parent`,
 
 **Viewport scrolling:** The viewport tracks which columns are visible. User gestures (trackpad swipe) drive the viewport via `ViewGesture` → `SwipeTracker`, which accumulates deltas and produces spring animations that snap to column boundaries.
 
-**File Organization (28 files):**
+**File Organization (29 files):**
 
 The Niri directory is the largest subsystem. Files are organized by responsibility:
 
 | Category | Files | Purpose |
 |----------|-------|---------|
 | Core engine | `NiriLayoutEngine.swift`, `NiriNode.swift`, `NiriLayout.swift` | Engine class, node tree (Root/Container/Window), pixel-rounding utilities |
-| Navigation | `NiriNavigation.swift` | Focus movement between columns and windows |
+| Navigation/topology | `NiriNavigation.swift`, `NiriTopologyKernel.swift` | Thin Swift boundary for workspace-local focus, insertion, removal, movement, and viewport planning |
 | Constraint solving | `NiriConstraintSolver.swift` | `NiriAxisSolver` distributes space among windows respecting min/max size constraints |
 | Monitor model | `NiriMonitor.swift` | Per-monitor state: geometry, workspace roots, workspace switch animation |
 | Viewport | `ViewportState.swift`, `+Animation`, `+ColumnTransitions`, `+Geometry`, `+Gestures` | Horizontal scroll offset, spring physics, gesture tracking |
@@ -873,7 +873,8 @@ CommandHandler.handleCommand(.focus(.left))
     v
 layoutHandler(as: LayoutFocusable.self)?.focusNeighbor(direction: .left)
     │ e.g., NiriLayoutHandler.focusNeighbor()
-    │ determines target window in the Niri tree
+    │ flattens the workspace-local focus request into `omniwm_niri_topology_plan`
+    │ applies the returned selection and viewport directives to Swift-owned nodes
     v
 WMController.focusWindow(targetToken)
     │ flattens snapshot + focus request into `omniwm_orchestration_step`
@@ -920,8 +921,9 @@ WindowRuleEngine.evaluate(facts)
 WindowModel.track(handle, axRef, workspaceId, mode)
     │ creates Entry, indexes by token and windowId
     v
-NiriLayoutEngine.insertWindow(token, into: workspaceRoot)
-    │ creates NiriWindow node, appends to active column or new column
+NiriLayoutHandler relayout sync
+    │ flattens desired workspace-local topology into `omniwm_niri_topology_plan`
+    │ applies returned column/window membership to Swift-owned Niri nodes
     v
 LayoutRefreshController.requestRelayout(reason: .axWindowCreated)
     │ debounced: 4ms
@@ -1039,7 +1041,7 @@ Actions can carry multiple persisted bindings, so any extra default shortcuts sh
    - `NiriLayoutEngine+Windows.swift` — window query and lookup
    - `NiriLayoutEngine+WorkspaceOps.swift` — workspace-level operations
 
-   Focus navigation lives in `NiriNavigation.swift`. Constraint solving lives in `NiriConstraintSolver.swift`.
+   Focus/navigation and workspace-local topology planning are flattened through `NiriTopologyKernel.swift` into `omniwm_niri_topology_plan`. Constraint solving lives in `NiriConstraintSolver.swift`.
 
 3. **Write tests** using existing helpers. Layout engines can be tested in isolation — create nodes, call `calculateLayout()`, assert frame positions.
 

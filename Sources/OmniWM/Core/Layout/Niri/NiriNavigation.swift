@@ -2,12 +2,6 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
-    private func updateActiveTileIdx(for nodeId: NodeId, in col: NiriContainer) {
-        let windowNodes = col.windowNodes
-        let idx = windowNodes.firstIndex(where: { $0.id == nodeId }) ?? 0
-        col.setActiveTileIdx(idx)
-    }
-
     func moveSelectionByColumns(
         steps: Int,
         currentSelection: NiriNode,
@@ -15,28 +9,23 @@ extension NiriLayoutEngine {
         targetRowIndex: Int? = nil
     ) -> NiriNode? {
         guard steps != 0 else { return currentSelection }
-
-        let cols = columns(in: workspaceId)
-        guard !cols.isEmpty else { return nil }
-
-        guard let currentColumn = column(of: currentSelection),
-              let currentIdx = columnIndex(of: currentColumn, in: workspaceId)
-        else {
+        let direction: Direction = steps > 0 ? .right : .left
+        var state = ViewportState()
+        state.selectedNodeId = currentSelection.id
+        guard let plan = callTopologyKernel(
+            operation: .focus,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            gaps: 0,
+            direction: direction,
+            insertIndex: abs(steps),
+            targetIndex: targetRowIndex ?? -1,
+            motion: .disabled
+        ) else {
             return nil
         }
-
-        updateActiveTileIdx(for: currentSelection.id, in: currentColumn)
-
-        guard let targetIdx = wrapIndex(currentIdx + steps, total: cols.count, in: workspaceId) else {
-            return nil
-        }
-
-        let targetColumn = cols[targetIdx]
-        let targetRows = targetColumn.windowNodes
-        guard !targetRows.isEmpty else { return targetColumn.firstChild() }
-
-        let clampedRowIndex = min(targetRowIndex ?? targetColumn.activeTileIdx, targetRows.count - 1)
-        return targetRows[clampedRowIndex]
+        return findWindow(in: plan, id: plan.result.selected_window_id)
     }
 
     func moveSelectionHorizontal(
@@ -47,56 +36,17 @@ extension NiriLayoutEngine {
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
-        targetRowIndex: Int? = nil
+        targetRowIndex _: Int? = nil
     ) -> NiriNode? {
-        moveSelectionCrossContainer(
+        focusTarget(
             direction: direction,
             currentSelection: currentSelection,
             in: workspaceId,
             motion: motion,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: .horizontal,
-            targetSiblingIndex: targetRowIndex
+            gaps: gaps
         )
-    }
-
-    private func moveSelectionCrossContainer(
-        direction: Direction,
-        currentSelection: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat,
-        orientation: Monitor.Orientation,
-        targetSiblingIndex: Int? = nil
-    ) -> NiriNode? {
-        guard let step = direction.primaryStep(for: orientation) else { return nil }
-
-        guard let newSelection = moveSelectionByColumns(
-            steps: step,
-            currentSelection: currentSelection,
-            in: workspaceId,
-            targetRowIndex: targetSiblingIndex
-        ) else {
-            return nil
-        }
-
-        state.activatePrevColumnOnRemoval = nil
-
-        ensureSelectionVisible(
-            node: newSelection,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps,
-            orientation: orientation
-        )
-
-        return newSelection
     }
 
     func moveSelectionVertical(
@@ -104,64 +54,50 @@ extension NiriLayoutEngine {
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID? = nil
     ) -> NiriNode? {
-        moveSelectionWithinContainer(
+        guard let workspaceId else {
+            var state = ViewportState()
+            state.selectedNodeId = currentSelection.id
+            return focusTargetWithoutViewport(
+                operation: .focus,
+                direction: direction,
+                currentSelection: currentSelection,
+                workspaceId: currentSelection.findRoot()?.workspaceId,
+                state: &state
+            )
+        }
+        var state = ViewportState()
+        state.selectedNodeId = currentSelection.id
+        return focusTargetWithoutViewport(
+            operation: .focus,
             direction: direction,
             currentSelection: currentSelection,
-            orientation: .horizontal,
-            workspaceId: workspaceId
+            workspaceId: workspaceId,
+            state: &state
         )
     }
 
-    private func moveSelectionWithinContainer(
-        direction: Direction,
-        currentSelection: NiriNode,
-        orientation: Monitor.Orientation,
-        workspaceId: WorkspaceDescriptor.ID? = nil
+    private func focusTargetWithoutViewport(
+        operation: NiriTopologyKernelOperation,
+        direction: Direction?,
+        currentSelection _: NiriNode,
+        workspaceId: WorkspaceDescriptor.ID?,
+        state: inout ViewportState,
+        targetIndex: Int = 0
     ) -> NiriNode? {
-        guard let step = direction.secondaryStep(for: orientation) else { return nil }
+        guard let workspaceId,
+              let plan = callTopologyKernel(
+                  operation: operation,
+                  workspaceId: workspaceId,
+                  state: state,
+                  workingFrame: CGRect(x: 0, y: 0, width: 1, height: 1),
+                  gaps: 0,
+                  direction: direction,
+                  targetIndex: targetIndex,
+                  motion: .disabled
+              )
+        else { return nil }
 
-        guard let container = column(of: currentSelection) else {
-            return step > 0 ? currentSelection.nextSibling() : currentSelection.prevSibling()
-        }
-
-        if container.isTabbed {
-            return moveSelectionWithinContainerTabbed(
-                direction: direction,
-                in: container,
-                orientation: orientation
-            )
-        }
-
-        let target = step > 0 ? currentSelection.nextSibling() : currentSelection.prevSibling()
-
-        if let target {
-            let windowNodes = container.windowNodes
-            if let idx = windowNodes.firstIndex(where: { $0 === target }) {
-                container.setActiveTileIdx(idx)
-            }
-        }
-
-        return target
-    }
-
-    private func moveSelectionWithinContainerTabbed(
-        direction: Direction,
-        in container: NiriContainer,
-        orientation: Monitor.Orientation
-    ) -> NiriNode? {
-        guard let step = direction.secondaryStep(for: orientation) else { return nil }
-
-        let windows = container.windowNodes
-        guard !windows.isEmpty else { return nil }
-
-        let currentIdx = container.activeTileIdx
-        let newIdx = currentIdx + step
-        guard newIdx >= 0, newIdx < windows.count else { return nil }
-
-        container.setActiveTileIdx(newIdx)
-        updateTabbedColumnVisibility(column: container)
-
-        return windows[newIdx]
+        return findWindow(in: plan, id: plan.result.selected_window_id)
     }
 
     func ensureSelectionVisible(
@@ -176,66 +112,35 @@ extension NiriLayoutEngine {
         fromContainerIndex: Int? = nil,
         previousActiveContainerPosition: CGFloat? = nil
     ) {
-        let containers = columns(in: workspaceId)
-        guard !containers.isEmpty else { return }
-
-        guard let container = column(of: node),
-              let targetIdx = columnIndex(of: container, in: workspaceId)
+        guard let window = node as? NiriWindow,
+              let plan = callTopologyKernel(
+                  operation: .ensureVisible,
+                  workspaceId: workspaceId,
+                  state: state,
+                  workingFrame: workingFrame,
+                  gaps: gaps,
+                  subject: window,
+                  fromColumnIndex: fromContainerIndex,
+                  previousActivePosition: previousActiveContainerPosition,
+                  motion: motion,
+                  orientation: orientation
+              )
         else {
             return
         }
 
-        let prevIdx = fromContainerIndex ?? state.activeColumnIndex
-
-        let sizeKeyPath: KeyPath<NiriContainer, CGFloat>
-        let viewportSpan: CGFloat
-        switch orientation {
-        case .horizontal:
-            sizeKeyPath = \.cachedWidth
-            viewportSpan = workingFrame.width
-        case .vertical:
-            sizeKeyPath = \.cachedHeight
-            viewportSpan = workingFrame.height
-        }
-
-        let scale = displayScale(in: workspaceId)
-        let oldActivePos = previousActiveContainerPosition
-            ?? state.containerPosition(
-                at: state.activeColumnIndex,
-                containers: containers,
-                gap: gaps,
-                sizeKeyPath: sizeKeyPath
-            )
-        let newActivePos = state.containerPosition(at: targetIdx, containers: containers, gap: gaps, sizeKeyPath: sizeKeyPath)
-        let offsetDelta = oldActivePos - newActivePos
-        state.viewOffsetPixels.offset(delta: Double(offsetDelta))
-
-        state.activeColumnIndex = targetIdx
-        state.activatePrevColumnOnRemoval = nil
-        state.viewOffsetToRestore = nil
-
-        let settings = effectiveSettings(in: workspaceId)
-        state.ensureContainerVisible(
-            containerIndex: targetIdx,
-            containers: containers,
-            gap: gaps,
-            viewportSpan: viewportSpan,
+        applyTopologyViewport(
+            plan.result,
+            state: &state,
             motion: motion,
-            sizeKeyPath: sizeKeyPath,
-            animate: true,
-            centerMode: settings.centerFocusedColumn,
-            alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
             animationConfig: animationConfig,
-            fromContainerIndex: prevIdx,
-            scale: scale
+            scale: displayScale(in: workspaceId)
         )
-
-        state.selectionProgress = 0.0
     }
 
     func focusTarget(
         direction: Direction,
-        currentSelection: NiriNode,
+        currentSelection _: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
@@ -243,72 +148,44 @@ extension NiriLayoutEngine {
         gaps: CGFloat,
         orientation: Monitor.Orientation = .horizontal
     ) -> NiriNode? {
-        if direction.primaryStep(for: orientation) != nil {
-            return moveSelectionCrossContainer(
-                direction: direction,
-                currentSelection: currentSelection,
-                in: workspaceId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
-            )
-        }
-
-        let target = moveSelectionWithinContainer(
+        guard let plan = callTopologyKernel(
+            operation: .focus,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: workingFrame,
+            gaps: gaps,
             direction: direction,
-            currentSelection: currentSelection,
+            motion: motion,
             orientation: orientation
-        )
-
-        if let target {
-            ensureSelectionVisible(
-                node: target,
-                in: workspaceId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps,
-                orientation: orientation
-            )
+        ) else {
+            return nil
         }
-        return target
+
+        return applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
     }
 
     private func focusCombined(
-        verticalDirection: Direction,
-        horizontalDirection: Direction,
-        currentSelection: NiriNode,
+        direction: Direction,
+        currentSelection _: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
-        gaps: CGFloat,
-        targetRowIndex: Int? = nil
+        gaps: CGFloat
     ) -> NiriNode? {
-        if let target = moveSelectionVertical(direction: verticalDirection, currentSelection: currentSelection) {
-            ensureSelectionVisible(
-                node: target,
-                in: workspaceId,
-                motion: motion,
-                state: &state,
-                workingFrame: workingFrame,
-                gaps: gaps
-            )
-            return target
-        }
-
-        return moveSelectionHorizontal(
-            direction: horizontalDirection,
-            currentSelection: currentSelection,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
+        guard let plan = callTopologyKernel(
+            operation: .focusCombined,
+            workspaceId: workspaceId,
+            state: state,
             workingFrame: workingFrame,
             gaps: gaps,
-            targetRowIndex: targetRowIndex
-        )
+            direction: direction,
+            motion: motion
+        ) else {
+            return nil
+        }
+
+        return applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
     }
 
     func focusDownOrLeft(
@@ -320,15 +197,13 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) -> NiriNode? {
         focusCombined(
-            verticalDirection: .down,
-            horizontalDirection: .left,
+            direction: .left,
             currentSelection: currentSelection,
             in: workspaceId,
             motion: motion,
             state: &state,
             workingFrame: workingFrame,
-            gaps: gaps,
-            targetRowIndex: Int.max
+            gaps: gaps
         )
     }
 
@@ -341,8 +216,7 @@ extension NiriLayoutEngine {
         gaps: CGFloat
     ) -> NiriNode? {
         focusCombined(
-            verticalDirection: .up,
-            horizontalDirection: .right,
+            direction: .right,
             currentSelection: currentSelection,
             in: workspaceId,
             motion: motion,
@@ -350,40 +224,6 @@ extension NiriLayoutEngine {
             workingFrame: workingFrame,
             gaps: gaps
         )
-    }
-
-    private func focusColumnByIndex(
-        _ targetIndex: Int,
-        currentSelection: NiriNode,
-        in workspaceId: WorkspaceDescriptor.ID,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        workingFrame: CGRect,
-        gaps: CGFloat
-    ) -> NiriNode? {
-        let cols = columns(in: workspaceId)
-        guard cols.indices.contains(targetIndex) else { return nil }
-
-        if let currentColumn = column(of: currentSelection) {
-            updateActiveTileIdx(for: currentSelection.id, in: currentColumn)
-        }
-
-        state.activatePrevColumnOnRemoval = nil
-
-        let targetColumn = cols[targetIndex]
-        let windows = targetColumn.windowNodes
-        guard !windows.isEmpty else { return targetColumn.firstChild() }
-
-        let target = windows[min(targetColumn.activeTileIdx, windows.count - 1)]
-        ensureSelectionVisible(
-            node: target,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
-        return target
     }
 
     func focusColumnFirst(
@@ -394,7 +234,7 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        focusColumnByIndex(
+        focusColumn(
             0,
             currentSelection: currentSelection,
             in: workspaceId,
@@ -413,10 +253,8 @@ extension NiriLayoutEngine {
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        let cols = columns(in: workspaceId)
-        guard !cols.isEmpty else { return nil }
-        return focusColumnByIndex(
-            cols.count - 1,
+        focusColumn(
+            max(0, columns(in: workspaceId).count - 1),
             currentSelection: currentSelection,
             in: workspaceId,
             motion: motion,
@@ -428,53 +266,50 @@ extension NiriLayoutEngine {
 
     func focusColumn(
         _ columnIndex: Int,
-        currentSelection: NiriNode,
+        currentSelection _: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        focusColumnByIndex(
-            columnIndex,
-            currentSelection: currentSelection,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
+        guard let plan = callTopologyKernel(
+            operation: .focusColumn,
+            workspaceId: workspaceId,
+            state: state,
             workingFrame: workingFrame,
-            gaps: gaps
-        )
+            gaps: gaps,
+            targetIndex: columnIndex,
+            motion: motion
+        ) else {
+            return nil
+        }
+
+        return applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
     }
 
     func focusWindowInColumn(
         _ windowIndex: Int,
-        currentSelection: NiriNode,
+        currentSelection _: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
         motion: MotionSnapshot,
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat
     ) -> NiriNode? {
-        guard let currentColumn = column(of: currentSelection) else { return nil }
-
-        let windows = currentColumn.windowNodes
-        guard windows.indices.contains(windowIndex) else { return nil }
-
-        currentColumn.setActiveTileIdx(windowIndex)
-        if currentColumn.isTabbed {
-            updateTabbedColumnVisibility(column: currentColumn)
+        guard let plan = callTopologyKernel(
+            operation: .focusWindowInColumn,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: workingFrame,
+            gaps: gaps,
+            targetIndex: windowIndex,
+            motion: motion
+        ) else {
+            return nil
         }
 
-        let target = windows[windowIndex]
-        ensureSelectionVisible(
-            node: target,
-            in: workspaceId,
-            motion: motion,
-            state: &state,
-            workingFrame: workingFrame,
-            gaps: gaps
-        )
-        return target
+        return applyTopologyPlan(plan, in: workspaceId, state: &state, motion: motion)
     }
 
     func focusPrevious(
@@ -493,8 +328,6 @@ extension NiriLayoutEngine {
         ) else {
             return nil
         }
-
-        state.activatePrevColumnOnRemoval = nil
 
         ensureSelectionVisible(
             node: previousWindow,

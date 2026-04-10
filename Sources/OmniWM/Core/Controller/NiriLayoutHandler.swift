@@ -23,14 +23,6 @@ private func hasPendingNiriAnimationWork(
         let gap: CGFloat
     }
 
-    struct RemovalContext {
-        var existingHandleIds: Set<WindowToken>
-        var wasEmptyBeforeSync: Bool
-        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
-        var precomputedFallback: NodeId?
-        var originalColumnIndex: Int?
-    }
-
     var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
 
     init(controller: WMController?) {
@@ -347,25 +339,11 @@ private func hasPendingNiriAnimationWork(
             for: snapshot.windows,
             workspaceId: snapshot.workspaceId
         )
-        let windowTokens = snapshot.windows.map(\.token)
-        let currentSelection = state.selectedNodeId
-
-        let removal = processWindowRemovals(
+        let topologySync = syncTopology(
             pass: pass,
             motion: motion,
             state: &state,
-            windowTokens: windowTokens,
-            currentSelection: currentSelection,
-            removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? []
-        )
-
-        let newTokens = syncAndInsert(
-            pass: pass,
-            motion: motion,
-            state: &state,
-            windowTokens: windowTokens,
-            removal: removal,
-            preferredFocusToken: snapshot.preferredFocusToken
+            snapshot: snapshot
         )
 
         for window in snapshot.windows {
@@ -377,313 +355,124 @@ private func hasPendingNiriAnimationWork(
             in: engine
         )
 
-        let selection = resolveSelection(
-            pass: pass,
-            motion: motion,
-            state: &state,
-            windowTokens: windowTokens,
-            removal: removal,
-            snapshot: snapshot
-        )
-
-        let arrival = handleNewWindowArrival(
-            pass: pass,
-            motion: motion,
-            state: &state,
-            newTokens: newTokens,
-            existingHandleIds: removal.existingHandleIds,
-            snapshot: snapshot
-        )
-
         return computeLayoutPlan(
             pass: pass,
             motion: motion,
             state: state,
-            rememberedFocusToken: arrival.rememberedFocusToken ?? selection.rememberedFocusToken,
-            newWindowToken: arrival.newWindowToken,
-            viewportNeedsRecalc: selection.viewportNeedsRecalc,
+            rememberedFocusToken: topologySync.rememberedFocusToken,
+            newWindowToken: topologySync.newWindowToken,
+            viewportNeedsRecalc: topologySync.viewportNeedsRecalc,
             snapshot: snapshot,
             restoreContexts: restoreContexts,
             suppressAnimationDirectives: hasNativeFullscreenRestoreCycle
         )
     }
 
-    private func processWindowRemovals(
-        pass: NiriLayoutPass,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        windowTokens: [WindowToken],
-        currentSelection: NodeId?,
-        removedNodeIds: [NodeId]
-    ) -> RemovalContext {
-        let existingHandleIds = pass.engine.root(for: pass.wsId)?.windowIdSet ?? []
-        let currentHandleIds = Set(windowTokens)
-        let removedHandleIds = existingHandleIds.subtracting(currentHandleIds)
-        let removedNodeIdSet = Set(removedNodeIds)
-
-        var precomputedFallback: NodeId?
-        var originalColumnIndex: Int?
-        var columnRemovalResult: NiriLayoutEngine.ColumnRemovalResult?
-
-        let wasEmptyBeforeSync = pass.engine.columns(in: pass.wsId).isEmpty
-
-        for removedHandleId in removedHandleIds {
-            guard let window = pass.engine.findNode(for: removedHandleId),
-                  let col = pass.engine.column(of: window),
-                  let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId) else { continue }
-
-            let allWindowsInColumnRemoved = col.windowNodes.allSatisfy { w in
-                !currentHandleIds.contains(w.token)
-            }
-
-            if allWindowsInColumnRemoved && columnRemovalResult == nil {
-                originalColumnIndex = colIdx
-                columnRemovalResult = pass.engine.animateColumnsForRemoval(
-                    columnIndex: colIdx,
-                    in: pass.wsId,
-                    motion: motion,
-                    state: &state,
-                    gaps: pass.gap
-                )
-            }
-
-            let shouldPrecomputeFallback = if removedNodeIdSet.isEmpty {
-                window.id == currentSelection
-            } else {
-                removedNodeIdSet.contains(window.id)
-            }
-            if shouldPrecomputeFallback {
-                precomputedFallback = pass.engine.fallbackSelectionOnRemoval(
-                    removing: window.id,
-                    in: pass.wsId
-                )
-            }
-        }
-
-        return RemovalContext(
-            existingHandleIds: existingHandleIds,
-            wasEmptyBeforeSync: wasEmptyBeforeSync,
-            columnRemovalResult: columnRemovalResult,
-            precomputedFallback: precomputedFallback,
-            originalColumnIndex: originalColumnIndex
-        )
-    }
-
-    private func syncAndInsert(
-        pass: NiriLayoutPass,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        windowTokens: [WindowToken],
-        removal: RemovalContext,
-        preferredFocusToken: WindowToken?
-    ) -> [WindowToken] {
-        let currentSelection = state.selectedNodeId
-        _ = pass.engine.syncWindows(
-            windowTokens,
-            in: pass.wsId,
-            selectedNodeId: currentSelection,
-            focusedToken: preferredFocusToken
-        )
-        let newTokens = windowTokens.filter { !removal.existingHandleIds.contains($0) }
-
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
-
-        if !removal.wasEmptyBeforeSync, !newTokens.isEmpty {
-            var newColumnData: [(col: NiriContainer, colIdx: Int)] = []
-            for newToken in newTokens {
-                if let node = pass.engine.findNode(for: newToken),
-                   let col = pass.engine.column(of: node),
-                   let colIdx = pass.engine.columnIndex(of: col, in: pass.wsId)
-                {
-                    if !newColumnData.contains(where: { $0.col.id == col.id }) {
-                        newColumnData.append((col, colIdx))
-                    }
-                }
-            }
-
-            let originalActiveIdx = state.activeColumnIndex
-            let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
-            if !insertedBeforeActive.isEmpty, removal.columnRemovalResult == nil {
-                let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
-                    total + data.col.cachedWidth + pass.gap
-                }
-                state.viewOffsetPixels.offset(delta: Double(-totalInsertedWidth))
-                state.activeColumnIndex = originalActiveIdx + insertedBeforeActive.count
-            }
-
-            let sortedNewColumns = newColumnData.sorted { $0.colIdx < $1.colIdx }
-            for addedData in sortedNewColumns {
-                pass.engine.animateColumnsForAddition(
-                    columnIndex: addedData.colIdx,
-                    in: pass.wsId,
-                    motion: motion,
-                    state: state,
-                    gaps: pass.gap,
-                    workingAreaWidth: pass.insetFrame.width
-                )
-            }
-        }
-
-        return newTokens
-    }
-
-    private func resolveSelection(
-        pass: NiriLayoutPass,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        windowTokens: [WindowToken],
-        removal: RemovalContext,
-        snapshot: NiriWorkspaceSnapshot
-    ) -> (viewportNeedsRecalc: Bool, rememberedFocusToken: WindowToken?) {
-        state.displayRefreshRate = snapshot.displayRefreshRate
-
-        if let result = removal.columnRemovalResult {
-            if let prevOffset = state.activatePrevColumnOnRemoval {
-                state.viewOffsetPixels = .static(prevOffset)
-                state.activatePrevColumnOnRemoval = nil
-            }
-
-            if let fallback = result.fallbackSelectionId {
-                state.selectedNodeId = fallback
-            } else if let selectedId = state.selectedNodeId, pass.engine.findNode(by: selectedId) == nil {
-                state.selectedNodeId = removal.precomputedFallback
-                    ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
-            }
-        } else {
-            if let selectedId = state.selectedNodeId {
-                if pass.engine.findNode(by: selectedId) == nil {
-                    state.selectedNodeId = removal.precomputedFallback
-                        ?? pass.engine.validateSelection(selectedId, in: pass.wsId)
-                }
-            }
-        }
-
-        if state.selectedNodeId == nil {
-            if let firstToken = windowTokens.first,
-               let firstNode = pass.engine.findNode(for: firstToken)
-            {
-                state.selectedNodeId = firstNode.id
-            }
-        }
-
-        let usesSingleWindowAspectRatio = pass.engine.singleWindowLayoutContext(in: pass.wsId) != nil
-        if usesSingleWindowAspectRatio {
-            resetViewportForSingleWindowAspectRatio(state: &state)
-        }
-
-        let offsetBefore = state.viewOffsetPixels.current()
-        var viewportNeedsRecalc = false
-
-        let isGestureOrAnimation = state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating
-
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
-
-        if !usesSingleWindowAspectRatio,
-           !isGestureOrAnimation,
-           snapshot.isActiveWorkspace,
-           let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId)
-        {
-            if let restoreOffset = removal.columnRemovalResult?.restorePreviousViewOffset {
-                state.viewOffsetPixels = .static(restoreOffset)
-            } else {
-                pass.engine.ensureSelectionVisible(
-                    node: selectedNode,
-                    in: pass.wsId,
-                    motion: motion,
-                    state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    fromContainerIndex: removal.originalColumnIndex
-                )
-            }
-            if abs(state.viewOffsetPixels.current() - offsetBefore) > 1 {
-                viewportNeedsRecalc = true
-            }
-        }
-
-        let rememberedFocusToken: WindowToken?
-        if let selectedId = state.selectedNodeId,
-           let selectedNode = pass.engine.findNode(by: selectedId) as? NiriWindow
-        {
-            rememberedFocusToken = selectedNode.token
-        } else {
-            rememberedFocusToken = nil
-        }
-
-        return (viewportNeedsRecalc, rememberedFocusToken)
-    }
-
-    private func handleNewWindowArrival(
-        pass: NiriLayoutPass,
-        motion: MotionSnapshot,
-        state: inout ViewportState,
-        newTokens: [WindowToken],
-        existingHandleIds: Set<WindowToken>,
-        snapshot: NiriWorkspaceSnapshot
-    ) -> (newWindowToken: WindowToken?, rememberedFocusToken: WindowToken?) {
-        let wasEmpty = existingHandleIds.isEmpty
-
-        var newWindowToken: WindowToken?
+    private struct TopologySyncResult {
+        var viewportNeedsRecalc: Bool
         var rememberedFocusToken: WindowToken?
-        if snapshot.hasCompletedInitialRefresh,
-           let newToken = newTokens.last,
-           let newNode = pass.engine.findNode(for: newToken),
-           snapshot.isActiveWorkspace
-        {
-            state.selectedNodeId = newNode.id
+        var newWindowToken: WindowToken?
+    }
 
-            if wasEmpty {
-                if pass.engine.singleWindowLayoutContext(in: pass.wsId) != nil {
-                    resetViewportForSingleWindowAspectRatio(state: &state)
-                } else {
-                    let cols = pass.engine.columns(in: pass.wsId)
-                    let settings = pass.engine.effectiveSettings(in: pass.wsId)
-                    state.transitionToColumn(
-                        0,
-                        columns: cols,
-                        gap: pass.gap,
-                        viewportWidth: pass.insetFrame.width,
-                        motion: motion,
-                        animate: false,
-                        centerMode: settings.centerFocusedColumn,
-                        alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn
-                    )
-                }
-            } else if let newCol = pass.engine.column(of: newNode),
-                      let newColIdx = pass.engine.columnIndex(of: newCol, in: pass.wsId) {
-                if newCol.cachedWidth <= 0 {
-                    newCol.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-                }
+    private func syncTopology(
+        pass: NiriLayoutPass,
+        motion: MotionSnapshot,
+        state: inout ViewportState,
+        snapshot: NiriWorkspaceSnapshot
+    ) -> TopologySyncResult {
+        state.displayRefreshRate = snapshot.displayRefreshRate
+        let windowTokens = snapshot.windows.map(\.token)
+        let existingHandleIds = pass.engine.root(for: pass.wsId)?.windowIdSet ?? []
+        let newTokens = windowTokens.filter { !existingHandleIds.contains($0) }
+        let offsetBefore = state.viewOffsetPixels.current()
 
-                let shouldRestorePrevOffset = newColIdx == state.activeColumnIndex + 1
-                let offsetBeforeActivation = state.stationary()
-
-                pass.engine.ensureSelectionVisible(
-                    node: newNode,
-                    in: pass.wsId,
-                    motion: motion,
-                    state: &state,
-                    workingFrame: pass.insetFrame,
-                    gaps: pass.gap,
-                    fromContainerIndex: state.activeColumnIndex
-                )
-
-                if shouldRestorePrevOffset {
-                    state.activatePrevColumnOnRemoval = offsetBeforeActivation
-                }
+        for col in pass.engine.columns(in: pass.wsId) {
+            if col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
             }
-            rememberedFocusToken = newToken
-            pass.engine.updateFocusTimestamp(for: newNode.id)
-            newWindowToken = newToken
+        }
+
+        let resetForSingleWindow = windowTokens.count == 1
+            && pass.engine.effectiveSingleWindowAspectRatio(in: pass.wsId).ratio != nil
+        guard let plan = pass.engine.callTopologyKernel(
+            operation: .syncWindows,
+            workspaceId: pass.wsId,
+            state: state,
+            workingFrame: pass.insetFrame,
+            gaps: pass.gap,
+            focusedToken: snapshot.preferredFocusToken,
+            desiredTokens: windowTokens,
+            removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? [],
+            resetForSingleWindow: resetForSingleWindow,
+            motion: motion,
+            isActiveWorkspace: snapshot.isActiveWorkspace,
+            hasCompletedInitialRefresh: snapshot.hasCompletedInitialRefresh
+        ) else {
+            return TopologySyncResult(
+                viewportNeedsRecalc: false,
+                rememberedFocusToken: nil,
+                newWindowToken: nil
+            )
+        }
+
+        if plan.effectKind == .removeColumn,
+           plan.result.source_column_index >= 0
+        {
+            var animationState = state
+            _ = pass.engine.animateColumnsForRemoval(
+                columnIndex: Int(plan.result.source_column_index),
+                in: pass.wsId,
+                motion: motion,
+                state: &animationState,
+                gaps: pass.gap
+            )
+        }
+
+        _ = pass.engine.applyTopologyPlan(
+            plan,
+            in: pass.wsId,
+            state: &state,
+            motion: motion
+        )
+
+        for col in pass.engine.columns(in: pass.wsId) {
+            if col.cachedWidth <= 0 {
+                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
+            }
+        }
+
+        if !existingHandleIds.isEmpty,
+           plan.effectKind == .addColumn,
+           plan.result.target_column_index >= 0
+        {
+            pass.engine.animateColumnsForAddition(
+                columnIndex: Int(plan.result.target_column_index),
+                in: pass.wsId,
+                motion: motion,
+                state: state,
+                gaps: pass.gap,
+                workingAreaWidth: pass.insetFrame.width
+            )
+        }
+
+        let selectedToken = state.selectedNodeId
+            .flatMap { pass.engine.findNode(by: $0) as? NiriWindow }?
+            .token
+        let rememberedFocusToken: WindowToken? = if plan.result.remembered_focus_window_id != 0 {
+            pass.engine.findWindow(in: plan, id: plan.result.remembered_focus_window_id)?.token
+        } else {
+            selectedToken
+        }
+        let newWindowToken: WindowToken? = if snapshot.hasCompletedInitialRefresh,
+                                              snapshot.isActiveWorkspace,
+                                              plan.result.new_window_id != 0
+        {
+            pass.engine.findWindow(in: plan, id: plan.result.new_window_id)?.token
+        } else {
+            nil
+        }
+        if let selectedId = state.selectedNodeId {
+            pass.engine.updateFocusTimestamp(for: selectedId)
         }
 
         if snapshot.hasCompletedInitialRefresh,
@@ -709,15 +498,11 @@ private func hasPendingNiriAnimationWork(
             }
         }
 
-        return (newWindowToken, rememberedFocusToken)
-    }
-
-    private func resetViewportForSingleWindowAspectRatio(state: inout ViewportState) {
-        state.activeColumnIndex = 0
-        state.viewOffsetPixels = .static(0)
-        state.activatePrevColumnOnRemoval = nil
-        state.viewOffsetToRestore = nil
-        state.selectionProgress = 0
+        return TopologySyncResult(
+            viewportNeedsRecalc: abs(state.viewOffsetPixels.current() - offsetBefore) > 1,
+            rememberedFocusToken: rememberedFocusToken,
+            newWindowToken: newWindowToken
+        )
     }
 
     private func computeLayoutPlan(

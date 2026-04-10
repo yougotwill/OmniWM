@@ -4044,6 +4044,102 @@ private func makeCenteredCrossMonitorFixture(
         #expect(orderedWindowIds == [focusedWindow.token.windowId, targetWindow.token.windowId, trailingWindow.token.windowId])
     }
 
+    @Test func insertWindowByMoveReordersThroughTopologyKernel() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        let targetColumn = NiriContainer()
+        root.appendChild(sourceColumn)
+        root.appendChild(targetColumn)
+        assignFixedWidths(root.columns)
+
+        let movedWindow = NiriWindow(token: makeTestHandle(pid: 501).id)
+        let sourcePeer = NiriWindow(token: makeTestHandle(pid: 502).id)
+        let targetFirst = NiriWindow(token: makeTestHandle(pid: 503).id)
+        let targetSecond = NiriWindow(token: makeTestHandle(pid: 504).id)
+
+        movedWindow.size = 2.0
+        sourceColumn.appendChild(movedWindow)
+        sourceColumn.appendChild(sourcePeer)
+        targetColumn.appendChild(targetFirst)
+        targetColumn.appendChild(targetSecond)
+        for window in [movedWindow, sourcePeer, targetFirst, targetSecond] {
+            engine.tokenToNode[window.token] = window
+        }
+
+        var state = ViewportState()
+        state.selectedNodeId = movedWindow.id
+        state.activeColumnIndex = 0
+
+        let inserted = engine.insertWindowByMove(
+            sourceWindowId: movedWindow.id,
+            targetWindowId: targetSecond.id,
+            position: .before,
+            in: wsId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(inserted)
+        #expect(engine.columns(in: wsId).count == 2)
+        #expect(sourceColumn.windowNodes.map(\.token) == [sourcePeer.token])
+        #expect(targetColumn.windowNodes.map(\.token) == [targetFirst.token, movedWindow.token, targetSecond.token])
+        #expect(movedWindow.size == 1.0)
+        #expect(movedWindow.height == .default)
+        #expect(state.activeColumnIndex == 1)
+        #expect(state.selectedNodeId == movedWindow.id)
+    }
+
+    @Test func swapWindowsByMoveUsesKernelTopologyAndSwapsCrossColumnSizes() {
+        let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
+        let wsId = UUID()
+        let root = NiriRoot(workspaceId: wsId)
+        engine.roots[wsId] = root
+
+        let sourceColumn = NiriContainer()
+        let targetColumn = NiriContainer()
+        root.appendChild(sourceColumn)
+        root.appendChild(targetColumn)
+        assignFixedWidths(root.columns)
+
+        let sourceWindow = NiriWindow(token: makeTestHandle(pid: 511).id)
+        let targetWindow = NiriWindow(token: makeTestHandle(pid: 512).id)
+        sourceWindow.size = 2.0
+        targetWindow.size = 3.0
+
+        sourceColumn.appendChild(sourceWindow)
+        targetColumn.appendChild(targetWindow)
+        engine.tokenToNode[sourceWindow.token] = sourceWindow
+        engine.tokenToNode[targetWindow.token] = targetWindow
+
+        var state = ViewportState()
+        state.selectedNodeId = sourceWindow.id
+        state.activeColumnIndex = 0
+
+        let swapped = engine.swapWindowsByMove(
+            sourceWindowId: sourceWindow.id,
+            targetWindowId: targetWindow.id,
+            in: wsId,
+            motion: .disabled,
+            state: &state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1200, height: 900),
+            gaps: 8
+        )
+
+        #expect(swapped)
+        #expect(sourceColumn.windowNodes.map(\.token) == [targetWindow.token])
+        #expect(targetColumn.windowNodes.map(\.token) == [sourceWindow.token])
+        #expect(sourceWindow.size == 3.0)
+        #expect(targetWindow.size == 2.0)
+        #expect(state.activeColumnIndex == 1)
+        #expect(state.selectedNodeId == sourceWindow.id)
+    }
+
     @Test func moveWindowToWorkspaceThenInsertColumnPreservesSourceFallbackSelection() {
         let engine = NiriLayoutEngine(maxWindowsPerColumn: 3, maxVisibleColumns: 3)
         let sourceWorkspaceId = UUID()

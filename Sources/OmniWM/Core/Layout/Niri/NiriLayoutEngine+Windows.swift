@@ -13,78 +13,40 @@ extension NiriLayoutEngine {
         afterSelection selectedNodeId: NodeId?,
         focusedToken: WindowToken? = nil
     ) -> NiriWindow {
-        let root = ensureRoot(for: workspaceId)
+        var state = ViewportState()
+        state.selectedNodeId = selectedNodeId
 
-        if let existingColumn = claimEmptyColumnIfWorkspaceEmpty(in: root) {
-            initializeNewColumnWidth(existingColumn, in: workspaceId)
-            let windowNode = NiriWindow(token: token)
-            existingColumn.appendChild(windowNode)
-            tokenToNode[token] = windowNode
-            return windowNode
-        }
+        guard let plan = callTopologyKernel(
+            operation: .addWindow,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            gaps: 0,
+            subjectToken: token,
+            focusedToken: focusedToken,
+            motion: .disabled
+        ) else { preconditionFailure("Niri topology kernel failed to add window") }
 
-        let referenceColumn: NiriContainer? = if let focusedToken,
-                                                 let focusedNode = tokenToNode[focusedToken],
-                                                 let col = column(of: focusedNode)
-        {
-            col
-        } else if let selId = selectedNodeId,
-                  let selNode = root.findNode(by: selId),
-                  let col = column(of: selNode)
-        {
-            col
-        } else {
-            root.columns.last
-        }
-
-        let newColumn = NiriContainer()
-        initializeNewColumnWidth(newColumn, in: workspaceId)
-        if let refCol = referenceColumn {
-            root.insertAfter(newColumn, reference: refCol)
-        } else {
-            root.appendChild(newColumn)
-        }
-
-        let windowNode = NiriWindow(token: token)
-        newColumn.appendChild(windowNode)
-
-        tokenToNode[token] = windowNode
-
-        return windowNode
+        applyTopologyPlan(plan, in: workspaceId)
+        return findNode(for: token)!
     }
 
     func removeWindow(token: WindowToken) {
         guard let node = tokenToNode[token] else { return }
-        closingTokens.remove(token)
+        let state = ViewportState()
+        guard let root = node.findRoot(),
+              let plan = callTopologyKernel(
+                  operation: .removeWindow,
+                  workspaceId: root.workspaceId,
+                  state: state,
+                  workingFrame: CGRect(x: 0, y: 0, width: 1, height: 1),
+                  gaps: 0,
+                  subject: node,
+                  motion: .disabled
+              )
+        else { return }
 
-        guard let column = node.parent as? NiriContainer else { return }
-
-        column.adjustActiveTileIdxForRemoval(of: node)
-
-        node.remove()
-        tokenToNode.removeValue(forKey: token)
-
-        if column.displayMode == .tabbed, !column.children.isEmpty {
-            column.clampActiveTileIdx()
-            updateTabbedColumnVisibility(column: column)
-        }
-
-        if column.children.isEmpty {
-            let root = column.parent as? NiriRoot
-            column.remove()
-
-            if let root {
-                let cols = root.columns
-                if cols.isEmpty {
-                    let emptyColumn = NiriContainer()
-                    root.appendChild(emptyColumn)
-                } else {
-                    for col in cols {
-                        col.cachedWidth = 0
-                    }
-                }
-            }
-        }
+        applyTopologyPlan(plan, in: root.workspaceId)
     }
 
     @discardableResult
@@ -122,30 +84,24 @@ extension NiriLayoutEngine {
     ) -> Set<WindowToken> {
         let root = ensureRoot(for: workspaceId)
         let existingIdSet = root.windowIdSet
+        var state = ViewportState()
+        state.selectedNodeId = selectedNodeId
 
-        let currentIdSet = Set(tokens)
-
-        var removedHandles = Set<WindowToken>()
-
-        for window in root.allWindows {
-            if !currentIdSet.contains(window.token) {
-                removedHandles.insert(window.token)
-                removeWindow(token: window.token)
-            }
+        if let plan = callTopologyKernel(
+            operation: .syncWindows,
+            workspaceId: workspaceId,
+            state: state,
+            workingFrame: CGRect(x: 0, y: 0, width: 1, height: 1),
+            gaps: 0,
+            focusedToken: focusedToken,
+            desiredTokens: tokens,
+            motion: .disabled,
+            hasCompletedInitialRefresh: false
+        ) {
+            applyTopologyPlan(plan, in: workspaceId)
         }
 
-        for token in tokens {
-            if !existingIdSet.contains(token) {
-                _ = addWindow(
-                    token: token,
-                    to: workspaceId,
-                    afterSelection: selectedNodeId,
-                    focusedToken: focusedToken
-                )
-            }
-        }
-
-        return removedHandles
+        return existingIdSet.subtracting(Set(tokens))
     }
 
     func validateSelection(
@@ -169,41 +125,7 @@ extension NiriLayoutEngine {
         removing removingNodeId: NodeId,
         in workspaceId: WorkspaceDescriptor.ID
     ) -> NodeId? {
-        guard let root = roots[workspaceId],
-              let removingNode = root.findNode(by: removingNodeId)
-        else {
-            return nil
-        }
-
-        if let nextSibling = removingNode.nextSibling() {
-            return nextSibling.id
-        }
-
-        if let prevSibling = removingNode.prevSibling() {
-            return prevSibling.id
-        }
-
-        let cols = columns(in: workspaceId)
-        if let currentCol = column(of: removingNode),
-           let currentIdx = cols.firstIndex(where: { $0 === currentCol })
-        {
-            if currentIdx > 0, let window = cols[currentIdx - 1].firstChild() {
-                return window.id
-            }
-            if currentIdx < cols.count - 1, let window = cols[currentIdx + 1].firstChild() {
-                return window.id
-            }
-        }
-
-        for col in cols {
-            if col.id != column(of: removingNode)?.id {
-                if let firstWindow = col.firstChild() {
-                    return firstWindow.id
-                }
-            }
-        }
-
-        return nil
+        topologyFallbackSelectionOnRemoval(removing: removingNodeId, in: workspaceId)
     }
 
     func updateFocusTimestamp(for nodeId: NodeId) {
