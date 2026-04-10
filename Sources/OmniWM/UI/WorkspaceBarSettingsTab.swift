@@ -245,10 +245,149 @@ private struct GlobalBarSettingsSection: View {
                         controller.updateWorkspaceBarSettings()
                     }
                 }
+
+                Divider()
+
+                SectionHeader("Theme")
+                VStack(alignment: .leading, spacing: 8) {
+                    WorkspaceBarAccentColorPicker(settings: settings, controller: controller)
+                    WorkspaceBarTextColorPicker(settings: settings, controller: controller)
+
+                    HStack {
+                        Text("Label Font Size")
+                        Slider(value: $settings.workspaceBarLabelFontSize, in: 10 ... 16, step: 1)
+                        Text("\(Int(settings.workspaceBarLabelFontSize)) pt")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                    .onChange(of: settings.workspaceBarLabelFontSize) { _, _ in
+                        controller.updateWorkspaceBarSettings()
+                    }
+                }
             }
         }
     }
 
+}
+
+private struct WorkspaceBarAccentColorPicker: View {
+    @Bindable var settings: SettingsStore
+    @Bindable var controller: WMController
+
+    private var useCustomAccent: Bool {
+        settings.workspaceBarAccentColorRed >= 0
+    }
+
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: {
+                guard settings.workspaceBarAccentColorRed >= 0 else { return .accentColor }
+                return Color(
+                    red: settings.workspaceBarAccentColorRed,
+                    green: settings.workspaceBarAccentColorGreen,
+                    blue: settings.workspaceBarAccentColorBlue,
+                    opacity: settings.workspaceBarAccentColorAlpha
+                )
+            },
+            set: { newColor in
+                if let components = NSColor(newColor).usingColorSpace(.sRGB) {
+                    settings.workspaceBarAccentColorRed = Double(components.redComponent)
+                    settings.workspaceBarAccentColorGreen = Double(components.greenComponent)
+                    settings.workspaceBarAccentColorBlue = Double(components.blueComponent)
+                    settings.workspaceBarAccentColorAlpha = Double(components.alphaComponent)
+                    controller.updateWorkspaceBarSettings()
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        HStack {
+            Toggle("Custom Accent Color", isOn: Binding(
+                get: { useCustomAccent },
+                set: { enabled in
+                    if enabled {
+                        let ns = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .blue
+                        settings.workspaceBarAccentColorRed = Double(ns.redComponent)
+                        settings.workspaceBarAccentColorGreen = Double(ns.greenComponent)
+                        settings.workspaceBarAccentColorBlue = Double(ns.blueComponent)
+                        settings.workspaceBarAccentColorAlpha = Double(ns.alphaComponent)
+                    } else {
+                        settings.workspaceBarAccentColorRed = -1
+                        settings.workspaceBarAccentColorGreen = -1
+                        settings.workspaceBarAccentColorBlue = -1
+                        settings.workspaceBarAccentColorAlpha = 1
+                    }
+                    controller.updateWorkspaceBarSettings()
+                }
+            ))
+            Spacer()
+            if useCustomAccent {
+                ColorPicker("", selection: accentBinding, supportsOpacity: true)
+                    .labelsHidden()
+            }
+        }
+    }
+}
+
+private struct WorkspaceBarTextColorPicker: View {
+    @Bindable var settings: SettingsStore
+    @Bindable var controller: WMController
+
+    private var useCustomText: Bool {
+        settings.workspaceBarTextColorRed >= 0
+    }
+
+    private var textBinding: Binding<Color> {
+        Binding(
+            get: {
+                guard settings.workspaceBarTextColorRed >= 0 else { return .primary }
+                return Color(
+                    red: settings.workspaceBarTextColorRed,
+                    green: settings.workspaceBarTextColorGreen,
+                    blue: settings.workspaceBarTextColorBlue,
+                    opacity: settings.workspaceBarTextColorAlpha
+                )
+            },
+            set: { newColor in
+                if let components = NSColor(newColor).usingColorSpace(.sRGB) {
+                    settings.workspaceBarTextColorRed = Double(components.redComponent)
+                    settings.workspaceBarTextColorGreen = Double(components.greenComponent)
+                    settings.workspaceBarTextColorBlue = Double(components.blueComponent)
+                    settings.workspaceBarTextColorAlpha = Double(components.alphaComponent)
+                    controller.updateWorkspaceBarSettings()
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        HStack {
+            Toggle("Custom Text Color", isOn: Binding(
+                get: { useCustomText },
+                set: { enabled in
+                    if enabled {
+                        let ns = NSColor.labelColor.usingColorSpace(.sRGB) ?? .white
+                        settings.workspaceBarTextColorRed = Double(ns.redComponent)
+                        settings.workspaceBarTextColorGreen = Double(ns.greenComponent)
+                        settings.workspaceBarTextColorBlue = Double(ns.blueComponent)
+                        settings.workspaceBarTextColorAlpha = Double(ns.alphaComponent)
+                    } else {
+                        settings.workspaceBarTextColorRed = -1
+                        settings.workspaceBarTextColorGreen = -1
+                        settings.workspaceBarTextColorBlue = -1
+                        settings.workspaceBarTextColorAlpha = 1
+                    }
+                    controller.updateWorkspaceBarSettings()
+                }
+            ))
+            Spacer()
+            if useCustomText {
+                ColorPicker("", selection: textBinding, supportsOpacity: true)
+                    .labelsHidden()
+            }
+        }
+    }
 }
 
 private struct MonitorBarSettingsSection: View {

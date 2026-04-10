@@ -31,7 +31,16 @@ private func makeBarSettings(
         height: height,
         backgroundOpacity: 0.1,
         xOffset: xOffset,
-        yOffset: yOffset
+        yOffset: yOffset,
+        accentColorRed: -1,
+        accentColorGreen: -1,
+        accentColorBlue: -1,
+        accentColorAlpha: 1,
+        textColorRed: -1,
+        textColorGreen: -1,
+        textColorBlue: -1,
+        textColorAlpha: 1,
+        labelFontSize: 12
     )
 }
 

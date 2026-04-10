@@ -47,6 +47,23 @@ struct WorkspaceBarSnapshot: Equatable {
     let showLabels: Bool
     let backgroundOpacity: Double
     let barHeight: CGFloat
+    let accentColorComponents: ColorComponents?
+    let textColorComponents: ColorComponents?
+    let labelFontSize: CGFloat
+
+    var accentColor: Color? { accentColorComponents?.color }
+    var textColor: Color? { textColorComponents?.color }
+}
+
+struct ColorComponents: Equatable {
+    let red: Double
+    let green: Double
+    let blue: Double
+    let alpha: Double
+
+    var color: Color {
+        Color(red: red, green: green, blue: blue, opacity: alpha)
+    }
 }
 
 @MainActor @Observable
@@ -122,6 +139,9 @@ private struct WorkspaceBarContentView: View {
                     cornerRadius: cornerRadius,
                     animationsEnabled: animationsEnabled,
                     showLabels: snapshot.showLabels,
+                    accentColor: snapshot.accentColor,
+                    textColor: snapshot.textColor,
+                    labelFontSize: snapshot.labelFontSize,
                     onFocusWorkspace: { onFocusWorkspace(item) },
                     onFocusWindow: onFocusWindow
                 )
@@ -146,17 +166,23 @@ private struct WorkspaceItemView: View {
     let cornerRadius: CGFloat
     let animationsEnabled: Bool
     let showLabels: Bool
+    let accentColor: Color?
+    let textColor: Color?
+    let labelFontSize: CGFloat
     let onFocusWorkspace: () -> Void
     let onFocusWindow: (WindowToken) -> Void
 
     @State private var isHovered = false
 
+    private var resolvedAccentColor: Color { accentColor ?? .accentColor }
+    private var resolvedTextColor: Color { textColor ?? .primary }
+
     var body: some View {
         HStack(spacing: windowSpacing) {
             if showLabels {
                 Text(item.name)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(item.isFocused ? .accentColor : .secondary)
+                    .font(.system(size: labelFontSize, weight: .medium, design: .monospaced))
+                    .foregroundColor(item.isFocused ? resolvedAccentColor : (textColor?.opacity(0.6) ?? .secondary))
                     .frame(minWidth: 16)
 
                 if !item.windows.isEmpty {
@@ -173,6 +199,7 @@ private struct WorkspaceItemView: View {
                     isFocused: window.isFocused,
                     isInFocusedWorkspace: item.isFocused,
                     animationsEnabled: animationsEnabled,
+                    accentColor: accentColor,
                     onFocusWindow: onFocusWindow
                 )
             }
@@ -190,6 +217,7 @@ private struct WorkspaceItemView: View {
                     isFocused: window.isFocused,
                     isInFocusedWorkspace: item.isFocused,
                     animationsEnabled: animationsEnabled,
+                    accentColor: accentColor,
                     onFocusWindow: onFocusWindow
                 )
             }
@@ -204,7 +232,7 @@ private struct WorkspaceItemView: View {
                     .overlay {
                         if item.isFocused {
                             RoundedRectangle(cornerRadius: cornerRadius)
-                                .strokeBorder(Color.accentColor, lineWidth: 1)
+                                .strokeBorder(resolvedAccentColor, lineWidth: 1)
                         }
                     }
             }
@@ -225,10 +253,13 @@ private struct WindowIconView: View {
     let isFocused: Bool
     let isInFocusedWorkspace: Bool
     let animationsEnabled: Bool
+    let accentColor: Color?
     let onFocusWindow: (WindowToken) -> Void
 
     @State private var isHovered = false
     @State private var showingWindowList = false
+
+    private var resolvedAccentColor: Color { accentColor ?? .accentColor }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -245,7 +276,7 @@ private struct WindowIconView: View {
             }
             .frame(width: iconSize, height: iconSize)
             .opacity(opacity)
-            .shadow(color: Color.accentColor.opacity(glowOpacity), radius: glowRadius)
+            .shadow(color: resolvedAccentColor.opacity(glowOpacity), radius: glowRadius)
 
             if window.windowCount > 1 {
                 Text("\(window.windowCount)")
@@ -348,7 +379,7 @@ private struct WindowListSheet: View {
                         Spacer()
                         if windowInfo.isFocused {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.accentColor)  // Sheet uses system accent
                         }
                     }
                 }

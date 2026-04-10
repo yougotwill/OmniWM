@@ -183,6 +183,42 @@ final class SettingsStore {
         didSet { defaults.set(workspaceBarYOffset, forKey: Keys.workspaceBarYOffset) }
     }
 
+    var workspaceBarAccentColorRed: Double {
+        didSet { defaults.set(workspaceBarAccentColorRed, forKey: Keys.workspaceBarAccentColorRed) }
+    }
+
+    var workspaceBarAccentColorGreen: Double {
+        didSet { defaults.set(workspaceBarAccentColorGreen, forKey: Keys.workspaceBarAccentColorGreen) }
+    }
+
+    var workspaceBarAccentColorBlue: Double {
+        didSet { defaults.set(workspaceBarAccentColorBlue, forKey: Keys.workspaceBarAccentColorBlue) }
+    }
+
+    var workspaceBarAccentColorAlpha: Double {
+        didSet { defaults.set(workspaceBarAccentColorAlpha, forKey: Keys.workspaceBarAccentColorAlpha) }
+    }
+
+    var workspaceBarTextColorRed: Double {
+        didSet { defaults.set(workspaceBarTextColorRed, forKey: Keys.workspaceBarTextColorRed) }
+    }
+
+    var workspaceBarTextColorGreen: Double {
+        didSet { defaults.set(workspaceBarTextColorGreen, forKey: Keys.workspaceBarTextColorGreen) }
+    }
+
+    var workspaceBarTextColorBlue: Double {
+        didSet { defaults.set(workspaceBarTextColorBlue, forKey: Keys.workspaceBarTextColorBlue) }
+    }
+
+    var workspaceBarTextColorAlpha: Double {
+        didSet { defaults.set(workspaceBarTextColorAlpha, forKey: Keys.workspaceBarTextColorAlpha) }
+    }
+
+    var workspaceBarLabelFontSize: Double {
+        didSet { defaults.set(workspaceBarLabelFontSize, forKey: Keys.workspaceBarLabelFontSize) }
+    }
+
     var monitorBarSettings: [MonitorBarSettings] {
         didSet { MonitorSettingsStore.save(monitorBarSettings, to: defaults, key: Keys.monitorBarSettings) }
     }
@@ -467,6 +503,24 @@ final class SettingsStore {
             baseline.workspaceBarBackgroundOpacity
         workspaceBarXOffset = defaults.object(forKey: Keys.workspaceBarXOffset) as? Double ?? baseline.workspaceBarXOffset
         workspaceBarYOffset = defaults.object(forKey: Keys.workspaceBarYOffset) as? Double ?? baseline.workspaceBarYOffset
+        workspaceBarAccentColorRed = defaults.object(forKey: Keys.workspaceBarAccentColorRed) as? Double ??
+            baseline.workspaceBarAccentColorRed
+        workspaceBarAccentColorGreen = defaults.object(forKey: Keys.workspaceBarAccentColorGreen) as? Double ??
+            baseline.workspaceBarAccentColorGreen
+        workspaceBarAccentColorBlue = defaults.object(forKey: Keys.workspaceBarAccentColorBlue) as? Double ??
+            baseline.workspaceBarAccentColorBlue
+        workspaceBarAccentColorAlpha = defaults.object(forKey: Keys.workspaceBarAccentColorAlpha) as? Double ??
+            baseline.workspaceBarAccentColorAlpha
+        workspaceBarTextColorRed = defaults.object(forKey: Keys.workspaceBarTextColorRed) as? Double ??
+            baseline.workspaceBarTextColorRed
+        workspaceBarTextColorGreen = defaults.object(forKey: Keys.workspaceBarTextColorGreen) as? Double ??
+            baseline.workspaceBarTextColorGreen
+        workspaceBarTextColorBlue = defaults.object(forKey: Keys.workspaceBarTextColorBlue) as? Double ??
+            baseline.workspaceBarTextColorBlue
+        workspaceBarTextColorAlpha = defaults.object(forKey: Keys.workspaceBarTextColorAlpha) as? Double ??
+            baseline.workspaceBarTextColorAlpha
+        workspaceBarLabelFontSize = defaults.object(forKey: Keys.workspaceBarLabelFontSize) as? Double ??
+            baseline.workspaceBarLabelFontSize
         monitorBarSettings = MonitorSettingsStore.load(from: defaults, key: Keys.monitorBarSettings)
         let loadedAppRules = Self.loadAppRules(from: defaults)
         appRules = loadedAppRules
@@ -746,7 +800,16 @@ final class SettingsStore {
             height: override?.height ?? workspaceBarHeight,
             backgroundOpacity: override?.backgroundOpacity ?? workspaceBarBackgroundOpacity,
             xOffset: override?.xOffset ?? workspaceBarXOffset,
-            yOffset: override?.yOffset ?? workspaceBarYOffset
+            yOffset: override?.yOffset ?? workspaceBarYOffset,
+            accentColorRed: workspaceBarAccentColorRed,
+            accentColorGreen: workspaceBarAccentColorGreen,
+            accentColorBlue: workspaceBarAccentColorBlue,
+            accentColorAlpha: workspaceBarAccentColorAlpha,
+            textColorRed: workspaceBarTextColorRed,
+            textColorGreen: workspaceBarTextColorGreen,
+            textColorBlue: workspaceBarTextColorBlue,
+            textColorAlpha: workspaceBarTextColorAlpha,
+            labelFontSize: workspaceBarLabelFontSize
         )
     }
 
@@ -997,6 +1060,15 @@ private enum Keys {
     static let workspaceBarBackgroundOpacity = "settings.workspaceBar.backgroundOpacity"
     static let workspaceBarXOffset = "settings.workspaceBar.xOffset"
     static let workspaceBarYOffset = "settings.workspaceBar.yOffset"
+    static let workspaceBarAccentColorRed = "settings.workspaceBar.accentColorRed"
+    static let workspaceBarAccentColorGreen = "settings.workspaceBar.accentColorGreen"
+    static let workspaceBarAccentColorBlue = "settings.workspaceBar.accentColorBlue"
+    static let workspaceBarAccentColorAlpha = "settings.workspaceBar.accentColorAlpha"
+    static let workspaceBarTextColorRed = "settings.workspaceBar.textColorRed"
+    static let workspaceBarTextColorGreen = "settings.workspaceBar.textColorGreen"
+    static let workspaceBarTextColorBlue = "settings.workspaceBar.textColorBlue"
+    static let workspaceBarTextColorAlpha = "settings.workspaceBar.textColorAlpha"
+    static let workspaceBarLabelFontSize = "settings.workspaceBar.labelFontSize"
     static let monitorBarSettings = "settings.workspaceBar.monitorSettings"
 
     static let appRules = "settings.appRules"

@@ -84,6 +84,15 @@ struct SettingsExport: Codable {
     var workspaceBarBackgroundOpacity: Double
     var workspaceBarXOffset: Double
     var workspaceBarYOffset: Double
+    var workspaceBarAccentColorRed: Double
+    var workspaceBarAccentColorGreen: Double
+    var workspaceBarAccentColorBlue: Double
+    var workspaceBarAccentColorAlpha: Double
+    var workspaceBarTextColorRed: Double
+    var workspaceBarTextColorGreen: Double
+    var workspaceBarTextColorBlue: Double
+    var workspaceBarTextColorAlpha: Double
+    var workspaceBarLabelFontSize: Double
     var monitorBarSettings: [MonitorBarSettings]
 
     var appRules: [AppRule]
@@ -175,6 +184,15 @@ extension SettingsExport {
             workspaceBarBackgroundOpacity: 0.1,
             workspaceBarXOffset: 0.0,
             workspaceBarYOffset: 0.0,
+            workspaceBarAccentColorRed: -1,
+            workspaceBarAccentColorGreen: -1,
+            workspaceBarAccentColorBlue: -1,
+            workspaceBarAccentColorAlpha: 1,
+            workspaceBarTextColorRed: -1,
+            workspaceBarTextColorGreen: -1,
+            workspaceBarTextColorBlue: -1,
+            workspaceBarTextColorAlpha: 1,
+            workspaceBarLabelFontSize: 12,
             monitorBarSettings: [],
             appRules: BuiltInSettingsDefaults.appRules,
             monitorOrientationSettings: [],
@@ -365,6 +383,15 @@ extension SettingsStore {
             workspaceBarBackgroundOpacity: workspaceBarBackgroundOpacity,
             workspaceBarXOffset: workspaceBarXOffset,
             workspaceBarYOffset: workspaceBarYOffset,
+            workspaceBarAccentColorRed: workspaceBarAccentColorRed,
+            workspaceBarAccentColorGreen: workspaceBarAccentColorGreen,
+            workspaceBarAccentColorBlue: workspaceBarAccentColorBlue,
+            workspaceBarAccentColorAlpha: workspaceBarAccentColorAlpha,
+            workspaceBarTextColorRed: workspaceBarTextColorRed,
+            workspaceBarTextColorGreen: workspaceBarTextColorGreen,
+            workspaceBarTextColorBlue: workspaceBarTextColorBlue,
+            workspaceBarTextColorAlpha: workspaceBarTextColorAlpha,
+            workspaceBarLabelFontSize: workspaceBarLabelFontSize,
             monitorBarSettings: monitorBarSettings,
             appRules: appRules,
             monitorOrientationSettings: monitorOrientationSettings,
@@ -486,6 +513,15 @@ extension SettingsStore {
         workspaceBarBackgroundOpacity = export.workspaceBarBackgroundOpacity
         workspaceBarXOffset = export.workspaceBarXOffset
         workspaceBarYOffset = export.workspaceBarYOffset
+        workspaceBarAccentColorRed = export.workspaceBarAccentColorRed
+        workspaceBarAccentColorGreen = export.workspaceBarAccentColorGreen
+        workspaceBarAccentColorBlue = export.workspaceBarAccentColorBlue
+        workspaceBarAccentColorAlpha = export.workspaceBarAccentColorAlpha
+        workspaceBarTextColorRed = export.workspaceBarTextColorRed
+        workspaceBarTextColorGreen = export.workspaceBarTextColorGreen
+        workspaceBarTextColorBlue = export.workspaceBarTextColorBlue
+        workspaceBarTextColorAlpha = export.workspaceBarTextColorAlpha
+        workspaceBarLabelFontSize = export.workspaceBarLabelFontSize
         monitorBarSettings = Self.reboundMonitorBarSettings(
             export.monitorBarSettings,
             monitors: monitors
