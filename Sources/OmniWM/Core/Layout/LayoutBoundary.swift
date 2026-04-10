@@ -27,6 +27,8 @@ struct NativeFullscreenRestoreContext: Equatable {
     let workspaceId: WorkspaceDescriptor.ID
     let restoreFrame: CGRect?
     let capturedTopologyProfile: TopologyProfile?
+    let niriState: ManagedWindowRestoreSnapshot.NiriState?
+    let replacementMetadata: ManagedReplacementMetadata?
 }
 
 struct LayoutMonitorSnapshot {

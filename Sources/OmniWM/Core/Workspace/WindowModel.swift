@@ -32,6 +32,69 @@ struct ManagedReplacementMetadata: Equatable, Sendable {
     }
 }
 
+struct ManagedWindowRestoreSnapshot: Equatable {
+    struct NiriState: Equatable {
+        struct ColumnSizing: Equatable {
+            let width: ProportionalSize
+            let cachedWidth: CGFloat
+            let presetWidthIdx: Int?
+            let isFullWidth: Bool
+            let savedWidth: ProportionalSize?
+            let hasManualSingleWindowWidthOverride: Bool
+            let height: ProportionalSize
+            let cachedHeight: CGFloat
+            let isFullHeight: Bool
+            let savedHeight: ProportionalSize?
+        }
+
+        struct WindowSizing: Equatable {
+            let height: WeightedSize
+            let savedHeight: WeightedSize?
+            let windowWidth: WeightedSize
+            let sizingMode: SizingMode
+        }
+
+        let nodeId: NodeId?
+        let columnIndex: Int?
+        let tileIndex: Int?
+        let columnWindowTokens: [WindowToken]
+        let columnSizing: ColumnSizing
+        let windowSizing: WindowSizing
+    }
+
+    let token: WindowToken
+    let workspaceId: WorkspaceDescriptor.ID
+    let frame: CGRect
+    let topologyProfile: TopologyProfile
+    let niriState: NiriState?
+    let replacementMetadata: ManagedReplacementMetadata?
+
+    func rekeyed(
+        to newToken: WindowToken,
+        replacementMetadata: ManagedReplacementMetadata?
+    ) -> ManagedWindowRestoreSnapshot {
+        ManagedWindowRestoreSnapshot(
+            token: newToken,
+            workspaceId: workspaceId,
+            frame: frame,
+            topologyProfile: topologyProfile,
+            niriState: niriState.map { niriState in
+                ManagedWindowRestoreSnapshot.NiriState(
+                    nodeId: niriState.nodeId,
+                    columnIndex: niriState.columnIndex,
+                    tileIndex: niriState.tileIndex,
+                    columnWindowTokens: niriState.columnWindowTokens.map {
+                        $0 == token ? newToken : $0
+                    },
+                    columnSizing: niriState.columnSizing,
+                    windowSizing: niriState.windowSizing
+                )
+            },
+            replacementMetadata: replacementMetadata ?? self.replacementMetadata
+        )
+    }
+}
+
 final class WindowModel {
     typealias WindowKey = WindowToken
 
@@ -139,6 +202,7 @@ final class WindowModel {
         var restoreIntent: RestoreIntent?
         var replacementCorrelation: ReplacementCorrelation?
         var managedReplacementMetadata: ManagedReplacementMetadata?
+        var managedRestoreSnapshot: ManagedWindowRestoreSnapshot?
         var floatingState: FloatingState?
         var manualLayoutOverride: ManualWindowOverride?
         var ruleEffects: ManagedWindowRuleEffects = .none
@@ -167,6 +231,7 @@ final class WindowModel {
             restoreIntent: RestoreIntent? = nil,
             replacementCorrelation: ReplacementCorrelation? = nil,
             managedReplacementMetadata: ManagedReplacementMetadata?,
+            managedRestoreSnapshot: ManagedWindowRestoreSnapshot? = nil,
             floatingState: FloatingState?,
             manualLayoutOverride: ManualWindowOverride?,
             ruleEffects: ManagedWindowRuleEffects,
@@ -189,6 +254,7 @@ final class WindowModel {
             self.restoreIntent = restoreIntent
             self.replacementCorrelation = replacementCorrelation
             self.managedReplacementMetadata = managedReplacementMetadata
+            self.managedRestoreSnapshot = managedRestoreSnapshot
             self.floatingState = floatingState
             self.manualLayoutOverride = manualLayoutOverride
             self.ruleEffects = ruleEffects
@@ -389,6 +455,10 @@ final class WindowModel {
             entry.constraintsCacheTime = nil
             if let managedReplacementMetadata {
                 entry.managedReplacementMetadata = managedReplacementMetadata
+                entry.managedRestoreSnapshot = entry.managedRestoreSnapshot?.rekeyed(
+                    to: newToken,
+                    replacementMetadata: managedReplacementMetadata
+                )
             }
             return entry
         }
@@ -406,6 +476,10 @@ final class WindowModel {
         if let managedReplacementMetadata {
             entry.managedReplacementMetadata = managedReplacementMetadata
         }
+        entry.managedRestoreSnapshot = entry.managedRestoreSnapshot?.rekeyed(
+            to: newToken,
+            replacementMetadata: managedReplacementMetadata
+        )
         entries[newToken] = entry
         rekeyIndexes(for: entry, from: oldToken, to: newToken)
 
@@ -582,6 +656,14 @@ final class WindowModel {
 
     func setManagedReplacementMetadata(_ metadata: ManagedReplacementMetadata?, for token: WindowToken) {
         entries[token]?.managedReplacementMetadata = metadata
+    }
+
+    func managedRestoreSnapshot(for token: WindowToken) -> ManagedWindowRestoreSnapshot? {
+        entries[token]?.managedRestoreSnapshot
+    }
+
+    func setManagedRestoreSnapshot(_ snapshot: ManagedWindowRestoreSnapshot?, for token: WindowToken) {
+        entries[token]?.managedRestoreSnapshot = snapshot
     }
 
     func setHiddenState(_ state: HiddenState?, for token: WindowToken) {

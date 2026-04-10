@@ -29,6 +29,7 @@ enum NativeFullscreenRestoreSeedPath: String {
     case commandExitSetFailure = "command_exit_set_failure"
     case directActivationEnter = "direct_activation_enter"
     case fullRescanExistingEntryFullscreen = "full_rescan_existing_entry_fullscreen"
+    case fullRescanNativeFullscreenRestore = "full_rescan_native_fullscreen_restore"
     case delayedSameTokenFullscreenReappearance = "delayed_same_token_fullscreen_reappearance"
     case delayedReplacementTokenFullscreenReappearance = "delayed_replacement_token_fullscreen_reappearance"
 }
@@ -185,6 +186,12 @@ final class WMController {
         }
         workspaceManager.onSessionStateChanged = { [weak self] in
             self?.handleSessionStateChanged()
+        }
+        axManager.onFrameConfirmed = { [weak self] pid, windowId, frame in
+            self?.recordManagedRestoreGeometry(
+                for: WindowToken(pid: pid, windowId: windowId),
+                frame: frame
+            )
         }
         focusPolicyEngine.onLeaseChanged = { [weak self] lease in
             self?.workspaceManager.recordReconcileEvent(
@@ -2263,6 +2270,138 @@ extension WMController {
         let restoreFailure: WorkspaceManager.NativeFullscreenRecord.RestoreFailure?
     }
 
+    func recordManagedRestoreGeometry(
+        for token: WindowToken,
+        frame: CGRect
+    ) {
+        guard workspaceManager.entry(for: token) != nil else { return }
+        guard workspaceManager.layoutReason(for: token) != .nativeFullscreen else { return }
+        guard let snapshot = makeManagedWindowRestoreSnapshot(for: token, frame: frame) else {
+            return
+        }
+        _ = workspaceManager.setManagedRestoreSnapshot(snapshot, for: token)
+    }
+
+    private func makeManagedWindowRestoreSnapshot(
+        for token: WindowToken,
+        frame: CGRect
+    ) -> ManagedWindowRestoreSnapshot? {
+        guard let entry = workspaceManager.entry(for: token) else { return nil }
+        let replacementMetadata = managedRestoreReplacementMetadata(for: entry, frame: frame)
+        return ManagedWindowRestoreSnapshot(
+            token: token,
+            workspaceId: entry.workspaceId,
+            frame: frame,
+            topologyProfile: workspaceManager.topologyProfile,
+            niriState: captureNiriRestoreState(for: token, workspaceId: entry.workspaceId),
+            replacementMetadata: replacementMetadata
+        )
+    }
+
+    private func managedRestoreReplacementMetadata(
+        for entry: WindowModel.Entry,
+        frame: CGRect
+    ) -> ManagedReplacementMetadata? {
+        var metadata = workspaceManager.managedReplacementMetadata(for: entry.token)
+            ?? workspaceManager.managedRestoreSnapshot(for: entry.token)?.replacementMetadata
+            ?? ManagedReplacementMetadata(
+                bundleId: appInfoCache.bundleId(for: entry.pid)
+                    ?? NSRunningApplication(processIdentifier: entry.pid)?.bundleIdentifier,
+                workspaceId: entry.workspaceId,
+                mode: entry.mode,
+                role: nil,
+                subrole: nil,
+                title: nil,
+                windowLevel: nil,
+                parentWindowId: nil,
+                frame: nil
+            )
+        let canResolveWindowServerInfo = axEventHandler.windowInfoProvider != nil
+        let needsFacts = metadata.role == nil
+            || metadata.subrole == nil
+            || metadata.title == nil
+            || (canResolveWindowServerInfo && metadata.windowLevel == nil)
+        if needsFacts {
+            let appInfo = resolvedAppInfo(for: entry.pid)
+            let facts = axEventHandler.windowFactsProvider?(entry.axRef, entry.pid) ?? WindowRuleFacts(
+                appName: appInfo?.name,
+                ax: AXWindowService.collectWindowFacts(
+                    entry.axRef,
+                    appPolicy: appInfo?.activationPolicy,
+                    bundleId: metadata.bundleId ?? appInfo?.bundleId,
+                    includeTitle: true
+                ),
+                sizeConstraints: nil,
+                windowServer: UInt32(exactly: entry.windowId).flatMap {
+                    axEventHandler.windowInfoProvider?($0)
+                }
+            )
+            metadata.bundleId = metadata.bundleId ?? facts.ax.bundleId
+            metadata.role = metadata.role ?? facts.ax.role
+            metadata.subrole = metadata.subrole ?? facts.ax.subrole
+            metadata.title = metadata.title ?? facts.ax.title
+            metadata.windowLevel = metadata.windowLevel ?? facts.windowServer?.level
+            metadata.parentWindowId = metadata.parentWindowId ?? facts.windowServer?.parentId
+        }
+        metadata.workspaceId = entry.workspaceId
+        metadata.mode = entry.mode
+        metadata.frame = frame
+        if metadata.title == nil, let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) {
+            metadata.title = title
+        }
+        return metadata
+    }
+
+    private func captureNiriRestoreState(
+        for token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> ManagedWindowRestoreSnapshot.NiriState? {
+        guard let engine = niriEngine,
+              let node = engine.findNode(for: token),
+              let column = engine.column(of: node)
+        else {
+            return nil
+        }
+
+        let columnWindowTokens = column.windowNodes.map(\.token)
+        let tileIndex = columnWindowTokens.firstIndex(of: token)
+        return ManagedWindowRestoreSnapshot.NiriState(
+            nodeId: node.id,
+            columnIndex: engine.columnIndex(of: column, in: workspaceId),
+            tileIndex: tileIndex,
+            columnWindowTokens: columnWindowTokens,
+            columnSizing: ManagedWindowRestoreSnapshot.NiriState.ColumnSizing(
+                width: column.width,
+                cachedWidth: column.cachedWidth,
+                presetWidthIdx: column.presetWidthIdx,
+                isFullWidth: column.isFullWidth,
+                savedWidth: column.savedWidth,
+                hasManualSingleWindowWidthOverride: column.hasManualSingleWindowWidthOverride,
+                height: column.height,
+                cachedHeight: column.cachedHeight,
+                isFullHeight: column.isFullHeight,
+                savedHeight: column.savedHeight
+            ),
+            windowSizing: ManagedWindowRestoreSnapshot.NiriState.WindowSizing(
+                height: node.height,
+                savedHeight: node.savedHeight,
+                windowWidth: node.windowWidth,
+                sizingMode: node.sizingMode
+            )
+        )
+    }
+
+    private func nativeFullscreenRestoreSnapshot(
+        from snapshot: ManagedWindowRestoreSnapshot
+    ) -> WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot {
+        WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(
+            frame: snapshot.frame,
+            topologyProfile: snapshot.topologyProfile,
+            niriState: snapshot.niriState,
+            replacementMetadata: snapshot.replacementMetadata
+        )
+    }
+
     private func preservedManagedGeometryFrame(
         for token: WindowToken
     ) -> CGRect? {
@@ -2302,12 +2441,14 @@ extension WMController {
     }
 
     private func makeNativeFullscreenRestoreSnapshot(
+        for token: WindowToken,
         frame: CGRect
     ) -> WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot {
-        WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(
-            frame: frame,
-            topologyProfile: workspaceManager.topologyProfile
-        )
+        if let snapshot = makeManagedWindowRestoreSnapshot(for: token, frame: frame) {
+            _ = workspaceManager.setManagedRestoreSnapshot(snapshot, for: token)
+            return nativeFullscreenRestoreSnapshot(from: snapshot)
+        }
+        return WorkspaceManager.NativeFullscreenRecord.RestoreSnapshot(frame: frame, topologyProfile: workspaceManager.topologyProfile)
     }
 
     private func logIrrecoverableNativeFullscreenRestore(
@@ -2334,18 +2475,25 @@ extension WMController {
             return .init(restoreSnapshot: existingSnapshot, restoreFailure: nil)
         }
 
+        if let managedSnapshot = workspaceManager.managedRestoreSnapshot(for: token) {
+            return .init(
+                restoreSnapshot: nativeFullscreenRestoreSnapshot(from: managedSnapshot),
+                restoreFailure: nil
+            )
+        }
+
         if strategy == .preTransitionCapture,
            let axFrame = currentAXRestoreFrame(for: token)
         {
             return .init(
-                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(frame: axFrame),
+                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(for: token, frame: axFrame),
                 restoreFailure: nil
             )
         }
 
         if let preservedFrame = preservedManagedGeometryFrame(for: token) {
             return .init(
-                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(frame: preservedFrame),
+                restoreSnapshot: makeNativeFullscreenRestoreSnapshot(for: token, frame: preservedFrame),
                 restoreFailure: nil
             )
         }
@@ -2372,6 +2520,25 @@ extension WMController {
                 detail: detail
             )
         )
+    }
+
+    @discardableResult
+    func ensureNativeFullscreenRestoreSnapshot(
+        for token: WindowToken,
+        path: NativeFullscreenRestoreSeedPath
+    ) -> Bool {
+        if workspaceManager.nativeFullscreenRecord(for: token)?.restoreSnapshot != nil {
+            return true
+        }
+        let seed = resolveNativeFullscreenRestoreSeed(
+            for: token,
+            path: path,
+            strategy: .fullscreenDetectedManagedGeometryOnly
+        )
+        guard let snapshot = seed.restoreSnapshot else {
+            return false
+        }
+        return workspaceManager.seedNativeFullscreenRestoreSnapshot(snapshot, for: token)
     }
 
     @discardableResult

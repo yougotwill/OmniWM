@@ -296,6 +296,7 @@ private func hasPendingNiriAnimationWork(
             workingArea: area,
             animationTime: animationTime
         )
+        recordManagedRestoreGeometry(windows: snapshot.windows, frames: frames)
 
         let diff = layoutDiff(
             windows: snapshot.windows,
@@ -342,6 +343,10 @@ private func hasPendingNiriAnimationWork(
         if hasNativeFullscreenRestoreCycle {
             suppressAnimationsForNativeFullscreenRestore(pass: pass, state: &state)
         }
+        let restoreContexts = resolvedNativeFullscreenRestoreContexts(
+            for: snapshot.windows,
+            workspaceId: snapshot.workspaceId
+        )
         let windowTokens = snapshot.windows.map(\.token)
         let currentSelection = state.selectedNodeId
 
@@ -366,6 +371,11 @@ private func hasPendingNiriAnimationWork(
         for window in snapshot.windows {
             engine.updateWindowConstraints(for: window.token, constraints: window.constraints)
         }
+
+        applyNativeFullscreenNiriState(
+            restoreContexts,
+            in: engine
+        )
 
         let selection = resolveSelection(
             pass: pass,
@@ -393,6 +403,7 @@ private func hasPendingNiriAnimationWork(
             newWindowToken: arrival.newWindowToken,
             viewportNeedsRecalc: selection.viewportNeedsRecalc,
             snapshot: snapshot,
+            restoreContexts: restoreContexts,
             suppressAnimationDirectives: hasNativeFullscreenRestoreCycle
         )
     }
@@ -717,6 +728,7 @@ private func hasPendingNiriAnimationWork(
         newWindowToken: WindowToken?,
         viewportNeedsRecalc: Bool,
         snapshot: NiriWorkspaceSnapshot,
+        restoreContexts: [WindowToken: NativeFullscreenRestoreContext] = [:],
         suppressAnimationDirectives: Bool = false
     ) -> WorkspaceLayoutPlan {
         let gaps = LayoutGaps(
@@ -740,17 +752,9 @@ private func hasPendingNiriAnimationWork(
             animationTime: nil
         )
 
-        let restoreFrameOverrides = resolvedNativeFullscreenRestoreFrames(
-            for: snapshot.windows,
-            workspaceId: pass.wsId
-        )
-        for (token, restoreFrame) in restoreFrameOverrides {
-            if let window = pass.engine.findNode(for: token) {
-                window.frame = restoreFrame
-                window.renderedFrame = restoreFrame
-            }
-        }
+        let restoreFrameOverrides = restoreContexts.compactMapValues(\.restoreFrame)
         let resolvedFrames = frames.merging(restoreFrameOverrides) { _, restoreFrame in restoreFrame }
+        recordManagedRestoreGeometry(windows: snapshot.windows, frames: resolvedFrames)
 
         let hasColumnAnimations = suppressAnimationDirectives
             ? false
@@ -800,7 +804,8 @@ private func hasPendingNiriAnimationWork(
             engine: pass.engine,
             directBorderUpdate: snapshot.useScrollAnimationPath,
             isInteractionWorkspace: snapshot.isInteractionWorkspace,
-            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace
+            canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
+            forceHiddenReapply: snapshot.windows.contains { $0.isRestoringNativeFullscreen }
         )
 
         var plan = WorkspaceLayoutPlan(
@@ -833,7 +838,8 @@ private func hasPendingNiriAnimationWork(
         engine: NiriLayoutEngine,
         directBorderUpdate: Bool,
         isInteractionWorkspace: Bool,
-        canRestoreHiddenWorkspaceWindows: Bool
+        canRestoreHiddenWorkspaceWindows: Bool,
+        forceHiddenReapply: Bool = false
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
         let suspendedTokens = Set(
@@ -872,7 +878,7 @@ private func hasPendingNiriAnimationWork(
             }
             let previousOffscreenSide = window.hiddenState?.offscreenSide
             if let side = hiddenHandles[token] {
-                if previousOffscreenSide != side {
+                if forceHiddenReapply || previousOffscreenSide != side {
                     diff.visibilityChanges.append(.hide(token, side: side))
                 }
                 continue
@@ -920,6 +926,17 @@ private func hasPendingNiriAnimationWork(
         }
 
         return diff
+    }
+
+    private func recordManagedRestoreGeometry(
+        windows: [LayoutWindowSnapshot],
+        frames: [WindowToken: CGRect]
+    ) {
+        guard let controller else { return }
+        for window in windows where !window.isNativeFullscreenSuspended {
+            guard let frame = frames[window.token] else { continue }
+            controller.recordManagedRestoreGeometry(for: window.token, frame: frame)
+        }
     }
 
     func updateTabbedColumnOverlays() {
@@ -1438,34 +1455,84 @@ private extension NiriLayoutHandler {
         }
     }
 
-    func resolvedNativeFullscreenRestoreFrames(
+    func resolvedNativeFullscreenRestoreContexts(
         for windows: [LayoutWindowSnapshot],
         workspaceId: WorkspaceDescriptor.ID
-    ) -> [WindowToken: CGRect] {
+    ) -> [WindowToken: NativeFullscreenRestoreContext] {
         guard let topologyProfile = controller?.workspaceManager.topologyProfile else { return [:] }
 
-        var restoreFrames: [WindowToken: CGRect] = [:]
+        var restoreContexts: [WindowToken: NativeFullscreenRestoreContext] = [:]
         for window in windows {
             guard let restoreContext = window.nativeFullscreenRestore,
                   restoreContext.currentToken == window.token,
                   restoreContext.workspaceId == workspaceId,
                   restoreContext.capturedTopologyProfile == topologyProfile,
-                  let restoreFrame = restoreContext.restoreFrame
+                  restoreContext.restoreFrame != nil
             else {
                 continue
             }
-            restoreFrames[window.token] = restoreFrame
+            restoreContexts[window.token] = restoreContext
         }
-        return restoreFrames
+        return restoreContexts
+    }
+
+    func applyNativeFullscreenNiriState(
+        _ restoreContexts: [WindowToken: NativeFullscreenRestoreContext],
+        in engine: NiriLayoutEngine
+    ) {
+        for (token, restoreContext) in restoreContexts {
+            applyNativeFullscreenNiriState(
+                restoreContext.niriState,
+                for: token,
+                in: engine
+            )
+        }
+    }
+
+    func applyNativeFullscreenNiriState(
+        _ niriState: ManagedWindowRestoreSnapshot.NiriState?,
+        for token: WindowToken,
+        in engine: NiriLayoutEngine
+    ) {
+        guard let niriState,
+              let window = engine.findNode(for: token)
+        else {
+            return
+        }
+
+        if let column = engine.column(of: window) {
+            let sizing = niriState.columnSizing
+            column.widthAnimation = nil
+            column.targetWidth = nil
+            column.width = sizing.width
+            column.cachedWidth = sizing.cachedWidth
+            column.presetWidthIdx = sizing.presetWidthIdx
+            column.isFullWidth = sizing.isFullWidth
+            column.savedWidth = sizing.savedWidth
+            column.hasManualSingleWindowWidthOverride = sizing.hasManualSingleWindowWidthOverride
+            column.height = sizing.height
+            column.cachedHeight = sizing.cachedHeight
+            column.isFullHeight = sizing.isFullHeight
+            column.savedHeight = sizing.savedHeight
+        }
+
+        let sizing = niriState.windowSizing
+        window.height = sizing.height
+        window.savedHeight = sizing.savedHeight
+        window.windowWidth = sizing.windowWidth
+        window.sizingMode = sizing.sizingMode
+        window.resolvedHeight = nil
+        window.resolvedWidth = nil
+        window.stopMoveAnimations()
     }
 
     func nativeFullscreenRestoreFinalizeTokens(
         windows: [LayoutWindowSnapshot],
-        frames: [WindowToken: CGRect]
+        frames _: [WindowToken: CGRect]
     ) -> [WindowToken] {
         return windows.compactMap { window in
             guard window.isRestoringNativeFullscreen,
-                  frames[window.token] != nil
+                  window.restoreFrame != nil
             else {
                 return nil
             }

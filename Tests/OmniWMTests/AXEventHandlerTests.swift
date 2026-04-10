@@ -1848,6 +1848,10 @@ private func waitUntilAXEventTest(
             Issue.record("Missing managed entry before native fullscreen enter destroy")
             return
         }
+        controller.recordManagedRestoreGeometry(
+            for: token,
+            frame: CGRect(x: 80, y: 120, width: 680, height: 520)
+        )
 
         _ = controller.workspaceManager.requestNativeFullscreenEnter(token, in: workspaceId)
         controller.axEventHandler.handleRemoved(token: token)
@@ -2144,6 +2148,8 @@ private func waitUntilAXEventTest(
             in: workspaceId,
             onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
         )
+        let managedFrame = CGRect(x: 120, y: 160, width: 720, height: 540)
+        controller.recordManagedRestoreGeometry(for: token, frame: managedFrame)
 
         var fullscreenStates: [Int: Bool] = [804: false]
         var fullscreenWrites: [(Int, Bool)] = []
@@ -2166,6 +2172,7 @@ private func waitUntilAXEventTest(
         #expect(fullscreenWrites.count == 1)
         #expect(fullscreenWrites.first?.0 == 804)
         #expect(fullscreenWrites.first?.1 == true)
+        #expect(enterRecord.restoreSnapshot?.frame == managedFrame)
         #expect(controller.workspaceManager.layoutReason(for: token) == .standard)
         if case .enterRequested = enterRecord.transition {} else {
             Issue.record("Expected native fullscreen record to remain enterRequested until activation")

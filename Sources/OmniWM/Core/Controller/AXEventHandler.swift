@@ -1164,6 +1164,10 @@ final class AXEventHandler: CGSEventDelegate {
         }
         cancelNativeFullscreenLifecycleTasks(containing: entry.token)
         if hadRecord {
+            _ = controller.ensureNativeFullscreenRestoreSnapshot(
+                for: entry.token,
+                path: .fullRescanNativeFullscreenRestore
+            )
             return controller.workspaceManager.beginNativeFullscreenRestore(for: entry.token) != nil
         }
         return controller.workspaceManager.restoreNativeFullscreenRecord(for: entry.token) != nil
@@ -1178,15 +1182,37 @@ final class AXEventHandler: CGSEventDelegate {
         appFullscreen: Bool
     ) -> Bool {
         guard let controller else { return false }
-        guard let record = controller.workspaceManager.nativeFullscreenUnavailableCandidate(
-            for: token.pid,
-            activeWorkspaceId: workspaceId
-        ) else {
+        let replacementMetadata = nativeFullscreenReplacementMetadata(
+            token: token,
+            windowId: windowId,
+            axRef: axRef,
+            workspaceId: workspaceId
+        )
+        let match = controller.workspaceManager.nativeFullscreenUnavailableCandidate(
+            for: token,
+            activeWorkspaceId: workspaceId,
+            replacementMetadata: replacementMetadata
+        )
+        let record: WorkspaceManager.NativeFullscreenRecord
+        switch match {
+        case let .matched(matchedRecord):
+            record = matchedRecord
+        case .ambiguous, .none:
             return false
         }
+        let normalizedReplacementMetadata = normalizedNativeFullscreenReplacementMetadata(
+            replacementMetadata,
+            for: record
+        )
         if record.currentToken == token {
             guard controller.workspaceManager.entry(for: token) != nil else {
                 return false
+            }
+            if let normalizedReplacementMetadata {
+                _ = controller.workspaceManager.setManagedReplacementMetadata(
+                    normalizedReplacementMetadata,
+                    for: token
+                )
             }
             cancelNativeFullscreenLifecycleTasks(for: record.originalToken)
             if appFullscreen {
@@ -1195,11 +1221,21 @@ final class AXEventHandler: CGSEventDelegate {
                     path: .delayedSameTokenFullscreenReappearance
                 )
             } else {
+                _ = controller.ensureNativeFullscreenRestoreSnapshot(
+                    for: token,
+                    path: .fullRescanNativeFullscreenRestore
+                )
                 _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
             }
             return true
         }
-        guard rekeyManagedWindowIdentity(from: record.currentToken, to: token, windowId: windowId, axRef: axRef) != nil else {
+        guard rekeyManagedWindowIdentity(
+            from: record.currentToken,
+            to: token,
+            windowId: windowId,
+            axRef: axRef,
+            managedReplacementMetadata: normalizedReplacementMetadata
+        ) != nil else {
             return false
         }
 
@@ -1211,10 +1247,70 @@ final class AXEventHandler: CGSEventDelegate {
                 path: .delayedReplacementTokenFullscreenReappearance
             )
         } else {
+            _ = controller.ensureNativeFullscreenRestoreSnapshot(
+                for: token,
+                path: .fullRescanNativeFullscreenRestore
+            )
             _ = controller.workspaceManager.beginNativeFullscreenRestore(for: token)
         }
 
         return true
+    }
+
+    private func normalizedNativeFullscreenReplacementMetadata(
+        _ metadata: ManagedReplacementMetadata?,
+        for record: WorkspaceManager.NativeFullscreenRecord
+    ) -> ManagedReplacementMetadata? {
+        guard let controller else { return metadata }
+        guard var normalized = metadata
+            ?? record.restoreSnapshot?.replacementMetadata
+            ?? controller.workspaceManager.managedReplacementMetadata(for: record.currentToken)
+            ?? controller.workspaceManager.managedRestoreSnapshot(for: record.currentToken)?.replacementMetadata
+            ?? controller.workspaceManager.managedRestoreSnapshot(for: record.originalToken)?.replacementMetadata
+        else {
+            return nil
+        }
+
+        normalized.workspaceId = record.workspaceId
+        if let capturedMode = controller.workspaceManager.windowMode(for: record.currentToken) {
+            normalized.mode = capturedMode
+        } else if let restoreMode = record.restoreSnapshot?.replacementMetadata?.mode {
+            normalized.mode = restoreMode
+        }
+        return normalized
+    }
+
+    private func nativeFullscreenReplacementMetadata(
+        token: WindowToken,
+        windowId: UInt32,
+        axRef: AXWindowRef,
+        workspaceId: WorkspaceDescriptor.ID?
+    ) -> ManagedReplacementMetadata? {
+        guard let controller, let workspaceId else { return nil }
+        let windowInfo = resolveWindowInfo(windowId)
+        let bundleId = resolveBundleId(token.pid)
+            ?? NSRunningApplication(processIdentifier: token.pid)?.bundleIdentifier
+        let facts = managedReplacementFacts(
+            for: axRef,
+            pid: token.pid,
+            bundleId: bundleId,
+            windowInfo: windowInfo,
+            includeTitle: true
+        )
+        return makeManagedReplacementMetadata(
+            bundleId: bundleId ?? facts.ax.bundleId,
+            workspaceId: workspaceId,
+            mode: controller.trackedModeForLifecycle(
+                decision: controller.evaluateWindowDisposition(
+                    axRef: axRef,
+                    pid: token.pid,
+                    appFullscreen: isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef),
+                    windowInfo: windowInfo
+                ).decision,
+                existingEntry: nil
+            ) ?? .tiling,
+            facts: facts
+        )
     }
 
     @discardableResult

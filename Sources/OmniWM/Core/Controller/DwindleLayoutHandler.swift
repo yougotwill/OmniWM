@@ -452,6 +452,10 @@ import QuartzCore
             frames = animationFrames.frames
             animationsActive = animationFrames.animationsActive
         }
+        recordManagedRestoreGeometry(
+            windows: snapshot.windows,
+            frames: hasNativeFullscreenRestoreCycle ? frames : newFrames
+        )
 
         let diff = layoutDiff(
             windows: snapshot.windows,
@@ -492,6 +496,7 @@ import QuartzCore
             screen: snapshot.monitor.workingFrame,
             scale: snapshot.monitor.scale
         )
+        recordManagedRestoreGeometry(windows: snapshot.windows, frames: frames)
         let diff = layoutDiff(
             windows: snapshot.windows,
             frames: frames,
@@ -520,6 +525,7 @@ import QuartzCore
             screen: snapshot.monitor.workingFrame,
             scale: snapshot.monitor.scale
         )
+        recordManagedRestoreGeometry(windows: snapshot.windows, frames: baseFrames)
         let animationFrames = engine.animationFrames(
             from: baseFrames,
             in: snapshot.workspaceId,
@@ -650,11 +656,23 @@ private extension DwindleLayoutHandler {
     ) -> [WindowToken] {
         return windows.compactMap { window in
             guard window.isRestoringNativeFullscreen,
+                  window.restoreFrame != nil,
                   frames[window.token] != nil
             else {
                 return nil
             }
             return window.token
+        }
+    }
+
+    func recordManagedRestoreGeometry(
+        windows: [LayoutWindowSnapshot],
+        frames: [WindowToken: CGRect]
+    ) {
+        guard let controller else { return }
+        for window in windows where !window.isNativeFullscreenSuspended {
+            guard let frame = frames[window.token] else { continue }
+            controller.recordManagedRestoreGeometry(for: window.token, frame: frame)
         }
     }
 }

@@ -1332,6 +1332,322 @@ private func workspaceConfigurations(
         #expect(manager.nativeFullscreenCommandTarget(frontmostToken: token1) == token1)
     }
 
+    @Test @MainActor func nativeFullscreenUnavailableReplacementMatchesExactMetadataWhenSamePidSharesWorkspace() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = workspaceConfigurations([
+            ("1", .main)
+        ])
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 33, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceId = manager.workspaceId(for: "1", createIfMissing: true) else {
+            Issue.record("Failed to create workspace")
+            return
+        }
+
+        let pid: pid_t = 4701
+        let firstToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2341),
+            pid: pid,
+            windowId: 2341,
+            to: workspaceId
+        )
+        let secondToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2342),
+            pid: pid,
+            windowId: 2342,
+            to: workspaceId
+        )
+        let replacementToken = WindowToken(pid: pid, windowId: 2343)
+        let firstFrame = CGRect(x: 10, y: 20, width: 540, height: 900)
+        let secondFrame = CGRect(x: 570, y: 80, width: 720, height: 760)
+        let firstMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceId,
+            title: "Alpha",
+            frame: firstFrame
+        )
+        let secondMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceId,
+            title: "Beta",
+            frame: secondFrame
+        )
+        let replacementMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceId,
+            title: "Beta",
+            frame: secondFrame.offsetBy(dx: 8, dy: -6)
+        )
+        let mismatchedMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceId,
+            title: "Gamma",
+            frame: secondFrame
+        )
+
+        _ = manager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: firstToken,
+                workspaceId: workspaceId,
+                frame: firstFrame,
+                topologyProfile: manager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: firstMetadata
+            ),
+            for: firstToken
+        )
+        _ = manager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: secondToken,
+                workspaceId: workspaceId,
+                frame: secondFrame,
+                topologyProfile: manager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: secondMetadata
+            ),
+            for: secondToken
+        )
+
+        _ = manager.requestNativeFullscreenEnter(firstToken, in: workspaceId)
+        _ = manager.markNativeFullscreenSuspended(firstToken)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(firstToken)
+        _ = manager.requestNativeFullscreenEnter(secondToken, in: workspaceId)
+        _ = manager.markNativeFullscreenSuspended(secondToken)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(secondToken)
+
+        switch manager.nativeFullscreenUnavailableCandidate(
+            for: replacementToken,
+            activeWorkspaceId: workspaceId,
+            replacementMetadata: nil
+        ) {
+        case .ambiguous:
+            break
+        case let .matched(record):
+            Issue.record("Expected nil metadata to remain ambiguous, matched \(record.currentToken)")
+        case .none:
+            Issue.record("Expected nil metadata to see the pending same-app records")
+        }
+
+        switch manager.nativeFullscreenUnavailableCandidate(
+            for: replacementToken,
+            activeWorkspaceId: workspaceId,
+            replacementMetadata: mismatchedMetadata
+        ) {
+        case .none:
+            break
+        case let .matched(record):
+            Issue.record("Expected mismatched metadata to fail closed, matched \(record.currentToken)")
+        case .ambiguous:
+            Issue.record("Expected mismatched metadata to fail closed, not stay ambiguous")
+        }
+
+        let match = manager.nativeFullscreenUnavailableCandidate(
+            for: replacementToken,
+            activeWorkspaceId: workspaceId,
+            replacementMetadata: replacementMetadata
+        )
+        guard case let .matched(matchedRecord) = match else {
+            Issue.record("Expected replacement metadata to match the exact second window")
+            return
+        }
+        #expect(matchedRecord.originalToken == secondToken)
+        #expect(matchedRecord.restoreSnapshot?.frame == secondFrame)
+
+        let replacementWindow = makeWorkspaceManagerTestWindow(windowId: 2343)
+        _ = manager.rekeyWindow(
+            from: secondToken,
+            to: replacementToken,
+            newAXRef: replacementWindow,
+            managedReplacementMetadata: replacementMetadata
+        )
+        _ = manager.requestNativeFullscreenExit(replacementToken, initiatedByCommand: true)
+        guard let restoringRecord = manager.beginNativeFullscreenRestore(for: replacementToken) else {
+            Issue.record("Expected replacement token to begin exact restore")
+            return
+        }
+
+        #expect(restoringRecord.originalToken == secondToken)
+        #expect(restoringRecord.currentToken == replacementToken)
+        #expect(restoringRecord.restoreSnapshot?.frame == secondFrame)
+        #expect(manager.managedRestoreSnapshot(for: replacementToken)?.frame == secondFrame)
+        #expect(manager.nativeFullscreenRecord(for: firstToken)?.currentToken == firstToken)
+        #expect(manager.nativeFullscreenRecord(for: firstToken)?.restoreSnapshot?.frame == firstFrame)
+    }
+
+    @Test @MainActor func nativeFullscreenUnavailableReplacementMatchesExactMetadataAcrossWorkspaceMismatch() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = workspaceConfigurations([
+            ("1", .main),
+            ("2", .main)
+        ])
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 34, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceOne = manager.workspaceId(for: "1", createIfMissing: true),
+              let workspaceTwo = manager.workspaceId(for: "2", createIfMissing: true)
+        else {
+            Issue.record("Failed to create workspaces")
+            return
+        }
+
+        let pid: pid_t = 4711
+        let firstToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2351),
+            pid: pid,
+            windowId: 2351,
+            to: workspaceOne
+        )
+        let secondToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2352),
+            pid: pid,
+            windowId: 2352,
+            to: workspaceTwo
+        )
+        let replacementToken = WindowToken(pid: pid, windowId: 2353)
+        let firstFrame = CGRect(x: 10, y: 20, width: 540, height: 900)
+        let secondFrame = CGRect(x: 570, y: 80, width: 720, height: 760)
+        let firstMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceOne,
+            title: "Workspace One",
+            frame: firstFrame
+        )
+        let secondMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceTwo,
+            title: "Workspace Two",
+            frame: secondFrame
+        )
+        let replacementMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceOne,
+            title: "Workspace Two",
+            frame: secondFrame.offsetBy(dx: 6, dy: -4)
+        )
+
+        _ = manager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: firstToken,
+                workspaceId: workspaceOne,
+                frame: firstFrame,
+                topologyProfile: manager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: firstMetadata
+            ),
+            for: firstToken
+        )
+        _ = manager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: secondToken,
+                workspaceId: workspaceTwo,
+                frame: secondFrame,
+                topologyProfile: manager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: secondMetadata
+            ),
+            for: secondToken
+        )
+
+        _ = manager.requestNativeFullscreenEnter(firstToken, in: workspaceOne)
+        _ = manager.markNativeFullscreenSuspended(firstToken)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(firstToken)
+        _ = manager.requestNativeFullscreenEnter(secondToken, in: workspaceTwo)
+        _ = manager.markNativeFullscreenSuspended(secondToken)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(secondToken)
+
+        let match = manager.nativeFullscreenUnavailableCandidate(
+            for: replacementToken,
+            activeWorkspaceId: workspaceOne,
+            replacementMetadata: replacementMetadata
+        )
+        guard case let .matched(matchedRecord) = match else {
+            Issue.record("Expected replacement metadata to match record-owned workspace despite active workspace")
+            return
+        }
+
+        #expect(matchedRecord.originalToken == secondToken)
+        #expect(matchedRecord.workspaceId == workspaceTwo)
+        #expect(matchedRecord.restoreSnapshot?.frame == secondFrame)
+    }
+
+    @Test @MainActor func nativeFullscreenUnavailableSingleCandidateMatchesDespiteVolatileMetadata() {
+        let defaults = makeWorkspaceManagerTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+        settings.workspaceConfigurations = workspaceConfigurations([
+            ("1", .main),
+            ("2", .main)
+        ])
+
+        let manager = WorkspaceManager(settings: settings)
+        let monitor = makeWorkspaceManagerTestMonitor(displayId: 35, name: "Main", x: 0, y: 0)
+        manager.applyMonitorConfigurationChange([monitor])
+
+        guard let workspaceOne = manager.workspaceId(for: "1", createIfMissing: true),
+              let workspaceTwo = manager.workspaceId(for: "2", createIfMissing: true)
+        else {
+            Issue.record("Failed to create workspaces")
+            return
+        }
+
+        let pid: pid_t = 4721
+        let originalToken = manager.addWindow(
+            makeWorkspaceManagerTestWindow(windowId: 2361),
+            pid: pid,
+            windowId: 2361,
+            to: workspaceTwo
+        )
+        let replacementToken = WindowToken(pid: pid, windowId: 2362)
+        let originalFrame = CGRect(x: 120, y: 160, width: 700, height: 680)
+        let capturedMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceTwo,
+            title: "Captured Title",
+            frame: originalFrame
+        )
+        let volatileReplacementMetadata = makeWorkspaceManagerReplacementMetadata(
+            bundleId: "com.example.same-app",
+            workspaceId: workspaceOne,
+            title: "Transient Native Fullscreen Title",
+            frame: CGRect(x: 900, y: 40, width: 300, height: 240)
+        )
+
+        _ = manager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: originalToken,
+                workspaceId: workspaceTwo,
+                frame: originalFrame,
+                topologyProfile: manager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: capturedMetadata
+            ),
+            for: originalToken
+        )
+        _ = manager.requestNativeFullscreenEnter(originalToken, in: workspaceTwo)
+        _ = manager.markNativeFullscreenSuspended(originalToken)
+        _ = manager.markNativeFullscreenTemporarilyUnavailable(originalToken)
+
+        let match = manager.nativeFullscreenUnavailableCandidate(
+            for: replacementToken,
+            activeWorkspaceId: workspaceOne,
+            replacementMetadata: volatileReplacementMetadata
+        )
+        guard case let .matched(matchedRecord) = match else {
+            Issue.record("Expected the single unavailable same-pid record to match volatile replacement metadata")
+            return
+        }
+
+        #expect(matchedRecord.originalToken == originalToken)
+        #expect(matchedRecord.workspaceId == workspaceTwo)
+        #expect(matchedRecord.restoreSnapshot?.frame == originalFrame)
+    }
+
     @Test @MainActor func staleTemporarilyUnavailableNativeFullscreenCleanupWaitsForTimeoutAndAppTerminationStillClearsImmediately() {
         let defaults = makeWorkspaceManagerTestDefaults()
         let settings = SettingsStore(defaults: defaults)

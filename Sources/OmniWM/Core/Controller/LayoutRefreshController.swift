@@ -411,9 +411,6 @@ import QuartzCore
             plan.animationDirectives,
             focusedFrame: plan.diff.focusedFrame
         )
-        for token in plan.nativeFullscreenRestoreFinalizeTokens {
-            _ = controller?.workspaceManager.finalizeNativeFullscreenRestore(for: token)
-        }
     }
 
     private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) {
@@ -1250,8 +1247,11 @@ import QuartzCore
             let ruleEffects: ManagedWindowRuleEffects
             if let existingEntry {
                 if shouldPreservePreFullscreenState {
-                    // Missing geometry keeps the record alive to protect Niri topology and missing-window preservation.
                     if controller.workspaceManager.nativeFullscreenRecord(for: existingEntry.token) != nil {
+                        _ = controller.ensureNativeFullscreenRestoreSnapshot(
+                            for: existingEntry.token,
+                            path: .fullRescanNativeFullscreenRestore
+                        )
                         _ = controller.workspaceManager.beginNativeFullscreenRestore(for: existingEntry.token)
                     } else {
                         _ = controller.workspaceManager.restoreNativeFullscreenRecord(for: existingEntry.token)
@@ -1749,15 +1749,18 @@ import QuartzCore
         monitor: Monitor,
         side: HideSide,
         reason: HideReason,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil,
+        frameHint: CGRect? = nil
     ) -> HideOperationResolution {
         guard let controller else { return .unavailable }
-        guard let frame = fastFrame(for: entry.token, axRef: entry.axRef)
+        let liveFrame = fastFrame(for: entry.token, axRef: entry.axRef)
             ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
             ?? (try? AXWindowService.frame(entry.axRef))
+        guard let frame = liveFrame ?? frameHint
         else {
             return .unavailable
         }
+        let usingFrameHint = liveFrame == nil && frameHint != nil
         let hiddenState = updatedHiddenState(
             for: entry,
             frame: frame,
@@ -1778,7 +1781,8 @@ import QuartzCore
         }
 
         let moveEpsilon: CGFloat = 0.01
-        if abs(frame.origin.x - origin.x) < moveEpsilon,
+        if !usingFrameHint,
+           abs(frame.origin.x - origin.x) < moveEpsilon,
            abs(frame.origin.y - origin.y) < moveEpsilon
         {
             return .alreadyHidden(hiddenState: hiddenState)
@@ -2438,9 +2442,23 @@ final class LayoutDiffExecutor {
         var frameChangeByToken: [WindowToken: CGRect] = [:]
         var pendingRevealTokens: Set<WindowToken> = []
         var blockedRevealTokens: Set<WindowToken> = []
+        let nativeFullscreenRestoreFinalizeTokens = Set(plan.nativeFullscreenRestoreFinalizeTokens)
+        var nativeFullscreenRestoreFramesByToken: [WindowToken: CGRect] = [:]
+        var hiddenNativeFullscreenRestoreFinalizeTokens: Set<WindowToken> = []
 
         for change in diff.frameChanges {
             frameChangeByToken[change.token] = change.frame
+        }
+
+        func handleNativeFullscreenRestoreTerminalResult(_ result: AXFrameApplyResult) {
+            let token = WindowToken(pid: result.pid, windowId: result.windowId)
+            guard let restoreFrame = nativeFullscreenRestoreFramesByToken[token],
+                  let confirmedFrame = result.confirmedFrame,
+                  confirmedFrame.approximatelyEqual(to: restoreFrame, tolerance: 1.0)
+            else {
+                return
+            }
+            _ = controller.workspaceManager.finalizeNativeFullscreenRestore(for: token)
         }
 
         func resolveEntry(for token: WindowToken) -> WindowModel.Entry? {
@@ -2531,19 +2549,33 @@ final class LayoutDiffExecutor {
             var hidePlans: [LayoutRefreshController.WindowPositionPlan] = []
 
             for (entry, side) in hiddenEntries {
+                let nativeFullscreenRestoreFrameHint: CGRect?
+                if nativeFullscreenRestoreFinalizeTokens.contains(entry.token) {
+                    nativeFullscreenRestoreFrameHint = controller.workspaceManager
+                        .nativeFullscreenRestoreContext(for: entry.token)?.restoreFrame
+                } else {
+                    nativeFullscreenRestoreFrameHint = nil
+                }
                 switch refreshController.resolveHideOperation(
                     for: entry,
                     monitor: monitor,
                     side: side,
-                    reason: .layoutTransient
+                    reason: .layoutTransient,
+                    frameHint: nativeFullscreenRestoreFrameHint
                 ) {
                 case let .movable(plan, hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
                     hiddenJobs.append((entry.handle.pid, entry.windowId))
                     hidePlans.append(plan)
+                    if nativeFullscreenRestoreFinalizeTokens.contains(entry.token) {
+                        hiddenNativeFullscreenRestoreFinalizeTokens.insert(entry.token)
+                    }
                 case let .alreadyHidden(hiddenState):
                     controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
                     hiddenJobs.append((entry.handle.pid, entry.windowId))
+                    if nativeFullscreenRestoreFinalizeTokens.contains(entry.token) {
+                        hiddenNativeFullscreenRestoreFinalizeTokens.insert(entry.token)
+                    }
                 case .unavailable:
                     continue
                 }
@@ -2555,6 +2587,9 @@ final class LayoutDiffExecutor {
             }
             if !hidePlans.isEmpty {
                 refreshController.applyPositionPlans(hidePlans)
+            }
+            for token in hiddenNativeFullscreenRestoreFinalizeTokens {
+                _ = controller.workspaceManager.finalizeNativeFullscreenRestore(for: token)
             }
         }
 
@@ -2626,6 +2661,7 @@ final class LayoutDiffExecutor {
                 continue
             }
             guard entry.layoutReason != .nativeFullscreen else { continue }
+            controller.recordManagedRestoreGeometry(for: change.token, frame: change.frame)
             if pendingRevealTokens.contains(change.token) {
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
             }
@@ -2637,10 +2673,24 @@ final class LayoutDiffExecutor {
                 }
                 frameUpdates.append((entry.pid, entry.windowId, change.frame))
             }
+            if nativeFullscreenRestoreFinalizeTokens.contains(change.token) {
+                nativeFullscreenRestoreFramesByToken[change.token] = change.frame
+            }
         }
 
         if !frameUpdates.isEmpty {
-            controller.axManager.applyFramesParallel(frameUpdates)
+            let terminalObserver: AXManager.FrameApplicationTerminalObserver?
+            if nativeFullscreenRestoreFramesByToken.isEmpty {
+                terminalObserver = nil
+            } else {
+                terminalObserver = { @MainActor @Sendable result in
+                    handleNativeFullscreenRestoreTerminalResult(result)
+                }
+            }
+            controller.axManager.applyFramesParallel(
+                frameUpdates,
+                terminalObserver: terminalObserver
+            )
         }
 
         if !revealFrameUpdates.isEmpty {
@@ -2648,6 +2698,13 @@ final class LayoutDiffExecutor {
                 revealFrameUpdates,
                 terminalObserver: { [weak refreshController] result in
                     refreshController?.completePendingRevealTransaction(with: result)
+                    handleNativeFullscreenRestoreTerminalResult(result)
+                    if let confirmedFrame = result.confirmedFrame {
+                        refreshController?.controller?.recordManagedRestoreGeometry(
+                            for: WindowToken(pid: result.pid, windowId: result.windowId),
+                            frame: confirmedFrame
+                        )
+                    }
                 }
             )
         }

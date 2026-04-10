@@ -35,6 +35,20 @@ final class WorkspaceManager {
         struct RestoreSnapshot: Equatable {
             let frame: CGRect
             let topologyProfile: TopologyProfile
+            let niriState: ManagedWindowRestoreSnapshot.NiriState?
+            let replacementMetadata: ManagedReplacementMetadata?
+
+            init(
+                frame: CGRect,
+                topologyProfile: TopologyProfile,
+                niriState: ManagedWindowRestoreSnapshot.NiriState? = nil,
+                replacementMetadata: ManagedReplacementMetadata? = nil
+            ) {
+                self.frame = frame
+                self.topologyProfile = topologyProfile
+                self.niriState = niriState
+                self.replacementMetadata = replacementMetadata
+            }
         }
 
         struct RestoreFailure: Equatable {
@@ -953,6 +967,61 @@ final class WorkspaceManager {
         return nativeFullscreenRecordsByOriginalToken[originalToken]
     }
 
+    func managedRestoreSnapshot(for token: WindowToken) -> ManagedWindowRestoreSnapshot? {
+        windows.managedRestoreSnapshot(for: token)
+    }
+
+    @discardableResult
+    func setManagedRestoreSnapshot(
+        _ snapshot: ManagedWindowRestoreSnapshot,
+        for token: WindowToken
+    ) -> Bool {
+        guard windows.entry(for: token) != nil else { return false }
+        let previousSnapshot = windows.managedRestoreSnapshot(for: token)
+        windows.setManagedRestoreSnapshot(snapshot, for: token)
+        return previousSnapshot != snapshot
+    }
+
+    @discardableResult
+    func clearManagedRestoreSnapshot(for token: WindowToken) -> Bool {
+        guard windows.managedRestoreSnapshot(for: token) != nil else { return false }
+        windows.setManagedRestoreSnapshot(nil, for: token)
+        return true
+    }
+
+    private func nativeFullscreenRestoreSnapshot(
+        from snapshot: ManagedWindowRestoreSnapshot?
+    ) -> NativeFullscreenRecord.RestoreSnapshot? {
+        guard let snapshot else { return nil }
+        return NativeFullscreenRecord.RestoreSnapshot(
+            frame: snapshot.frame,
+            topologyProfile: snapshot.topologyProfile,
+            niriState: snapshot.niriState,
+            replacementMetadata: snapshot.replacementMetadata
+        )
+    }
+
+    @discardableResult
+    func seedNativeFullscreenRestoreSnapshot(
+        _ restoreSnapshot: NativeFullscreenRecord.RestoreSnapshot,
+        for token: WindowToken
+    ) -> Bool {
+        guard let originalToken = nativeFullscreenOriginalToken(for: token),
+              var record = nativeFullscreenRecordsByOriginalToken[originalToken]
+        else {
+            return false
+        }
+        let changed = applyNativeFullscreenRestoreState(
+            to: &record,
+            restoreSnapshot: restoreSnapshot,
+            restoreFailure: nil
+        )
+        if changed {
+            upsertNativeFullscreenRecord(record)
+        }
+        return changed
+    }
+
     @discardableResult
     func requestNativeFullscreenEnter(
         _ token: WindowToken,
@@ -961,13 +1030,15 @@ final class WorkspaceManager {
         restoreFailure: NativeFullscreenRecord.RestoreFailure? = nil
     ) -> Bool {
         var changed = rememberFocus(token, in: workspaceId)
+        let resolvedRestoreSnapshot = restoreSnapshot
+            ?? nativeFullscreenRestoreSnapshot(from: managedRestoreSnapshot(for: token))
         let originalToken = nativeFullscreenOriginalToken(for: token) ?? token
         let existing = nativeFullscreenRecordsByOriginalToken[originalToken]
         var record = existing ?? NativeFullscreenRecord(
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
-            restoreSnapshot: restoreSnapshot,
+            restoreSnapshot: resolvedRestoreSnapshot,
             restoreFailure: restoreFailure,
             exitRequestedByCommand: false,
             transition: .enterRequested,
@@ -997,7 +1068,7 @@ final class WorkspaceManager {
         }
         changed = applyNativeFullscreenRestoreState(
             to: &record,
-            restoreSnapshot: restoreSnapshot,
+            restoreSnapshot: resolvedRestoreSnapshot,
             restoreFailure: restoreFailure
         ) || changed
         if existing == nil || changed {
@@ -1021,13 +1092,15 @@ final class WorkspaceManager {
         guard let entry = entry(for: token) else { return false }
 
         var changed = rememberFocus(token, in: entry.workspaceId)
+        let resolvedRestoreSnapshot = restoreSnapshot
+            ?? nativeFullscreenRestoreSnapshot(from: managedRestoreSnapshot(for: token))
         let originalToken = nativeFullscreenOriginalToken(for: token) ?? token
         let existing = nativeFullscreenRecordsByOriginalToken[originalToken]
         var record = existing ?? NativeFullscreenRecord(
             originalToken: originalToken,
             currentToken: token,
             workspaceId: entry.workspaceId,
-            restoreSnapshot: restoreSnapshot,
+            restoreSnapshot: resolvedRestoreSnapshot,
             restoreFailure: restoreFailure,
             exitRequestedByCommand: false,
             transition: .suspended,
@@ -1057,7 +1130,7 @@ final class WorkspaceManager {
         }
         changed = applyNativeFullscreenRestoreState(
             to: &record,
-            restoreSnapshot: restoreSnapshot,
+            restoreSnapshot: resolvedRestoreSnapshot,
             restoreFailure: restoreFailure
         ) || changed
         if existing == nil || changed {
@@ -1085,12 +1158,14 @@ final class WorkspaceManager {
         let originalToken = existing?.originalToken ?? token
         let workspaceId = existing?.workspaceId ?? workspace(for: token)
         guard let workspaceId else { return false }
+        let resolvedRestoreSnapshot = existing?.restoreSnapshot
+            ?? nativeFullscreenRestoreSnapshot(from: managedRestoreSnapshot(for: token))
 
         var record = existing ?? NativeFullscreenRecord(
             originalToken: originalToken,
             currentToken: token,
             workspaceId: workspaceId,
-            restoreSnapshot: existing?.restoreSnapshot,
+            restoreSnapshot: resolvedRestoreSnapshot,
             restoreFailure: existing?.restoreFailure,
             exitRequestedByCommand: initiatedByCommand,
             transition: .exitRequested,
@@ -1119,6 +1194,11 @@ final class WorkspaceManager {
             record.unavailableSince = nil
             changed = true
         }
+        changed = applyNativeFullscreenRestoreState(
+            to: &record,
+            restoreSnapshot: resolvedRestoreSnapshot,
+            restoreFailure: existing?.restoreFailure
+        ) || changed
         if changed {
             upsertNativeFullscreenRecord(record)
         }
@@ -1153,34 +1233,57 @@ final class WorkspaceManager {
         return record
     }
 
+    enum NativeFullscreenUnavailableMatch {
+        case matched(NativeFullscreenRecord)
+        case ambiguous
+        case none
+    }
+
     func nativeFullscreenUnavailableCandidate(
-        for pid: pid_t,
-        activeWorkspaceId: WorkspaceDescriptor.ID?
-    ) -> NativeFullscreenRecord? {
+        for token: WindowToken,
+        activeWorkspaceId _: WorkspaceDescriptor.ID?,
+        replacementMetadata: ManagedReplacementMetadata?
+    ) -> NativeFullscreenUnavailableMatch {
         let candidates = nativeFullscreenRecordsByOriginalToken.values.filter { record in
-            guard record.currentToken.pid == pid,
+            guard record.currentToken.pid == token.pid,
                   record.availability == .temporarilyUnavailable
             else {
                 return false
             }
             return true
         }
-        guard !candidates.isEmpty else { return nil }
+        guard !candidates.isEmpty else { return .none }
 
-        if let activeWorkspaceId {
-            let workspaceMatches = candidates.filter { $0.workspaceId == activeWorkspaceId }
-            if workspaceMatches.count == 1 {
-                return workspaceMatches[0]
+        let sameTokenMatches = candidates.filter { $0.currentToken == token }
+        if sameTokenMatches.count == 1 {
+            return .matched(sameTokenMatches[0])
+        }
+        if sameTokenMatches.count > 1 {
+            return .ambiguous
+        }
+
+        if candidates.count == 1 {
+            return .matched(candidates[0])
+        }
+
+        if let replacementMetadata {
+            let metadataMatches = candidates.filter {
+                nativeFullscreenRecord($0, matchesReplacementMetadata: replacementMetadata)
+            }
+            if metadataMatches.count == 1 {
+                return .matched(metadataMatches[0])
+            }
+            if metadataMatches.count > 1 {
+                return .ambiguous
+            }
+            if candidates.contains(where: {
+                nativeFullscreenRecordHasComparableReplacementEvidence($0, replacementMetadata: replacementMetadata)
+            }) {
+                return .none
             }
         }
 
-        let commandMatches = candidates.filter(\.exitRequestedByCommand)
-        if commandMatches.count == 1 {
-            return commandMatches[0]
-        }
-
-        guard candidates.count == 1 else { return nil }
-        return candidates[0]
+        return .ambiguous
     }
 
     @discardableResult
@@ -2493,6 +2596,119 @@ final class WorkspaceManager {
         return nativeFullscreenOriginalTokenByCurrentToken[token]
     }
 
+    private func nativeFullscreenRecord(
+        _ record: NativeFullscreenRecord,
+        matchesReplacementMetadata replacementMetadata: ManagedReplacementMetadata
+    ) -> Bool {
+        guard let capturedMetadata = nativeFullscreenCapturedReplacementMetadata(for: record) else {
+            return false
+        }
+
+        guard managedReplacementBundleIdsMatch(capturedMetadata.bundleId, replacementMetadata.bundleId) else {
+            return false
+        }
+
+        if let capturedRole = capturedMetadata.role,
+           let replacementRole = replacementMetadata.role,
+           capturedRole != replacementRole
+        {
+            return false
+        }
+
+        if let capturedSubrole = capturedMetadata.subrole,
+           let replacementSubrole = replacementMetadata.subrole,
+           capturedSubrole != replacementSubrole
+        {
+            return false
+        }
+
+        if let capturedLevel = capturedMetadata.windowLevel,
+           let replacementLevel = replacementMetadata.windowLevel,
+           capturedLevel != replacementLevel
+        {
+            return false
+        }
+
+        var hasExactEvidence = false
+        if let capturedParent = capturedMetadata.parentWindowId,
+           let replacementParent = replacementMetadata.parentWindowId
+        {
+            guard capturedParent == replacementParent else { return false }
+            hasExactEvidence = true
+        }
+
+        if let capturedTitle = trimmedNonEmpty(capturedMetadata.title),
+           let replacementTitle = trimmedNonEmpty(replacementMetadata.title)
+        {
+            guard capturedTitle == replacementTitle else { return false }
+            hasExactEvidence = true
+        }
+
+        if let capturedFrame = capturedMetadata.frame,
+           let replacementFrame = replacementMetadata.frame,
+           framesAreCloseForNativeFullscreenReplacement(capturedFrame, replacementFrame)
+        {
+            hasExactEvidence = true
+        }
+
+        return hasExactEvidence
+    }
+
+    private func nativeFullscreenCapturedReplacementMetadata(
+        for record: NativeFullscreenRecord
+    ) -> ManagedReplacementMetadata? {
+        record.restoreSnapshot?.replacementMetadata
+            ?? managedRestoreSnapshot(for: record.originalToken)?.replacementMetadata
+            ?? managedRestoreSnapshot(for: record.currentToken)?.replacementMetadata
+    }
+
+    private func nativeFullscreenRecordHasComparableReplacementEvidence(
+        _ record: NativeFullscreenRecord,
+        replacementMetadata: ManagedReplacementMetadata
+    ) -> Bool {
+        guard let capturedMetadata = nativeFullscreenCapturedReplacementMetadata(for: record) else {
+            return false
+        }
+        if capturedMetadata.parentWindowId != nil,
+           replacementMetadata.parentWindowId != nil
+        {
+            return true
+        }
+        if trimmedNonEmpty(capturedMetadata.title) != nil,
+           trimmedNonEmpty(replacementMetadata.title) != nil
+        {
+            return true
+        }
+        if capturedMetadata.frame != nil,
+           replacementMetadata.frame != nil
+        {
+            return true
+        }
+        return false
+    }
+
+    private func managedReplacementBundleIdsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+        switch (lhs?.lowercased(), rhs?.lowercased()) {
+        case let (lhs?, rhs?):
+            return lhs == rhs
+        default:
+            return true
+        }
+    }
+
+    private func framesAreCloseForNativeFullscreenReplacement(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.midX - rhs.midX) <= 96
+            && abs(lhs.midY - rhs.midY) <= 96
+            && abs(lhs.width - rhs.width) <= 64
+            && abs(lhs.height - rhs.height) <= 64
+    }
+
+    private func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func upsertNativeFullscreenRecord(_ record: NativeFullscreenRecord) {
         if let previous = nativeFullscreenRecordsByOriginalToken[record.originalToken] {
             nativeFullscreenOriginalTokenByCurrentToken.removeValue(forKey: previous.currentToken)
@@ -3425,7 +3641,9 @@ extension WorkspaceManager {
             currentToken: record.currentToken,
             workspaceId: record.workspaceId,
             restoreFrame: record.restoreSnapshot?.frame,
-            capturedTopologyProfile: record.restoreSnapshot?.topologyProfile
+            capturedTopologyProfile: record.restoreSnapshot?.topologyProfile,
+            niriState: record.restoreSnapshot?.niriState,
+            replacementMetadata: record.restoreSnapshot?.replacementMetadata
         )
     }
 
@@ -3440,6 +3658,13 @@ extension WorkspaceManager {
         if record.currentToken != resolvedToken {
             record.currentToken = resolvedToken
             changed = true
+        }
+        guard record.restoreSnapshot != nil else {
+            changed = ensureNativeFullscreenRestoreInvariant(on: &record) || changed
+            if changed {
+                upsertNativeFullscreenRecord(record)
+            }
+            return nil
         }
         if record.transition != .restoring {
             record.transition = .restoring

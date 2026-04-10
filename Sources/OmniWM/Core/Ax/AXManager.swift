@@ -28,6 +28,7 @@ final class AXManager {
     var currentWindowsAsyncOverride: (@MainActor () async -> [(AXWindowRef, pid_t, Int)])?
     var fullRescanEnumerationOverrideForTests: (@MainActor () async -> FullRescanEnumerationSnapshot)?
     var frameApplyOverrideForTests: (([AXFrameApplicationRequest]) -> [AXFrameApplyResult])?
+    var onFrameConfirmed: ((pid_t, Int, CGRect) -> Void)?
 
     private struct PendingFrameObserver {
         var windowId: Int
@@ -559,6 +560,7 @@ final class AXManager {
                 lastAppliedFrames[resolvedWindowId] = confirmedFrame
                 recentFrameWriteFailures.removeValue(forKey: resolvedWindowId)
                 retryBudgetByWindowId.removeValue(forKey: resolvedWindowId)
+                onFrameConfirmed?(resolvedResult.pid, resolvedWindowId, confirmedFrame)
                 notifyPendingFrameObserver(with: resolvedResult)
                 continue
             }
