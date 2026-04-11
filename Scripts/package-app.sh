@@ -39,6 +39,12 @@ cp "$ROOT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$BUILD_DIR/OmniWM_OmniWM.bundle" "$APP_DIR/Contents/Resources/"
 
+RESOURCE_BUNDLE_DIR="$APP_DIR/Contents/Resources/OmniWM_OmniWM.bundle"
+# SwiftPM currently copies build-tool plugin outputs into the resource bundle,
+# but the app only needs the processed image assets at runtime.
+rm -rf "$RESOURCE_BUNDLE_DIR/cache" "$RESOURCE_BUNDLE_DIR/debug" "$RESOURCE_BUNDLE_DIR/release"
+rm -f "$RESOURCE_BUNDLE_DIR/kernels-built.txt"
+
 if command -v plutil >/dev/null 2>&1; then
   plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
 fi
