@@ -948,7 +948,7 @@ final class MouseEventHandler {
         guard controller.isEnabled, controller.settings.scrollGestureEnabled else { return }
         if controller.isOverviewOpen() { return }
         if controller.isPointInOwnWindow(location) {
-            resetGestureState()
+            abortActiveGestureIfNeeded()
             return
         }
         guard !state.isResizing, !state.isMoving else { return }
@@ -972,22 +972,22 @@ final class MouseEventHandler {
         }
 
         if phase == .began {
-            resetGestureState()
+            abortActiveGestureIfNeeded()
         }
 
         guard resolveScrollContext(at: location) != nil else {
-            resetGestureState()
+            abortActiveGestureIfNeeded()
             return
         }
         guard !snapshot.touches.isEmpty else {
-            resetGestureState()
+            abortActiveGestureIfNeeded()
             return
         }
         guard let averageTouchPosition = Self.averageGestureTouchPosition(
             requiredFingers: requiredFingers,
             touches: snapshot.touches
         ) else {
-            resetGestureState()
+            abortActiveGestureIfNeeded()
             return
         }
 
@@ -997,7 +997,7 @@ final class MouseEventHandler {
         switch state.gesturePhase {
         case .idle:
             guard let currentContext = resolveScrollContext(at: location) else {
-                resetGestureState()
+                abortActiveGestureIfNeeded()
                 return
             }
             state.lockedGestureContext = .init(
@@ -1012,15 +1012,12 @@ final class MouseEventHandler {
         case .armed, .committed:
             guard let lockedContext = state.lockedGestureContext else {
                 assertionFailure("Active gesture missing locked context")
-                resetGestureState()
+                abortActiveGestureIfNeeded()
                 return
             }
             let wsId = lockedContext.workspaceId
             guard let monitor = controller.workspaceManager.monitor(byId: lockedContext.monitorId) else {
-                if state.gesturePhase == .committed {
-                    cancelCommittedGestureViewportState(for: wsId)
-                }
-                resetGestureState()
+                abortActiveGestureIfNeeded()
                 return
             }
 
@@ -1148,11 +1145,25 @@ final class MouseEventHandler {
             guard vstate.viewOffsetPixels.isGesture else { return }
             vstate.cancelAnimation()
             vstate.selectionProgress = 0.0
+            vstate.viewOffsetToRestore = nil
+            vstate.activatePrevColumnOnRemoval = nil
             didCancel = true
         }
         if didCancel {
             controller.layoutRefreshController.requestImmediateRelayout(reason: .interactiveGesture)
         }
+    }
+
+    private func abortActiveGestureIfNeeded() {
+        if state.gesturePhase == .committed {
+            guard let lockedContext = state.lockedGestureContext else {
+                assertionFailure("Committed gesture missing locked context")
+                resetGestureState()
+                return
+            }
+            cancelCommittedGestureViewportState(for: lockedContext.workspaceId)
+        }
+        resetGestureState()
     }
 
     private func resolveScrollContext(at location: CGPoint) -> (
@@ -1173,7 +1184,12 @@ final class MouseEventHandler {
             return nil
         }
 
-        return (engine, workspace.id, monitor)
+        switch controller.settings.layoutType(for: workspace.name) {
+        case .niri, .defaultLayout:
+            return (engine, workspace.id, monitor)
+        case .dwindle:
+            return nil
+        }
     }
 
     private func resetGestureState() {

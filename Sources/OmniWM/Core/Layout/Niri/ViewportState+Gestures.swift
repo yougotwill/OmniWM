@@ -36,7 +36,16 @@ extension ViewportState {
 
         gesture.currentViewOffset = viewOffset
 
-        let avgColumnWidth = Double(totalWidth(columns: columns, gap: gap)) / Double(columns.count)
+        let totalColumnWidth = Double(totalWidth(columns: columns, gap: gap))
+        guard totalColumnWidth.isFinite, totalColumnWidth > 0 else {
+            return nil
+        }
+
+        let avgColumnWidth = totalColumnWidth / Double(columns.count)
+        guard avgColumnWidth.isFinite, avgColumnWidth > 0 else {
+            return nil
+        }
+
         selectionProgress += deltaPixels
         let steps = Int((selectionProgress / CGFloat(avgColumnWidth)).rounded(.towardZero))
         if steps != 0 {
@@ -58,9 +67,20 @@ extension ViewportState {
             return
         }
 
-        let velocity = gesture.currentVelocity()
         let currentOffset = gesture.current()
 
+        guard !columns.isEmpty else {
+            endGestureWithoutSnap(currentOffset: currentOffset)
+            return
+        }
+
+        let totalColumnWidth = Double(totalWidth(columns: columns, gap: gap))
+        guard totalColumnWidth.isFinite, totalColumnWidth > 0 else {
+            endGestureWithoutSnap(currentOffset: currentOffset)
+            return
+        }
+
+        let velocity = gesture.currentVelocity()
         let normFactor = gesture.isTrackpad
             ? Double(viewportWidth) / viewGestureWorkingAreaMovement
             : 1.0
@@ -107,6 +127,13 @@ extension ViewportState {
         )
         viewOffsetPixels = .spring(animation)
 
+        activatePrevColumnOnRemoval = nil
+        viewOffsetToRestore = nil
+        selectionProgress = 0.0
+    }
+
+    private mutating func endGestureWithoutSnap(currentOffset: Double) {
+        viewOffsetPixels = .static(CGFloat(currentOffset))
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
         selectionProgress = 0.0
