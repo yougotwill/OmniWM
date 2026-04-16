@@ -673,6 +673,28 @@ final class SettingsStore {
         return result
     }
 
+    func rebindMonitorReferences(to monitors: [Monitor]) {
+        let reboundWorkspaceConfigurations = workspaceConfigurations.map { config in
+            guard case let .specificDisplay(output) = config.monitorAssignment,
+                  let rebound = output.rebound(in: monitors)
+            else {
+                return config
+            }
+
+            var updated = config
+            updated.monitorAssignment = .specificDisplay(rebound)
+            return updated
+        }
+        if reboundWorkspaceConfigurations != workspaceConfigurations {
+            workspaceConfigurations = reboundWorkspaceConfigurations
+        }
+
+        rebindMonitorSettings(\.monitorBarSettings, to: monitors)
+        rebindMonitorSettings(\.monitorOrientationSettings, to: monitors)
+        rebindMonitorSettings(\.monitorNiriSettings, to: monitors)
+        rebindMonitorSettings(\.monitorDwindleSettings, to: monitors)
+    }
+
     func layoutType(for workspaceName: String) -> LayoutType {
         if let config = workspaceConfigurations.first(where: { $0.name == workspaceName }) {
             if config.layoutType == .defaultLayout {
@@ -685,6 +707,17 @@ final class SettingsStore {
 
     func displayName(for workspaceName: String) -> String {
         workspaceConfigurations.first(where: { $0.name == workspaceName })?.effectiveDisplayName ?? workspaceName
+    }
+
+    private func rebindMonitorSettings<T: MonitorSettingsType>(
+        _ keyPath: ReferenceWritableKeyPath<SettingsStore, [T]>,
+        to monitors: [Monitor]
+    ) {
+        let currentSettings = self[keyPath: keyPath]
+        let reboundSettings = MonitorSettingsStore.rebound(currentSettings, to: monitors)
+        if reboundSettings != currentSettings {
+            self[keyPath: keyPath] = reboundSettings
+        }
     }
 
     private static func loadWorkspaceConfigurations(from defaults: UserDefaults) -> [WorkspaceConfiguration] {

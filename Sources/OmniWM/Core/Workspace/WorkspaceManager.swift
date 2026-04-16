@@ -177,6 +177,7 @@ final class WorkspaceManager {
         if monitors.isEmpty {
             monitors = [Monitor.fallback()]
         }
+        settings.rebindMonitorReferences(to: monitors)
         rebuildMonitorIndexes()
         applySettings()
         reconcileInteractionMonitorState(notify: false)
@@ -287,10 +288,33 @@ final class WorkspaceManager {
     @discardableResult
     private func recordTopologyChange(to newMonitors: [Monitor]) -> ReconcileTxn {
         let normalizedMonitors = newMonitors.isEmpty ? [Monitor.fallback()] : newMonitors
+        let originalWorkspaceConfigurations = settings.workspaceConfigurations
+        let originalMonitorBarSettings = settings.monitorBarSettings
+        let originalOrientationSettings = settings.monitorOrientationSettings
+        let originalNiriSettings = settings.monitorNiriSettings
+        let originalDwindleSettings = settings.monitorDwindleSettings
+        settings.rebindMonitorReferences(to: normalizedMonitors)
         let topologyPlan = WorkspaceSessionKernel.reconcileTopology(
             manager: self,
             newMonitors: normalizedMonitors
         )
+        if topologyPlan == nil {
+            if settings.workspaceConfigurations != originalWorkspaceConfigurations {
+                settings.workspaceConfigurations = originalWorkspaceConfigurations
+            }
+            if settings.monitorBarSettings != originalMonitorBarSettings {
+                settings.monitorBarSettings = originalMonitorBarSettings
+            }
+            if settings.monitorOrientationSettings != originalOrientationSettings {
+                settings.monitorOrientationSettings = originalOrientationSettings
+            }
+            if settings.monitorNiriSettings != originalNiriSettings {
+                settings.monitorNiriSettings = originalNiriSettings
+            }
+            if settings.monitorDwindleSettings != originalDwindleSettings {
+                settings.monitorDwindleSettings = originalDwindleSettings
+            }
+        }
         let event = WMEvent.topologyChanged(
             displays: Monitor.sortedByPosition(normalizedMonitors).map(DisplayFingerprint.init),
             source: .workspaceManager

@@ -17,12 +17,16 @@ struct OutputId: Hashable, Codable {
     }
 
     func resolveMonitor(in monitors: [Monitor]) -> Monitor? {
-        if let exact = monitors.first(where: { $0.displayId == displayId }) {
-            return exact
+        monitors.first(where: { $0.displayId == displayId })
+    }
+
+    func rebound(in monitors: [Monitor]) -> OutputId? {
+        if let exact = resolveMonitor(in: monitors) {
+            return OutputId(from: exact)
         }
 
         let nameMatches = monitors.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
         guard nameMatches.count == 1 else { return nil }
-        return nameMatches[0]
+        return OutputId(from: nameMatches[0])
     }
 }

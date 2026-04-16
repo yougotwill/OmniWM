@@ -509,6 +509,7 @@ fn specificDisplayMonitorId(
     string_bytes: []const u8,
 ) KernelError!?u32 {
     _ = sorted_monitor_indices;
+    _ = string_bytes;
     if (workspace.input.has_specific_display_id != 0) {
         for (monitors) |monitor| {
             if (monitor.input.monitor_id == workspace.input.specific_display_id) {
@@ -516,29 +517,7 @@ fn specificDisplayMonitorId(
             }
         }
     }
-
-    const workspace_name = try optionalString(
-        string_bytes,
-        workspace.input.specific_display_name,
-        workspace.input.has_specific_display_name != 0,
-    ) orelse return null;
-
-    var matched_monitor_id: ?u32 = null;
-    for (monitors) |monitor| {
-        const monitor_name = (try optionalString(
-            string_bytes,
-            monitor.input.name,
-            monitor.input.has_name != 0,
-        )) orelse continue;
-        if (!namesEqualIgnoreCase(monitor_name, workspace_name)) {
-            continue;
-        }
-        if (matched_monitor_id != null) {
-            return null;
-        }
-        matched_monitor_id = monitor.input.monitor_id;
-    }
-    return matched_monitor_id;
+    return null;
 }
 
 fn homeMonitorIdForWorkspace(

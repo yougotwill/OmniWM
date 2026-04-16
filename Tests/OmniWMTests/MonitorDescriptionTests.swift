@@ -50,13 +50,13 @@ private func makeMonitorDescriptionTestMonitor(
         #expect(resolved?.id == second.id)
     }
 
-    @Test func outputFallsBackToUniqueName() {
+    @Test func outputRequiresExactDisplayId() {
         let mainMonitor = makeMonitorDescriptionTestMonitor(displayId: 100, name: "Studio Display", x: 0, y: 0)
         let sorted = Monitor.sortedByPosition([mainMonitor])
 
         let resolved = MonitorDescription.output(OutputId(displayId: 999, name: "Studio Display"))
             .resolveMonitor(sortedMonitors: sorted)
 
-        #expect(resolved?.id == mainMonitor.id)
+        #expect(resolved == nil)
     }
 }

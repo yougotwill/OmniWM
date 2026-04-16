@@ -592,13 +592,13 @@ extension SettingsStore {
         var seen: Set<String> = []
         let rebound = configs.map { config in
             guard case let .specificDisplay(output) = config.monitorAssignment,
-                  let resolvedMonitor = output.resolveMonitor(in: monitors)
+                  let reboundOutput = output.rebound(in: monitors)
             else {
                 return config
             }
 
             var updated = config
-            updated.monitorAssignment = .specificDisplay(OutputId(from: resolvedMonitor))
+            updated.monitorAssignment = .specificDisplay(reboundOutput)
             return updated
         }
 

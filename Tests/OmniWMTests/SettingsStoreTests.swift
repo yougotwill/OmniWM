@@ -164,14 +164,42 @@ private func makePersistedRestoreCatalogFixture(
         #expect(result?.maxVisibleColumns == 3)
     }
 
-    @Test func monitorLookupFallsBackToLegacyNameWhenDisplayIdMissing() {
+    @Test func monitorLookupRequiresDisplayIdMatchInLiveRuntime() {
         let monitor = makeSettingsTestMonitor(displayId: 99, name: "Legacy")
         let settings = [
             MonitorNiriSettings(monitorName: "Legacy", maxVisibleColumns: 2),
         ]
 
         let result = MonitorSettingsStore.get(for: monitor, in: settings)
-        #expect(result?.maxVisibleColumns == 2)
+        #expect(result == nil)
+    }
+
+    @Test func rebindPromotesLegacyNameEntryToDisplayId() {
+        let monitor = makeSettingsTestMonitor(displayId: 99, name: "Legacy")
+        let settings = [
+            MonitorNiriSettings(monitorName: "Legacy", maxVisibleColumns: 2),
+        ]
+
+        let rebound = MonitorSettingsStore.rebound(settings, to: [monitor])
+        #expect(rebound.first?.monitorDisplayId == 99)
+        #expect(rebound.first?.monitorName == "Legacy")
+    }
+
+    @Test func rebindPrefersExistingExactDisplayEntryOverLegacyNameEntry() {
+        let monitor = makeSettingsTestMonitor(displayId: 42, name: "Studio Display")
+        let settings = [
+            MonitorNiriSettings(
+                monitorName: "Studio Display",
+                monitorDisplayId: 42,
+                maxVisibleColumns: 3
+            ),
+            MonitorNiriSettings(monitorName: "Studio Display", maxVisibleColumns: 1),
+        ]
+
+        let rebound = MonitorSettingsStore.rebound(settings, to: [monitor])
+        #expect(rebound.count == 1)
+        #expect(rebound.first?.monitorDisplayId == 42)
+        #expect(rebound.first?.maxVisibleColumns == 3)
     }
 
     @Test func updateMigratesLegacyNameEntryToDisplayIdEntry() {

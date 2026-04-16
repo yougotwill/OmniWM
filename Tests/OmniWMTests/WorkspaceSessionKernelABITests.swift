@@ -499,6 +499,67 @@ struct WorkspaceSessionKernelABITests {
         #expect(status == OMNIWM_KERNELS_STATUS_OK)
     }
 
+    @Test func `project does not resolve specific display by name alone`() {
+        let workspaceId = makeWorkspaceSessionUUID(high: 22, low: 22)
+        var strings = WorkspaceSessionKernelStringTable()
+        var input = makeWorkspaceSessionInput(
+            operation: UInt32(OMNIWM_WORKSPACE_SESSION_OPERATION_PROJECT)
+        )
+        let monitors = [
+            makeWorkspaceSessionMonitor(
+                id: 40,
+                minX: 0,
+                maxY: 1080,
+                anchorX: 0,
+                anchorY: 1080,
+                name: "Detached",
+                strings: &strings
+            ),
+            makeWorkspaceSessionMonitor(
+                id: 50,
+                minX: 1920,
+                maxY: 1080,
+                anchorX: 1920,
+                anchorY: 1080,
+                name: "Side",
+                strings: &strings
+            )
+        ]
+        let workspaces = [
+            makeWorkspaceSessionWorkspace(
+                id: workspaceId,
+                assignmentKind: UInt32(OMNIWM_WORKSPACE_SESSION_ASSIGNMENT_SPECIFIC_DISPLAY),
+                assignedAnchor: omniwm_point(x: 2100, y: 1000),
+                specificDisplayId: 30,
+                specificDisplayName: "Detached",
+                strings: &strings
+            )
+        ]
+
+        let status: Int32 = withWorkspaceSessionOutput(
+            monitorCapacity: 2,
+            projectionCapacity: 1
+        ) { output, _, projectionBuffer in
+            let status = callWorkspaceSessionKernel(
+                input: &input,
+                monitors: monitors,
+                workspaces: workspaces,
+                stringBytes: strings.bytes,
+                output: &output
+            )
+            #expect(output.outcome == UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_APPLY))
+            #expect(output.workspace_projection_count == 1)
+            #expect(projectionBuffer[0].has_home_monitor_id == 0)
+            #expect(projectionBuffer[0].has_effective_monitor_id == 1)
+            #expect(projectionBuffer[0].effective_monitor_id == 50)
+            #expect(projectionBuffer[0].has_projected_monitor_id == 1)
+            #expect(projectionBuffer[0].projected_monitor_id == 50)
+            return status
+        }
+
+        #expect(status == OMNIWM_KERNELS_STATUS_OK)
+    }
+
     @Test func `project keeps specific display fallback aligned with inserted monitor anchors`() {
         let workspaceCenter = makeWorkspaceSessionUUID(high: 3, low: 3)
         let workspaceRightOne = makeWorkspaceSessionUUID(high: 4, low: 4)
@@ -922,7 +983,7 @@ struct WorkspaceSessionKernelABITests {
         #expect(status == OMNIWM_KERNELS_STATUS_OK)
     }
 
-    @Test func `project treats empty strings as present production encoding`() {
+    @Test func `project ignores encoded specific display names when display id is missing`() {
         let workspaceId = makeWorkspaceSessionUUID(high: 50, low: 50)
         var strings = WorkspaceSessionKernelStringTable()
         var input = makeWorkspaceSessionInput(
@@ -973,10 +1034,11 @@ struct WorkspaceSessionKernelABITests {
             )
             #expect(output.outcome == UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_APPLY))
             #expect(output.workspace_projection_count == 1)
-            #expect(projectionBuffer[0].has_home_monitor_id == 1)
+            #expect(projectionBuffer[0].has_home_monitor_id == 0)
             #expect(projectionBuffer[0].has_effective_monitor_id == 1)
-            #expect(projectionBuffer[0].home_monitor_id == 10)
-            #expect(projectionBuffer[0].effective_monitor_id == 10)
+            #expect(projectionBuffer[0].effective_monitor_id == 20)
+            #expect(projectionBuffer[0].has_projected_monitor_id == 1)
+            #expect(projectionBuffer[0].projected_monitor_id == 20)
             return status
         }
 
