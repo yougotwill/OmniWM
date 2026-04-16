@@ -21,7 +21,6 @@ struct AppRuleDraft: Identifiable, Equatable {
     let id: UUID
     var bundleId: String
     var layoutAction: WindowRuleLayoutAction
-    var usesLegacyAlwaysFloat: Bool
     var assignToWorkspaceEnabled: Bool
     var assignToWorkspace: String
     var minWidthEnabled: Bool
@@ -42,7 +41,6 @@ struct AppRuleDraft: Identifiable, Equatable {
         self.id = id
         self.bundleId = bundleId
         layoutAction = .auto
-        usesLegacyAlwaysFloat = false
         assignToWorkspaceEnabled = false
         assignToWorkspace = ""
         minWidthEnabled = false
@@ -64,7 +62,6 @@ struct AppRuleDraft: Identifiable, Equatable {
         id = rule.id
         bundleId = rule.bundleId
         layoutAction = rule.effectiveLayoutAction
-        usesLegacyAlwaysFloat = rule.alwaysFloat == true && rule.layout == nil
         assignToWorkspaceEnabled = rule.assignToWorkspace != nil
         assignToWorkspace = rule.assignToWorkspace ?? ""
         minWidthEnabled = rule.minWidth != nil
@@ -116,7 +113,6 @@ struct AppRuleDraft: Identifiable, Equatable {
     }
 
     func makeRule(id: UUID? = nil) -> AppRule {
-        let preserveLegacyAlwaysFloat = usesLegacyAlwaysFloat && layoutAction == .float
         return AppRule(
             id: id ?? self.id,
             bundleId: bundleId.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -125,8 +121,7 @@ struct AppRuleDraft: Identifiable, Equatable {
             titleRegex: titleMatcherMode == .regex ? titleRegex.trimmedNonEmpty : nil,
             axRole: axRoleEnabled ? axRole.trimmedNonEmpty : nil,
             axSubrole: axSubroleEnabled ? axSubrole.trimmedNonEmpty : nil,
-            alwaysFloat: preserveLegacyAlwaysFloat ? true : nil,
-            layout: preserveLegacyAlwaysFloat ? nil : (layoutAction == .auto ? nil : layoutAction),
+            layout: layoutAction == .auto ? nil : layoutAction,
             assignToWorkspace: assignToWorkspaceEnabled ? assignToWorkspace.trimmedNonEmpty : nil,
             minWidth: minWidthEnabled ? minWidth : nil,
             minHeight: minHeightEnabled ? minHeight : nil

@@ -92,9 +92,7 @@ struct CommandPaletteEnvironment {
             box.action()
         }
     }
-    var performMenuAction: (AXUIElement) -> Void = { element in
-        AXUIElementPerformAction(element, "AXPress" as CFString)
-    }
+    var performMenuAction: (AXUIElement) -> Void = WMPlatform.live.performMenuAction
 }
 
 @MainActor

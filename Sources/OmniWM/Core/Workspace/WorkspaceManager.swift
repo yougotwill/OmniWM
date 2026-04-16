@@ -16,7 +16,7 @@ struct WorkspaceDescriptor: Identifiable, Hashable {
     }
 }
 
-private struct WorkspaceMonitorProjection {
+struct WorkspaceMonitorProjection {
     var projectedMonitorId: Monitor.ID?
     var homeMonitorId: Monitor.ID?
     var effectiveMonitorId: Monitor.ID?
@@ -100,83 +100,102 @@ final class WorkspaceManager {
         var unavailableSince: Date?
     }
 
-    struct SessionState {
-        struct MonitorSession: Equatable {
-            var visibleWorkspaceId: WorkspaceDescriptor.ID?
-            var previousVisibleWorkspaceId: WorkspaceDescriptor.ID?
+    private let windowRegistry = WindowRegistry()
+    private let workspaceStore: WorkspaceStore
+    private let restoreState: RestoreState
+
+    private(set) var monitors: [Monitor] {
+        get { workspaceStore.monitors }
+        set {
+            workspaceStore.monitors = newValue
+            rebuildMonitorIndexes()
         }
-
-        struct WorkspaceSession {
-            var niriViewportState: ViewportState?
-        }
-
-        struct FocusSession {
-            struct PendingManagedFocusRequest {
-                var token: WindowToken?
-                var workspaceId: WorkspaceDescriptor.ID?
-                var monitorId: Monitor.ID?
-            }
-
-            var focusedToken: WindowToken?
-            var pendingManagedFocus = PendingManagedFocusRequest()
-            var lastTiledFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
-            var lastFloatingFocusedByWorkspace: [WorkspaceDescriptor.ID: WindowToken] = [:]
-            var focusLease: FocusPolicyLease?
-            var isNonManagedFocusActive: Bool = false
-            var isAppFullscreenActive: Bool = false
-        }
-
-        var interactionMonitorId: Monitor.ID?
-        var previousInteractionMonitorId: Monitor.ID?
-        var monitorSessions: [Monitor.ID: MonitorSession] = [:]
-        var workspaceSessions: [WorkspaceDescriptor.ID: WorkspaceSession] = [:]
-        var scratchpadToken: WindowToken?
-        var focus = FocusSession()
-    }
-
-    private(set) var monitors: [Monitor] = Monitor.current() {
-        didSet { rebuildMonitorIndexes() }
     }
 
     private var _monitorsById: [Monitor.ID: Monitor] = [:]
     private var _monitorsByName: [String: [Monitor]] = [:]
     private let settings: SettingsStore
 
-    private var workspacesById: [WorkspaceDescriptor.ID: WorkspaceDescriptor] = [:]
-    private var workspaceIdByName: [String: WorkspaceDescriptor.ID] = [:]
-    private var disconnectedVisibleWorkspaceCache: [MonitorRestoreKey: WorkspaceDescriptor.ID] = [:]
+    private var workspacesById: [WorkspaceDescriptor.ID: WorkspaceDescriptor] {
+        get { workspaceStore.workspacesById }
+        set { workspaceStore.workspacesById = newValue }
+    }
+    private var workspaceIdByName: [String: WorkspaceDescriptor.ID] {
+        get { workspaceStore.workspaceIdByName }
+        set { workspaceStore.workspaceIdByName = newValue }
+    }
+    private var disconnectedVisibleWorkspaceCache: [MonitorRestoreKey: WorkspaceDescriptor.ID] {
+        get { workspaceStore.disconnectedVisibleWorkspaceCache }
+        set { workspaceStore.disconnectedVisibleWorkspaceCache = newValue }
+    }
 
     private(set) var gaps: Double = 8
     private(set) var outerGaps: LayoutGaps.OuterGaps = .zero
-    private let windows = WindowModel()
+    private var windows: WindowModel { windowRegistry.windows }
     private let reconcileTrace = ReconcileTraceRecorder()
     private lazy var runtimeStore = RuntimeStore(traceRecorder: reconcileTrace)
-    private let restorePlanner = RestorePlanner()
-    private let bootPersistedWindowRestoreCatalog: PersistedWindowRestoreCatalog
-    private var nativeFullscreenRecordsByOriginalToken: [WindowToken: NativeFullscreenRecord] = [:]
-    private var nativeFullscreenOriginalTokenByCurrentToken: [WindowToken: WindowToken] = [:]
-    private var consumedBootPersistedWindowRestoreKeys: Set<PersistedWindowRestoreKey> = []
-    private var persistedWindowRestoreCatalogDirty = false
-    private var persistedWindowRestoreCatalogSaveScheduled = false
+    private var restorePlanner: RestorePlanner { restoreState.restorePlanner }
+    private var bootPersistedWindowRestoreCatalog: PersistedWindowRestoreCatalog {
+        restoreState.bootPersistedWindowRestoreCatalog
+    }
+    private var nativeFullscreenRecordsByOriginalToken: [WindowToken: NativeFullscreenRecord] {
+        get { restoreState.nativeFullscreenRecordsByOriginalToken }
+        set { restoreState.nativeFullscreenRecordsByOriginalToken = newValue }
+    }
+    private var nativeFullscreenOriginalTokenByCurrentToken: [WindowToken: WindowToken] {
+        get { restoreState.nativeFullscreenOriginalTokenByCurrentToken }
+        set { restoreState.nativeFullscreenOriginalTokenByCurrentToken = newValue }
+    }
+    private var consumedBootPersistedWindowRestoreKeys: Set<PersistedWindowRestoreKey> {
+        get { restoreState.consumedBootPersistedWindowRestoreKeys }
+        set { restoreState.consumedBootPersistedWindowRestoreKeys = newValue }
+    }
+    private var persistedWindowRestoreCatalogDirty: Bool {
+        get { restoreState.persistedWindowRestoreCatalogDirty }
+        set { restoreState.persistedWindowRestoreCatalogDirty = newValue }
+    }
+    private var persistedWindowRestoreCatalogSaveScheduled: Bool {
+        get { restoreState.persistedWindowRestoreCatalogSaveScheduled }
+        set { restoreState.persistedWindowRestoreCatalogSaveScheduled = newValue }
+    }
 
-    private var _cachedSortedWorkspaces: [WorkspaceDescriptor]?
-    private var _cachedWorkspaceIdsByMonitor: [Monitor.ID: [WorkspaceDescriptor.ID]]?
-    private var _cachedVisibleWorkspaceIds: Set<WorkspaceDescriptor.ID>?
-    private var _cachedVisibleWorkspaceMap: [Monitor.ID: WorkspaceDescriptor.ID]?
-    private var _cachedMonitorIdByVisibleWorkspace: [WorkspaceDescriptor.ID: Monitor.ID]?
-    private var _cachedWorkspaceMonitorProjection: [WorkspaceDescriptor.ID: WorkspaceMonitorProjection]?
+    private var _cachedSortedWorkspaces: [WorkspaceDescriptor]? {
+        get { workspaceStore.cachedSortedWorkspaces }
+        set { workspaceStore.cachedSortedWorkspaces = newValue }
+    }
+    private var _cachedWorkspaceIdsByMonitor: [Monitor.ID: [WorkspaceDescriptor.ID]]? {
+        get { workspaceStore.cachedWorkspaceIdsByMonitor }
+        set { workspaceStore.cachedWorkspaceIdsByMonitor = newValue }
+    }
+    private var _cachedVisibleWorkspaceIds: Set<WorkspaceDescriptor.ID>? {
+        get { workspaceStore.cachedVisibleWorkspaceIds }
+        set { workspaceStore.cachedVisibleWorkspaceIds = newValue }
+    }
+    private var _cachedVisibleWorkspaceMap: [Monitor.ID: WorkspaceDescriptor.ID]? {
+        get { workspaceStore.cachedVisibleWorkspaceMap }
+        set { workspaceStore.cachedVisibleWorkspaceMap = newValue }
+    }
+    private var _cachedMonitorIdByVisibleWorkspace: [WorkspaceDescriptor.ID: Monitor.ID]? {
+        get { workspaceStore.cachedMonitorIdByVisibleWorkspace }
+        set { workspaceStore.cachedMonitorIdByVisibleWorkspace = newValue }
+    }
+    private var _cachedWorkspaceMonitorProjection: [WorkspaceDescriptor.ID: WorkspaceMonitorProjection]? {
+        get { workspaceStore.cachedWorkspaceMonitorProjection }
+        set { workspaceStore.cachedWorkspaceMonitorProjection = newValue }
+    }
     var animationClock: AnimationClock?
-    private var sessionState = SessionState()
+    private var sessionState = WorkspaceSessionState()
 
     var onGapsChanged: (() -> Void)?
     var onSessionStateChanged: (() -> Void)?
 
     init(settings: SettingsStore) {
         self.settings = settings
-        bootPersistedWindowRestoreCatalog = settings.loadPersistedWindowRestoreCatalog()
-        if monitors.isEmpty {
-            monitors = [Monitor.fallback()]
-        }
+        let discoveredMonitors = Monitor.current()
+        workspaceStore = WorkspaceStore(
+            monitors: discoveredMonitors.isEmpty ? [Monitor.fallback()] : discoveredMonitors
+        )
+        restoreState = RestoreState(settings: settings)
         settings.rebindMonitorReferences(to: monitors)
         rebuildMonitorIndexes()
         applySettings()
@@ -1581,7 +1600,7 @@ final class WorkspaceManager {
     @discardableResult
     private func updateFocusSession(
         notify: Bool,
-        _ mutate: (inout SessionState.FocusSession) -> Bool
+        _ mutate: (inout WorkspaceSessionState.FocusSession) -> Bool
     ) -> Bool {
         let changed = mutate(&sessionState.focus)
         if changed, notify {
@@ -1594,7 +1613,7 @@ final class WorkspaceManager {
         _ token: WindowToken,
         in workspaceId: WorkspaceDescriptor.ID,
         appFullscreen: Bool,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         var changed = false
         let mode = windowMode(for: token) ?? .tiling
@@ -1620,7 +1639,7 @@ final class WorkspaceManager {
         _ token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         var changed = false
 
@@ -1641,7 +1660,7 @@ final class WorkspaceManager {
     }
 
     private func clearPendingManagedFocusRequest(
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         guard focus.pendingManagedFocus.token != nil
             || focus.pendingManagedFocus.workspaceId != nil
@@ -1656,7 +1675,7 @@ final class WorkspaceManager {
     private func clearPendingManagedFocusRequest(
         matching token: WindowToken?,
         workspaceId: WorkspaceDescriptor.ID?,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         let request = focus.pendingManagedFocus
         let matchesHandle = token.map { request.token == $0 } ?? true
@@ -1671,7 +1690,7 @@ final class WorkspaceManager {
         _ token: WindowToken,
         in workspaceId: WorkspaceDescriptor.ID,
         mode: TrackedWindowMode,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         switch mode {
         case .tiling:
@@ -1688,7 +1707,7 @@ final class WorkspaceManager {
     private func clearRememberedFocus(
         _ token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID?,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         var changed = false
 
@@ -1719,7 +1738,7 @@ final class WorkspaceManager {
     private func replaceRememberedFocus(
         from oldToken: WindowToken,
         to newToken: WindowToken,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         var changed = false
 
@@ -1756,7 +1775,7 @@ final class WorkspaceManager {
         workspaceId: WorkspaceDescriptor.ID,
         oldMode: TrackedWindowMode,
         newMode: TrackedWindowMode,
-        focus: inout SessionState.FocusSession
+        focus: inout WorkspaceSessionState.FocusSession
     ) -> Bool {
         guard oldMode != newMode else { return false }
 
@@ -1943,7 +1962,7 @@ final class WorkspaceManager {
             }
 
             if visibleChanged || previousChanged || !hasExisting {
-                nextMonitorSessions[state.monitorId] = SessionState.MonitorSession(
+                nextMonitorSessions[state.monitorId] = WorkspaceSessionState.MonitorSession(
                     visibleWorkspaceId: state.visibleWorkspaceId,
                     previousVisibleWorkspaceId: state.previousVisibleWorkspaceId
                 )
@@ -1985,14 +2004,14 @@ final class WorkspaceManager {
         notify: Bool,
         updateVisibleAnchors: Bool
     ) -> Bool {
-        let nextMonitorSessions: [Monitor.ID: SessionState.MonitorSession] = Dictionary(
+        let nextMonitorSessions: [Monitor.ID: WorkspaceSessionState.MonitorSession] = Dictionary(
             uniqueKeysWithValues: states.compactMap { state in
                 guard state.visibleWorkspaceId != nil || state.previousVisibleWorkspaceId != nil else {
                     return nil
                 }
                 return (
                     state.monitorId,
-                    SessionState.MonitorSession(
+                    WorkspaceSessionState.MonitorSession(
                         visibleWorkspaceId: state.visibleWorkspaceId,
                         previousVisibleWorkspaceId: state.previousVisibleWorkspaceId
                     )
@@ -2970,7 +2989,7 @@ final class WorkspaceManager {
     }
 
     func updateNiriViewportState(_ state: ViewportState, for workspaceId: WorkspaceDescriptor.ID) {
-        var workspaceSession = sessionState.workspaceSessions[workspaceId] ?? SessionState.WorkspaceSession()
+        var workspaceSession = sessionState.workspaceSessions[workspaceId] ?? WorkspaceSessionState.WorkspaceSession()
         workspaceSession.niriViewportState = state
         sessionState.workspaceSessions[workspaceId] = workspaceSession
     }
@@ -3224,7 +3243,7 @@ final class WorkspaceManager {
     }
 
     private func activeVisibleWorkspaceMap(
-        from monitorSessions: [Monitor.ID: SessionState.MonitorSession]
+        from monitorSessions: [Monitor.ID: WorkspaceSessionState.MonitorSession]
     ) -> [Monitor.ID: WorkspaceDescriptor.ID] {
         Dictionary(uniqueKeysWithValues: monitorSessions.compactMap { monitorId, session in
             guard let visibleWorkspaceId = session.visibleWorkspaceId else { return nil }
@@ -3234,9 +3253,9 @@ final class WorkspaceManager {
 
     private func updateMonitorSession(
         _ monitorId: Monitor.ID,
-        _ mutate: (inout SessionState.MonitorSession) -> Void
+        _ mutate: (inout WorkspaceSessionState.MonitorSession) -> Void
     ) {
-        var monitorSession = sessionState.monitorSessions[monitorId] ?? SessionState.MonitorSession()
+        var monitorSession = sessionState.monitorSessions[monitorId] ?? WorkspaceSessionState.MonitorSession()
         mutate(&monitorSession)
         if monitorSession.visibleWorkspaceId == nil, monitorSession.previousVisibleWorkspaceId == nil {
             sessionState.monitorSessions.removeValue(forKey: monitorId)
@@ -3425,8 +3444,10 @@ private extension WorkspaceManager {
             case invalidTarget
             case invalidPatch
 
-            init(rawValue: UInt32) {
-                switch rawValue {
+            init?(kernelRawValue: UInt32) {
+                switch kernelRawValue {
+                case UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_NOOP):
+                    self = .noop
                 case UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_APPLY):
                     self = .apply
                 case UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_INVALID_TARGET):
@@ -3434,7 +3455,7 @@ private extension WorkspaceManager {
                 case UInt32(OMNIWM_WORKSPACE_SESSION_OUTCOME_INVALID_PATCH):
                     self = .invalidPatch
                 default:
-                    self = .noop
+                    return nil
                 }
             }
         }
@@ -3444,14 +3465,16 @@ private extension WorkspaceManager {
             case apply
             case preserveCurrent
 
-            init(rawValue: UInt32) {
-                switch rawValue {
+            init?(kernelRawValue: UInt32) {
+                switch kernelRawValue {
+                case UInt32(OMNIWM_WORKSPACE_SESSION_PATCH_VIEWPORT_NONE):
+                    self = .none
                 case UInt32(OMNIWM_WORKSPACE_SESSION_PATCH_VIEWPORT_APPLY):
                     self = .apply
                 case UInt32(OMNIWM_WORKSPACE_SESSION_PATCH_VIEWPORT_PRESERVE_CURRENT):
                     self = .preserveCurrent
                 default:
-                    self = .none
+                    return nil
                 }
             }
         }
@@ -3461,14 +3484,16 @@ private extension WorkspaceManager {
             case pending
             case pendingAndConfirmed
 
-            init(rawValue: UInt32) {
-                switch rawValue {
+            init?(kernelRawValue: UInt32) {
+                switch kernelRawValue {
+                case UInt32(OMNIWM_WORKSPACE_SESSION_FOCUS_CLEAR_NONE):
+                    self = .none
                 case UInt32(OMNIWM_WORKSPACE_SESSION_FOCUS_CLEAR_PENDING):
                     self = .pending
                 case UInt32(OMNIWM_WORKSPACE_SESSION_FOCUS_CLEAR_PENDING_AND_CONFIRMED):
                     self = .pendingAndConfirmed
                 default:
-                    self = .none
+                    return nil
                 }
             }
         }
@@ -4003,9 +4028,18 @@ private extension WorkspaceManager {
         ) -> InvocationResult {
             InvocationResult(
                 plan: Plan(
-                    outcome: Outcome(rawValue: rawOutput.outcome),
-                    patchViewportAction: PatchViewportAction(rawValue: rawOutput.patch_viewport_action),
-                    focusClearAction: FocusClearAction(rawValue: rawOutput.focus_clear_action),
+                    outcome: KernelContract.require(
+                        Outcome(kernelRawValue: rawOutput.outcome),
+                        "Unknown workspace session outcome \(rawOutput.outcome)"
+                    ),
+                    patchViewportAction: KernelContract.require(
+                        PatchViewportAction(kernelRawValue: rawOutput.patch_viewport_action),
+                        "Unknown workspace session patch viewport action \(rawOutput.patch_viewport_action)"
+                    ),
+                    focusClearAction: KernelContract.require(
+                        FocusClearAction(kernelRawValue: rawOutput.focus_clear_action),
+                        "Unknown workspace session focus clear action \(rawOutput.focus_clear_action)"
+                    ),
                     interactionMonitorId: rawOutput.has_interaction_monitor_id == 0
                         ? nil
                         : Monitor.ID(displayId: rawOutput.interaction_monitor_id),

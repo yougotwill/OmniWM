@@ -3,6 +3,12 @@ import Observation
 
 @MainActor @Observable
 final class AppBootstrapState {
+    var runtime: WMRuntime? {
+        didSet {
+            settings = runtime?.settings
+            controller = runtime?.controller
+        }
+    }
     var settings: SettingsStore?
     var controller: WMController?
     var updateCoordinator: (any AppUpdateCoordinating)?
@@ -29,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cliManager: AppCLIManager?
     private var updateCoordinator: (any AppUpdateCoordinating)?
     private var runtimeStateStore: RuntimeStateStore?
+    private var runtime: WMRuntime?
 
     func applicationDidFinishLaunching(_: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -36,8 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
-        AppDelegate.sharedBootstrap?.controller?.workspaceManager.flushPersistedWindowRestoreCatalogNow()
-        AppDelegate.sharedBootstrap?.settings?.flushNow()
+        runtime?.flushState()
         runtimeStateStore?.flushNow()
         stopIPCServer()
     }
@@ -66,30 +72,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             persistence: persistence,
             runtimeState: runtimeState
         )
-        let hiddenBarController = HiddenBarController(settings: settings)
-        let controller = WMController(settings: settings, hiddenBarController: hiddenBarController)
-        controller.applyPersistedSettings(settings)
+        let runtime = WMRuntime(settings: settings)
+        runtime.start()
+        let controller = runtime.controller
         let cliManager = AppCLIManager()
         let updateCoordinator = Self.updateCoordinatorFactoryForTests?(settings, controller, runtimeState)
             ?? UpdateCoordinator(settings: settings, runtimeState: runtimeState)
         self.cliManager = cliManager
         self.updateCoordinator = updateCoordinator
+        self.runtime = runtime
 
-        AppDelegate.sharedBootstrap?.settings = settings
-        AppDelegate.sharedBootstrap?.controller = controller
+        AppDelegate.sharedBootstrap?.runtime = runtime
         AppDelegate.sharedBootstrap?.updateCoordinator = updateCoordinator
 
         statusBarController = StatusBarController(
             settings: settings,
             controller: controller,
-            hiddenBarController: hiddenBarController,
+            hiddenBarController: runtime.hiddenBarController,
             cliManager: cliManager,
             updateCoordinator: updateCoordinator
         )
         controller.statusBarController = statusBarController
-        settings.onExternalSettingsReloaded = { [weak self, weak controller, weak settings] in
-            guard let controller, let settings else { return }
-            controller.applyPersistedSettings(settings)
+        settings.onExternalSettingsReloaded = { [weak self, weak runtime] in
+            guard let runtime else { return }
+            runtime.applyCurrentConfiguration()
             self?.statusBarController?.refreshMenu()
         }
         settings.onIPCEnabledChanged = { [weak self, weak controller] isEnabled in

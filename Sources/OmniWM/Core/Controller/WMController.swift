@@ -8,19 +8,7 @@ struct WindowFocusOperations {
     let focusSpecificWindow: (pid_t, UInt32, AXUIElement) -> Void
     let raiseWindow: (AXUIElement) -> Void
 
-    static let live = WindowFocusOperations(
-        activateApp: { pid in
-            if let runningApp = NSRunningApplication(processIdentifier: pid) {
-                runningApp.activate(options: [])
-            }
-        },
-        focusSpecificWindow: { pid, windowId, element in
-            OmniWM.focusWindow(pid: pid, windowId: windowId, windowRef: element)
-        },
-        raiseWindow: { element in
-            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        }
-    )
+    static let live = WMPlatform.live.windowFocusOperations
 }
 
 enum NativeFullscreenRestoreSeedPath: String {
@@ -71,6 +59,7 @@ final class WMController {
 
     let settings: SettingsStore
     let workspaceManager: WorkspaceManager
+    let platform: WMPlatform
     private let hotkeys = HotkeyCenter()
     let secureInputMonitor = SecureInputMonitor()
     let lockScreenObserver = LockScreenObserver()
@@ -155,6 +144,10 @@ final class WMController {
     var workspaceBarRefreshExecutionHookForTests: (() -> Void)?
     @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
+    @ObservationIgnored
+    weak var runtime: WMRuntime?
+    @ObservationIgnored
+    private var isApplyingRuntimeConfiguration = false
 
     let animationClock = AnimationClock()
     let motionPolicy: MotionPolicy
@@ -163,17 +156,20 @@ final class WMController {
 
     init(
         settings: SettingsStore,
+        workspaceManager: WorkspaceManager? = nil,
         hiddenBarController: HiddenBarController? = nil,
-        windowFocusOperations: WindowFocusOperations = .live
+        platform: WMPlatform = .live,
+        windowFocusOperations: WindowFocusOperations? = nil
     ) {
         self.settings = settings
+        self.platform = platform
         motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
         self.hiddenBarController = hiddenBarController ?? HiddenBarController(settings: settings)
-        self.windowFocusOperations = windowFocusOperations
-        workspaceManager = WorkspaceManager(settings: settings)
+        self.windowFocusOperations = windowFocusOperations ?? platform.windowFocusOperations
+        self.workspaceManager = workspaceManager ?? WorkspaceManager(settings: settings)
         focusBridge = FocusBridgeCoordinator()
         focusPolicyEngine = FocusPolicyEngine()
-        workspaceManager.updateAnimationClock(animationClock)
+        self.workspaceManager.updateAnimationClock(animationClock)
         hotkeys.onCommand = { [weak self] command in
             self?.commandHandler.handleCommand(command)
         }
@@ -184,7 +180,7 @@ final class WMController {
                 visualIndex: visualIndex
             )
         }
-        workspaceManager.onSessionStateChanged = { [weak self] in
+        self.workspaceManager.onSessionStateChanged = { [weak self] in
             self?.handleSessionStateChanged()
         }
         axManager.onFrameConfirmed = { [weak self] pid, windowId, frame in
@@ -194,7 +190,7 @@ final class WMController {
             )
         }
         focusPolicyEngine.onLeaseChanged = { [weak self] lease in
-            self?.workspaceManager.recordReconcileEvent(
+            self?.submitRuntimeEvent(
                 .focusLeaseChanged(
                     lease: lease,
                     source: .focusPolicy
@@ -217,46 +213,63 @@ final class WMController {
     }
 
     func applyPersistedSettings(_ settings: SettingsStore) {
-        setAnimationsEnabled(settings.animationsEnabled, persist: false)
-        applyCurrentAppearanceMode()
+        if let runtime, runtime.settings === settings {
+            runtime.applyConfiguration(WMRuntimeConfiguration(settings: settings))
+            return
+        }
+        applyConfiguration(WMRuntimeConfiguration(settings: settings))
+    }
 
-        updateHotkeyBindings(settings.hotkeyBindings)
-        setHotkeysEnabled(settings.hotkeysEnabled)
+    private func routeConfigurationMutationThroughRuntime() -> Bool {
+        guard let runtime, !isApplyingRuntimeConfiguration else { return false }
+        runtime.applyCurrentConfiguration()
+        return true
+    }
 
-        setGapSize(settings.gapSize)
+    func applyConfiguration(_ configuration: WMRuntimeConfiguration) {
+        isApplyingRuntimeConfiguration = true
+        defer { isApplyingRuntimeConfiguration = false }
+
+        setAnimationsEnabled(configuration.animationsEnabled, persist: false)
+        applyAppearanceMode(configuration.appearanceMode)
+
+        updateHotkeyBindings(configuration.hotkeyBindings)
+        setHotkeysEnabled(configuration.hotkeysEnabled)
+
+        setGapSize(configuration.layout.gapSize)
         setOuterGaps(
-            left: settings.outerGapLeft,
-            right: settings.outerGapRight,
-            top: settings.outerGapTop,
-            bottom: settings.outerGapBottom
+            left: configuration.layout.outerGaps.left,
+            right: configuration.layout.outerGaps.right,
+            top: configuration.layout.outerGaps.top,
+            bottom: configuration.layout.outerGaps.bottom
         )
 
         if niriEngine == nil {
             enableNiriLayout(
-                maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
-                centerFocusedColumn: settings.niriCenterFocusedColumn,
-                alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn
+                maxWindowsPerColumn: configuration.layout.niri.maxWindowsPerColumn,
+                centerFocusedColumn: configuration.layout.niri.centerFocusedColumn,
+                alwaysCenterSingleColumn: configuration.layout.niri.alwaysCenterSingleColumn
             )
         }
         updateNiriConfig(
-            maxWindowsPerColumn: settings.niriMaxWindowsPerColumn,
-            maxVisibleColumns: settings.niriMaxVisibleColumns,
-            infiniteLoop: settings.niriInfiniteLoop,
-            centerFocusedColumn: settings.niriCenterFocusedColumn,
-            alwaysCenterSingleColumn: settings.niriAlwaysCenterSingleColumn,
-            singleWindowAspectRatio: settings.niriSingleWindowAspectRatio,
-            columnWidthPresets: settings.niriColumnWidthPresets,
-            defaultColumnWidth: settings.niriDefaultColumnWidth
+            maxWindowsPerColumn: configuration.layout.niri.maxWindowsPerColumn,
+            maxVisibleColumns: configuration.layout.niri.maxVisibleColumns,
+            infiniteLoop: configuration.layout.niri.infiniteLoop,
+            centerFocusedColumn: configuration.layout.niri.centerFocusedColumn,
+            alwaysCenterSingleColumn: configuration.layout.niri.alwaysCenterSingleColumn,
+            singleWindowAspectRatio: configuration.layout.niri.singleWindowAspectRatio,
+            columnWidthPresets: configuration.layout.niri.columnWidthPresets,
+            defaultColumnWidth: configuration.layout.niri.defaultColumnWidth
         )
 
         if dwindleEngine == nil {
             enableDwindleLayout()
         }
         updateDwindleConfig(
-            smartSplit: settings.dwindleSmartSplit,
-            defaultSplitRatio: settings.dwindleDefaultSplitRatio,
-            splitWidthMultiplier: settings.dwindleSplitWidthMultiplier,
-            singleWindowAspectRatio: settings.dwindleSingleWindowAspectRatio.size
+            smartSplit: configuration.layout.dwindle.smartSplit,
+            defaultSplitRatio: configuration.layout.dwindle.defaultSplitRatio,
+            splitWidthMultiplier: configuration.layout.dwindle.splitWidthMultiplier,
+            singleWindowAspectRatio: configuration.layout.dwindle.singleWindowAspectRatio
         )
 
         updateWorkspaceConfig()
@@ -265,23 +278,31 @@ final class WMController {
         updateMonitorDwindleSettings()
         updateAppRules()
 
-        setBordersEnabled(settings.bordersEnabled)
-        updateBorderConfig(BorderConfig.from(settings: settings))
+        setBordersEnabled(configuration.borderConfig.enabled)
+        updateBorderConfig(configuration.borderConfig)
 
-        setFocusFollowsMouse(settings.focusFollowsMouse)
-        setMoveMouseToFocusedWindow(settings.moveMouseToFocusedWindow)
+        setFocusFollowsMouse(configuration.focusFollowsMouse)
+        setMoveMouseToFocusedWindow(configuration.moveMouseToFocusedWindow)
 
-        setWorkspaceBarEnabled(settings.workspaceBarEnabled)
-        setPreventSleepEnabled(settings.preventSleepEnabled)
-        setQuakeTerminalEnabled(settings.quakeTerminalEnabled)
+        setWorkspaceBarEnabled(configuration.workspaceBarEnabled)
+        setPreventSleepEnabled(configuration.preventSleepEnabled)
+        setQuakeTerminalEnabled(configuration.quakeTerminalEnabled)
 
         setEnabled(true)
         refreshStatusBar()
     }
 
+    @discardableResult
+    func submitRuntimeEvent(_ event: WMEvent) -> ReconcileTxn {
+        runtime?.submit(event) ?? workspaceManager.recordReconcileEvent(event)
+    }
+
     func setAnimationsEnabled(_ enabled: Bool, persist: Bool = true) {
         if persist, settings.animationsEnabled != enabled {
             settings.animationsEnabled = enabled
+        }
+        if persist, routeConfigurationMutationThroughRuntime() {
+            return
         }
 
         guard motionPolicy.animationsEnabled != enabled else {
@@ -294,7 +315,14 @@ final class WMController {
     }
 
     func applyCurrentAppearanceMode() {
-        settings.appearanceMode.apply()
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
+        applyAppearanceMode(settings.appearanceMode)
+    }
+
+    func applyAppearanceMode(_ appearanceMode: AppearanceMode) {
+        appearanceMode.apply()
         workspaceBarManager.updateSettings()
         statusBarController?.rebuildMenu()
     }
@@ -331,14 +359,23 @@ final class WMController {
     }
 
     func setGapSize(_ size: Double) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         workspaceManager.setGaps(to: size)
     }
 
     func setOuterGaps(left: Double, right: Double, top: Double, bottom: Double) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         workspaceManager.setOuterGaps(left: left, right: right, top: top, bottom: bottom)
     }
 
     func setBordersEnabled(_ enabled: Bool) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         if !enabled {
             _ = borderCoordinator.hideBorder(
                 source: .cleanup,
@@ -349,6 +386,9 @@ final class WMController {
     }
 
     func updateBorderConfig(_ config: BorderConfig) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         if !config.enabled {
             _ = borderCoordinator.hideBorder(
                 source: .cleanup,
@@ -362,6 +402,9 @@ final class WMController {
         if settings.workspaceBarEnabled != enabled {
             settings.workspaceBarEnabled = enabled
         }
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         pruneHiddenWorkspaceBarMonitorIds()
         cancelPendingWorkspaceBarRefresh()
         workspaceBarManager.setup(controller: self, settings: settings)
@@ -374,6 +417,9 @@ final class WMController {
     }
 
     func setPreventSleepEnabled(_ enabled: Bool) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         if enabled {
             SleepPreventionManager.shared.preventSleep()
         } else {
@@ -406,6 +452,9 @@ final class WMController {
     }
 
     func setQuakeTerminalEnabled(_ enabled: Bool) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         if enabled {
             quakeTerminalController.setup()
         } else {
@@ -419,6 +468,9 @@ final class WMController {
     }
 
     func reloadQuakeTerminalOpacity() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         quakeTerminalController.reloadOpacityConfig()
     }
 
@@ -484,6 +536,9 @@ final class WMController {
     }
 
     func updateWorkspaceBarSettings() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         pruneHiddenWorkspaceBarMonitorIds()
         cancelPendingWorkspaceBarRefresh()
         workspaceBarManager.updateSettings()
@@ -491,12 +546,18 @@ final class WMController {
     }
 
     func updateWorkspaceBarAppearance() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         pruneHiddenWorkspaceBarMonitorIds()
         cancelPendingWorkspaceBarRefresh()
         workspaceBarManager.update()
     }
 
     func updateMonitorOrientations() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         let monitors = workspaceManager.monitors
         for monitor in monitors {
             let orientation = settings.effectiveOrientation(for: monitor)
@@ -506,12 +567,18 @@ final class WMController {
     }
 
     func updateMonitorNiriSettings() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         guard niriEngine != nil else { return }
         niriLayoutHandler.refreshResolvedMonitorSettings()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
     func updateMonitorDwindleSettings() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         guard dwindleEngine != nil else { return }
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
@@ -540,10 +607,16 @@ final class WMController {
     }
 
     func setFocusFollowsMouse(_ enabled: Bool) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         focusFollowsMouseEnabled = enabled
     }
 
     func setMoveMouseToFocusedWindow(_ enabled: Bool) {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         moveMouseToFocusedWindowEnabled = enabled
     }
 
@@ -611,6 +684,9 @@ final class WMController {
     }
 
     func updateWorkspaceConfig() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         workspaceManager.applySettings()
         syncMonitorsToNiriEngine()
         layoutRefreshController.requestFullRescan(reason: .workspaceConfigChanged)
@@ -621,6 +697,9 @@ final class WMController {
     }
 
     func updateAppRules() {
+        if routeConfigurationMutationThroughRuntime() {
+            return
+        }
         rebuildAppRulesCache()
         layoutRefreshController.requestFullRescan(reason: .appRulesChanged)
     }
@@ -2072,7 +2151,10 @@ extension WMController {
     func orchestrationSnapshot(
         refresh: RefreshOrchestrationSnapshot
     ) -> OrchestrationSnapshot {
-        OrchestrationSnapshot(
+        if let runtime {
+            return runtime.orchestrationSnapshot
+        }
+        return OrchestrationSnapshot(
             refresh: refresh,
             focus: .init(
                 nextManagedRequestId: focusBridge.nextManagedRequestId,
@@ -2145,6 +2227,14 @@ extension WMController {
             guard !isFrontmostAppLockScreen() else { return }
         }
         guard !isManagedWindowSuspendedForNativeFullscreen(token) else { return }
+        if let runtime {
+            _ = runtime.requestManagedFocus(
+                token: token,
+                workspaceId: entry.workspaceId
+            )
+            return
+        }
+
         let result = OrchestrationCore.step(
             snapshot: orchestrationSnapshot(
                 refresh: .init(
@@ -2159,7 +2249,10 @@ extension WMController {
                 )
             )
         )
+        applyRuntimeFocusRequestResult(result)
+    }
 
+    func applyRuntimeFocusRequestResult(_ result: OrchestrationResult) {
         focusBridge.applyOrchestrationState(
             nextManagedRequestId: result.snapshot.focus.nextManagedRequestId,
             activeManagedRequest: result.snapshot.focus.activeManagedRequest

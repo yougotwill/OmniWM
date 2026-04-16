@@ -58,6 +58,7 @@ final class WindowActionHandler {
     private let axWindowRefProvider: (UInt32, pid_t) -> AXWindowRef?
     private let visibleOwnedWindowsProvider: () -> [NSWindow]
     private let frontOwnedWindow: (NSWindow) -> Void
+    private let closeWindow: (AXUIElement) -> Void
 
     @ObservationIgnored
     private lazy var overviewController: OverviewController = {
@@ -74,29 +75,21 @@ final class WindowActionHandler {
 
     init(
         controller: WMController,
-        orderWindow: @escaping (UInt32) -> Void = {
-            SkyLight.shared.orderWindow($0, relativeTo: 0, order: .above)
-        },
-        visibleWindowInfoProvider: @escaping () -> [WindowServerInfo] = {
-            SkyLight.shared.queryAllVisibleWindows()
-        },
-        axWindowRefProvider: @escaping (UInt32, pid_t) -> AXWindowRef? = { windowId, pid in
-            AXWindowService.axWindowRef(for: windowId, pid: pid)
-        },
-        visibleOwnedWindowsProvider: @escaping () -> [NSWindow] = {
-            OwnedWindowRegistry.shared.visibleWindows(kind: .utility)
-        },
-        frontOwnedWindow: @escaping (NSWindow) -> Void = { window in
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-        }
+        platform: WMPlatform = .live,
+        orderWindow: ((UInt32) -> Void)? = nil,
+        visibleWindowInfoProvider: (() -> [WindowServerInfo])? = nil,
+        axWindowRefProvider: ((UInt32, pid_t) -> AXWindowRef?)? = nil,
+        visibleOwnedWindowsProvider: (() -> [NSWindow])? = nil,
+        frontOwnedWindow: ((NSWindow) -> Void)? = nil,
+        closeWindow: ((AXUIElement) -> Void)? = nil
     ) {
         self.controller = controller
-        self.orderWindow = orderWindow
-        self.visibleWindowInfoProvider = visibleWindowInfoProvider
-        self.axWindowRefProvider = axWindowRefProvider
-        self.visibleOwnedWindowsProvider = visibleOwnedWindowsProvider
-        self.frontOwnedWindow = frontOwnedWindow
+        self.orderWindow = orderWindow ?? platform.orderWindowAbove
+        self.visibleWindowInfoProvider = visibleWindowInfoProvider ?? platform.visibleWindowInfo
+        self.axWindowRefProvider = axWindowRefProvider ?? platform.axWindowRef
+        self.visibleOwnedWindowsProvider = visibleOwnedWindowsProvider ?? platform.visibleOwnedWindows
+        self.frontOwnedWindow = frontOwnedWindow ?? platform.frontOwnedWindow
+        self.closeWindow = closeWindow ?? platform.closeWindow
     }
 
     func openMenuAnywhere() {
@@ -127,16 +120,8 @@ final class WindowActionHandler {
         guard let entry = controller.workspaceManager.entry(for: handle) else { return }
 
         let element = entry.axRef.element
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-
-        var closeButton: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
-           let closeButton,
-           CFGetTypeID(closeButton) == AXUIElementGetTypeID()
-        {
-            let closeElement = unsafeDowncast(closeButton, to: AXUIElement.self)
-            AXUIElementPerformAction(closeElement, kAXPressAction as CFString)
-        }
+        controller.platform.raiseWindow(element)
+        closeWindow(element)
     }
 
     func raiseAllFloatingWindows() {

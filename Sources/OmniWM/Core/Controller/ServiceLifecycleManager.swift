@@ -234,7 +234,7 @@ final class ServiceLifecycleManager {
             source: .activeSpaceChanged,
             reason: "active space changed"
         )
-        controller.workspaceManager.recordReconcileEvent(.activeSpaceChanged(source: .service))
+        controller.submitRuntimeEvent(.activeSpaceChanged(source: .service))
         controller.layoutRefreshController.requestFullRescan(reason: .activeSpaceChanged)
     }
 
@@ -308,7 +308,7 @@ final class ServiceLifecycleManager {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                _ = self?.controller?.workspaceManager.recordReconcileEvent(.systemSleep(source: .service))
+                _ = self?.controller?.submitRuntimeEvent(.systemSleep(source: .service))
             }
         }
 
@@ -319,7 +319,7 @@ final class ServiceLifecycleManager {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let controller = self?.controller else { return }
-                _ = controller.workspaceManager.recordReconcileEvent(.systemWake(source: .service))
+                _ = controller.submitRuntimeEvent(.systemWake(source: .service))
                 controller.layoutRefreshController.requestFullRescan(reason: .unlock)
             }
         }

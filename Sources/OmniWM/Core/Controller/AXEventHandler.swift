@@ -825,25 +825,20 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         if pid == getpid(), controller.hasFrontmostOwnedWindow || controller.hasVisibleOwnedWindow {
-            if let result = activationOrchestrationResult(
+            applyActivationObservation(
                 source: source,
                 origin: origin,
-                match: .ownedApplication(pid: pid)
-            ) {
-                applyActivationOrchestrationResult(
-                    result,
-                    observedAXRef: nil,
-                    managedEntry: nil,
-                    source: source
-                )
-            }
+                match: .ownedApplication(pid: pid),
+                observedAXRef: nil,
+                managedEntry: nil
+            )
             return
         }
 
         let axRef = resolveFocusedAXWindowRef(pid: pid)
 
         guard let axRef else {
-            if let result = activationOrchestrationResult(
+            applyActivationObservation(
                 source: source,
                 origin: origin,
                 match: .missingFocusedWindow(
@@ -851,15 +846,10 @@ final class AXEventHandler: CGSEventDelegate {
                     fallbackFullscreen: appFullscreenForFallbackLifecyclePreservation(
                         observedAppFullscreen: false
                     )
-                )
-            ) {
-                applyActivationOrchestrationResult(
-                    result,
-                    observedAXRef: nil,
-                    managedEntry: nil,
-                    source: source
-                )
-            }
+                ),
+                observedAXRef: nil,
+                managedEntry: nil
+            )
             return
         }
         let token = WindowToken(pid: pid, windowId: axRef.windowId)
@@ -878,7 +868,7 @@ final class AXEventHandler: CGSEventDelegate {
             let isWorkspaceActive = targetMonitor.map { monitor in
                 controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
             } ?? false
-            if let result = activationOrchestrationResult(
+            applyActivationObservation(
                 source: source,
                 origin: origin,
                 match: .managed(
@@ -889,15 +879,10 @@ final class AXEventHandler: CGSEventDelegate {
                     appFullscreen: appFullscreen,
                     requiresNativeFullscreenRestoreRelayout: controller.workspaceManager
                         .nativeFullscreenRestoreContext(for: entry.token) != nil
-                )
-            ) {
-                applyActivationOrchestrationResult(
-                    result,
-                    observedAXRef: axRef,
-                    managedEntry: entry,
-                    source: source
-                )
-            }
+                ),
+                observedAXRef: axRef,
+                managedEntry: entry
+            )
             return
         }
 
@@ -915,7 +900,7 @@ final class AXEventHandler: CGSEventDelegate {
             let isWorkspaceActive = targetMonitor.map { monitor in
                 controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
             } ?? false
-            if let result = activationOrchestrationResult(
+            applyActivationObservation(
                 source: source,
                 origin: origin,
                 match: .managed(
@@ -926,18 +911,13 @@ final class AXEventHandler: CGSEventDelegate {
                     appFullscreen: appFullscreen,
                     requiresNativeFullscreenRestoreRelayout: controller.workspaceManager
                         .nativeFullscreenRestoreContext(for: restoredEntry.token) != nil
-                )
-            ) {
-                applyActivationOrchestrationResult(
-                    result,
-                    observedAXRef: axRef,
-                    managedEntry: restoredEntry,
-                    source: source
-                )
-            }
+                ),
+                observedAXRef: axRef,
+                managedEntry: restoredEntry
+            )
             return
         }
-        if let result = activationOrchestrationResult(
+        applyActivationObservation(
             source: source,
             origin: origin,
             match: .unmanaged(
@@ -947,15 +927,10 @@ final class AXEventHandler: CGSEventDelegate {
                 fallbackFullscreen: appFullscreenForFallbackLifecyclePreservation(
                     observedAppFullscreen: appFullscreen
                 )
-            )
-        ) {
-            applyActivationOrchestrationResult(
-                result,
-                observedAXRef: axRef,
-                managedEntry: nil,
-                source: source
-            )
-        }
+            ),
+            observedAXRef: axRef,
+            managedEntry: nil
+        )
     }
 
     private func activationOrchestrationResult(
@@ -981,6 +956,45 @@ final class AXEventHandler: CGSEventDelegate {
         )
     }
 
+    private func applyActivationObservation(
+        source: ActivationEventSource,
+        origin: ActivationCallOrigin,
+        match: ManagedActivationMatch,
+        observedAXRef: AXWindowRef?,
+        managedEntry: WindowModel.Entry?,
+        confirmRequest: Bool = true
+    ) {
+        guard let controller else { return }
+        if let runtime = controller.runtime {
+            _ = runtime.observeActivation(
+                .init(
+                    source: source,
+                    origin: origin,
+                    match: match
+                ),
+                observedAXRef: observedAXRef,
+                managedEntry: managedEntry,
+                confirmRequest: confirmRequest
+            )
+            return
+        }
+
+        guard let result = activationOrchestrationResult(
+            source: source,
+            origin: origin,
+            match: match
+        ) else {
+            return
+        }
+        applyActivationOrchestrationResult(
+            result,
+            observedAXRef: observedAXRef,
+            managedEntry: managedEntry,
+            source: source,
+            confirmRequest: confirmRequest
+        )
+    }
+
     func handleManagedAppActivation(
         entry: WindowModel.Entry,
         isWorkspaceActive: Bool,
@@ -997,7 +1011,7 @@ final class AXEventHandler: CGSEventDelegate {
         _ = restoreManagedWindowFromNativeFullscreen(entry)
         let requiresNativeFullscreenRestoreRelayout =
             controller.workspaceManager.nativeFullscreenRestoreContext(for: entry.token) != nil
-        guard let result = activationOrchestrationResult(
+        applyActivationObservation(
             source: source,
             origin: .external,
             match: .managed(
@@ -1007,15 +1021,9 @@ final class AXEventHandler: CGSEventDelegate {
                 isWorkspaceActive: isWorkspaceActive,
                 appFullscreen: appFullscreen,
                 requiresNativeFullscreenRestoreRelayout: requiresNativeFullscreenRestoreRelayout
-            )
-        ) else {
-            return
-        }
-        applyActivationOrchestrationResult(
-            result,
+            ),
             observedAXRef: entry.axRef,
             managedEntry: entry,
-            source: source,
             confirmRequest: confirmRequest ?? true
         )
     }
@@ -2204,7 +2212,7 @@ final class AXEventHandler: CGSEventDelegate {
         createdWindowRetryCountById.removeAll()
     }
 
-    private func applyActivationOrchestrationResult(
+    func applyActivationOrchestrationResult(
         _ result: OrchestrationResult,
         observedAXRef: AXWindowRef?,
         managedEntry: WindowModel.Entry?,

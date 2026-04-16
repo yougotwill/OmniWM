@@ -138,10 +138,6 @@ struct PersistedHotkeyBinding: Codable, Equatable {
 
 enum HotkeyBindingRegistry {
     private static let commandPaletteID = "openCommandPalette"
-    private static let legacyCommandPaletteIDs = (
-        windowFinder: "openWindowFinder",
-        menuPalette: "openMenuPalette"
-    )
     private static let defaultBindings = DefaultHotkeyBindings.all()
     private static let bindingsByID = Dictionary(
         defaultBindings.map { ($0.id, $0) },
@@ -164,32 +160,12 @@ enum HotkeyBindingRegistry {
     static func canonicalize(_ persisted: [PersistedHotkeyBinding]) -> [HotkeyBinding] {
         var overrides: [String: KeyBinding] = [:]
         var explicitOverrideIDs: Set<String> = []
-        var commandPaletteOverridePresent = false
-        var legacyWindowFinderBinding: KeyBinding?
-        var legacyMenuPaletteBinding: KeyBinding?
 
         for entry in persisted {
             let normalizedBinding = canonicalizeBinding(entry.binding)
-
-            switch entry.id {
-            case commandPaletteID:
-                commandPaletteOverridePresent = true
-                explicitOverrideIDs.insert(commandPaletteID)
-                overrides[commandPaletteID] = normalizedBinding
-            case legacyCommandPaletteIDs.windowFinder:
-                legacyWindowFinderBinding = normalizedBinding.isUnassigned ? nil : normalizedBinding
-            case legacyCommandPaletteIDs.menuPalette:
-                legacyMenuPaletteBinding = normalizedBinding.isUnassigned ? nil : normalizedBinding
-            default:
-                guard bindingsByID[entry.id] != nil else { continue }
-                explicitOverrideIDs.insert(entry.id)
-                overrides[entry.id] = normalizedBinding
-            }
-        }
-
-        if !commandPaletteOverridePresent, let legacyBinding = legacyWindowFinderBinding ?? legacyMenuPaletteBinding {
-            explicitOverrideIDs.insert(commandPaletteID)
-            overrides[commandPaletteID] = legacyBinding
+            guard bindingsByID[entry.id] != nil else { continue }
+            explicitOverrideIDs.insert(entry.id)
+            overrides[entry.id] = normalizedBinding
         }
 
         return defaultBindings.map { binding in

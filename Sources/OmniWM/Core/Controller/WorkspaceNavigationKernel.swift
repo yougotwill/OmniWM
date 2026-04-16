@@ -44,12 +44,13 @@ enum WorkspaceNavigationKernel {
         case invalidTarget
         case blocked
 
-        init(rawValue: UInt32) {
-            switch rawValue {
+        init?(kernelRawValue: UInt32) {
+            switch kernelRawValue {
+            case UInt32(OMNIWM_WORKSPACE_NAV_OUTCOME_NOOP): self = .noop
             case UInt32(OMNIWM_WORKSPACE_NAV_OUTCOME_EXECUTE): self = .execute
             case UInt32(OMNIWM_WORKSPACE_NAV_OUTCOME_INVALID_TARGET): self = .invalidTarget
             case UInt32(OMNIWM_WORKSPACE_NAV_OUTCOME_BLOCKED): self = .blocked
-            default: self = .noop
+            default: return nil
             }
         }
     }
@@ -62,14 +63,15 @@ enum WorkspaceNavigationKernel {
         case recoverSource
         case clearManagedFocus
 
-        init(rawValue: UInt32) {
-            switch rawValue {
+        init?(kernelRawValue: UInt32) {
+            switch kernelRawValue {
+            case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_NONE): self = .none
             case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_WORKSPACE_HANDOFF): self = .workspaceHandoff
             case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_RESOLVE_TARGET_IF_PRESENT): self = .resolveTargetIfPresent
             case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_SUBJECT): self = .subject
             case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_RECOVER_SOURCE): self = .recoverSource
             case UInt32(OMNIWM_WORKSPACE_NAV_FOCUS_CLEAR_MANAGED_FOCUS): self = .clearManagedFocus
-            default: self = .none
+            default: return nil
             }
         }
     }
@@ -365,18 +367,18 @@ enum WorkspaceNavigationKernel {
         affectedWorkspaceIds: [omniwm_uuid],
         affectedMonitorIds: [UInt32]
     ) -> Plan {
-        let subject: Subject = if rawOutput.has_subject_token == 0 {
-            .none
-        } else if rawOutput.subject_kind == UInt32(OMNIWM_WORKSPACE_NAV_SUBJECT_COLUMN) {
-            .column(decode(token: rawOutput.subject_token))
-        } else {
-            .window(decode(token: rawOutput.subject_token))
-        }
+        let subject = decodeSubject(from: rawOutput)
 
         return Plan(
-            outcome: Outcome(rawValue: rawOutput.outcome),
+            outcome: KernelContract.require(
+                Outcome(kernelRawValue: rawOutput.outcome),
+                "Unknown workspace navigation outcome \(rawOutput.outcome)"
+            ),
             subject: subject,
-            focusAction: FocusAction(rawValue: rawOutput.focus_action),
+            focusAction: KernelContract.require(
+                FocusAction(kernelRawValue: rawOutput.focus_action),
+                "Unknown workspace navigation focus action \(rawOutput.focus_action)"
+            ),
             resolvedFocusToken: rawOutput.has_resolved_focus_token == 0 ? nil : decode(token: rawOutput.resolved_focus_token),
             sourceWorkspaceId: rawOutput.has_source_workspace_id == 0 ? nil : decode(uuid: rawOutput.source_workspace_id),
             targetWorkspaceId: rawOutput.has_target_workspace_id == 0 ? nil : decode(uuid: rawOutput.target_workspace_id),
@@ -394,6 +396,26 @@ enum WorkspaceNavigationKernel {
             shouldHideFocusBorder: rawOutput.should_hide_focus_border != 0,
             shouldCommitWorkspaceTransition: rawOutput.should_commit_workspace_transition != 0
         )
+    }
+
+    private static func decodeSubject(from rawOutput: omniwm_workspace_navigation_output) -> Subject {
+        guard rawOutput.has_subject_token != 0 else {
+            return .none
+        }
+
+        switch rawOutput.subject_kind {
+        case UInt32(OMNIWM_WORKSPACE_NAV_SUBJECT_NONE):
+            return .none
+        case UInt32(OMNIWM_WORKSPACE_NAV_SUBJECT_WINDOW):
+            return .window(decode(token: rawOutput.subject_token))
+        case UInt32(OMNIWM_WORKSPACE_NAV_SUBJECT_COLUMN):
+            return .column(decode(token: rawOutput.subject_token))
+        default:
+            return KernelContract.require(
+                nil as Subject?,
+                "Unknown workspace navigation subject kind \(rawOutput.subject_kind)"
+            )
+        }
     }
 
     private static func focusSessionSnapshot(

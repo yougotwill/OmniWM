@@ -3,7 +3,7 @@ import Foundation
 import QuartzCore
 
 @MainActor final class LayoutRefreshController: NSObject {
-    typealias PostLayoutAction = @MainActor () -> Void
+    typealias PostLayoutAction = RefreshScheduler.PostLayoutAction
 
     enum RefreshRoute: Equatable {
         case relayout
@@ -128,9 +128,7 @@ import QuartzCore
     private var activeFrameContext: RefreshFrameContext?
     private var pendingRevealTransactionsByWindowId: [Int: PendingRevealTransaction] = [:]
     private var pendingRevealVerificationTasksByWindowId: [Int: Task<Void, Never>] = [:]
-    private var nextRefreshCycleId: RefreshCycleId = 1
-    private var nextPostLayoutAttachmentId: RefreshAttachmentId = 1
-    private var postLayoutActionsByAttachmentId: [RefreshAttachmentId: PostLayoutAction] = [:]
+    private let refreshScheduler = RefreshScheduler()
 
     func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
         activeFrameContext?.fastFrame(for: token, axRef: axRef)
@@ -720,8 +718,7 @@ import QuartzCore
         postLayoutAttachmentIds: [RefreshAttachmentId] = [],
         windowRemovalPayload: WindowRemovalPayload? = nil
     ) -> ScheduledRefresh {
-        ScheduledRefresh(
-            cycleId: allocateRefreshCycleId(),
+        refreshScheduler.makeScheduledRefresh(
             kind: kind,
             reason: reason,
             affectedWorkspaceIds: affectedWorkspaceIds,
@@ -730,47 +727,28 @@ import QuartzCore
         )
     }
 
-    private func allocateRefreshCycleId() -> RefreshCycleId {
-        let cycleId = nextRefreshCycleId
-        nextRefreshCycleId &+= 1
-        return cycleId
-    }
-
     private func registerPostLayoutAttachments(
         _ postLayout: PostLayoutAction?
     ) -> [RefreshAttachmentId] {
-        guard let postLayout else {
-            return []
-        }
-        let id = nextPostLayoutAttachmentId
-        nextPostLayoutAttachmentId &+= 1
-        postLayoutActionsByAttachmentId[id] = postLayout
-        return [id]
+        refreshScheduler.registerPostLayoutAttachments(postLayout)
     }
 
     private func resolvePostLayoutActions(
         attachmentIds: [RefreshAttachmentId]
     ) -> [PostLayoutAction] {
-        attachmentIds.compactMap { postLayoutActionsByAttachmentId[$0] }
+        refreshScheduler.resolvePostLayoutActions(attachmentIds: attachmentIds)
     }
 
     private func runPostLayoutActions(
         attachmentIds: [RefreshAttachmentId]
     ) {
-        for attachmentId in attachmentIds {
-            guard let action = postLayoutActionsByAttachmentId.removeValue(forKey: attachmentId) else {
-                continue
-            }
-            action()
-        }
+        refreshScheduler.runPostLayoutActions(attachmentIds: attachmentIds)
     }
 
     private func discardPostLayoutActions(
         attachmentIds: [RefreshAttachmentId]
     ) {
-        for attachmentId in attachmentIds {
-            postLayoutActionsByAttachmentId.removeValue(forKey: attachmentId)
-        }
+        refreshScheduler.discardPostLayoutActions(attachmentIds: attachmentIds)
     }
 
     private func scheduleRefreshSession(
@@ -923,6 +901,21 @@ import QuartzCore
         }
     }
 
+    private func refreshPlanningSnapshot() -> RefreshOrchestrationSnapshot {
+        if let runtime = controller?.runtime {
+            return runtime.refreshSnapshot
+        }
+        return .init(
+            activeRefresh: layoutState.activeRefresh,
+            pendingRefresh: layoutState.pendingRefresh
+        )
+    }
+
+    private func storeRefreshPlanningSnapshot(_ snapshot: RefreshOrchestrationSnapshot) {
+        layoutState.activeRefresh = snapshot.activeRefresh
+        layoutState.pendingRefresh = snapshot.pendingRefresh
+    }
+
     private func settleAllAnimations() {
         let settleTime = CACurrentMediaTime() + 10.0
 
@@ -950,17 +943,19 @@ import QuartzCore
 
     func resetState() {
         layoutState.activeRefreshTask?.cancel()
-        if let activeRefresh = layoutState.activeRefresh {
+        let refreshSnapshot = refreshPlanningSnapshot()
+        if let activeRefresh = refreshSnapshot.activeRefresh {
             discardPostLayoutActions(attachmentIds: activeRefresh.postLayoutAttachmentIds)
         }
-        if let pendingRefresh = layoutState.pendingRefresh {
+        if let pendingRefresh = refreshSnapshot.pendingRefresh {
             discardPostLayoutActions(attachmentIds: pendingRefresh.postLayoutAttachmentIds)
         }
         layoutState.activeRefreshTask = nil
         layoutState.activeRefresh = nil
         layoutState.pendingRefresh = nil
         layoutState.didExecuteRefreshExecutionPlan = false
-        postLayoutActionsByAttachmentId.removeAll()
+        refreshScheduler.clearPostLayoutActions()
+        controller?.runtime?.resetRefreshOrchestration()
 
         for (_, link) in layoutState.displayLinksByDisplay {
             link.invalidate()
@@ -1466,9 +1461,23 @@ import QuartzCore
         shouldDropWhileBusy: Bool = false
     ) {
         recordRefreshRequest(refresh.reason)
-        let result = OrchestrationCore.step(
-            snapshot: orchestrationSnapshot(),
-            event: .refreshRequested(
+        if let runtime = controller?.runtime {
+            _ = runtime.requestRefresh(
+                .init(
+                    refresh: refresh,
+                    shouldDropWhileBusy: shouldDropWhileBusy,
+                    isIncrementalRefreshInProgress: layoutState.isIncrementalRefreshInProgress,
+                    isImmediateLayoutInProgress: layoutState.isImmediateLayoutInProgress,
+                    hasActiveAnimationRefreshes: !niriHandler.scrollAnimationByDisplay.isEmpty
+                        || !dwindleHandler.dwindleAnimationByDisplay.isEmpty
+                )
+            )
+            return
+        }
+
+        let result = RefreshPlanner.step(
+            snapshot: refreshPlanningSnapshot(),
+            event: .requested(
                 .init(
                     refresh: refresh,
                     shouldDropWhileBusy: shouldDropWhileBusy,
@@ -1479,44 +1488,36 @@ import QuartzCore
                 )
             )
         )
-        applyRefreshOrchestrationResult(result)
+        applyRefreshPlanningResult(result)
     }
 
-    private func orchestrationSnapshot() -> OrchestrationSnapshot {
-        guard let controller else {
-            return OrchestrationSnapshot(
-                refresh: .init(
-                    activeRefresh: layoutState.activeRefresh,
-                    pendingRefresh: layoutState.pendingRefresh
-                ),
-                focus: .init(
-                    nextManagedRequestId: 1,
-                    activeManagedRequest: nil,
-                    pendingFocusedToken: nil,
-                    pendingFocusedWorkspaceId: nil,
-                    isNonManagedFocusActive: false,
-                    isAppFullscreenActive: false
-                )
-            )
-        }
-
-        return controller.orchestrationSnapshot(
-            refresh: .init(
-                activeRefresh: layoutState.activeRefresh,
-                pendingRefresh: layoutState.pendingRefresh
-            )
+    private func applyRefreshPlanningResult(_ result: RefreshPlannerResult) {
+        applyResolvedRefreshPlan(
+            snapshot: result.snapshot,
+            actions: result.plan.actions
         )
     }
 
-    private func applyRefreshOrchestrationResult(_ result: OrchestrationResult) {
-        layoutState.activeRefresh = result.snapshot.refresh.activeRefresh
-        layoutState.pendingRefresh = result.snapshot.refresh.pendingRefresh
+    func applyRuntimeRefreshResult(_ result: OrchestrationResult) {
+        applyResolvedRefreshPlan(
+            snapshot: result.snapshot.refresh,
+            actions: result.plan.actions
+        )
+    }
+
+    private func applyResolvedRefreshPlan(
+        snapshot: RefreshOrchestrationSnapshot,
+        actions: [OrchestrationPlan.Action]
+    ) {
+        if controller?.runtime == nil {
+            storeRefreshPlanningSnapshot(snapshot)
+        }
         synchronizeRefreshCycleCounter()
 
-        for action in result.plan.actions {
+        for action in actions {
             switch action {
             case let .cancelActiveRefresh(cycleId):
-                guard layoutState.activeRefresh?.cycleId == cycleId else { continue }
+                guard refreshPlanningSnapshot().activeRefresh?.cycleId == cycleId else { continue }
                 layoutState.activeRefreshTask?.cancel()
             case let .startRefresh(refresh):
                 startRefreshTask(refresh)
@@ -1538,21 +1539,17 @@ import QuartzCore
                  .enterNonManagedFallback,
                  .enterOwnedApplicationFallback,
                  .frontManagedWindow:
-                continue
+                preconditionFailure("RefreshPlanner emitted non-refresh action \(action)")
             }
         }
     }
 
     private func synchronizeRefreshCycleCounter() {
-        let highestObservedCycleId = [
-            layoutState.activeRefresh?.cycleId,
-            layoutState.pendingRefresh?.cycleId
-        ]
-        .compactMap(\.self)
-        .max()
-
-        guard let highestObservedCycleId else { return }
-        nextRefreshCycleId = max(nextRefreshCycleId, highestObservedCycleId &+ 1)
+        let snapshot = refreshPlanningSnapshot()
+        refreshScheduler.synchronizeCycleCounter(
+            activeRefresh: snapshot.activeRefresh,
+            pendingRefresh: snapshot.pendingRefresh
+        )
     }
 
     private func startRefreshTask(_ refresh: ScheduledRefresh) {
@@ -1593,9 +1590,20 @@ import QuartzCore
         let didExecuteRefreshExecutionPlan = layoutState.didExecuteRefreshExecutionPlan
         layoutState.activeRefreshTask = nil
         layoutState.didExecuteRefreshExecutionPlan = false
-        let result = OrchestrationCore.step(
-            snapshot: orchestrationSnapshot(),
-            event: .refreshCompleted(
+        if let runtime = controller?.runtime {
+            _ = runtime.completeRefresh(
+                .init(
+                    refresh: refresh,
+                    didComplete: didComplete,
+                    didExecutePlan: didExecuteRefreshExecutionPlan
+                )
+            )
+            return
+        }
+
+        let result = RefreshPlanner.step(
+            snapshot: refreshPlanningSnapshot(),
+            event: .completed(
                 .init(
                     refresh: refresh,
                     didComplete: didComplete,
@@ -1603,7 +1611,7 @@ import QuartzCore
                 )
             )
         )
-        applyRefreshOrchestrationResult(result)
+        applyRefreshPlanningResult(result)
     }
 
     private func recordRefreshExecution(_ route: RefreshRoute, reason: RefreshReason) {

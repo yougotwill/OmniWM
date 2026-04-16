@@ -539,7 +539,7 @@ private func prepareIPCQueryRouterNiriState(
         #expect(ruleActions.ruleActions.contains { $0.name == .apply && !$0.options.isEmpty })
     }
 
-    @Test func rulesQueryReturnsPersistedRulesInOrderAndNormalizesLegacyFields() throws {
+    @Test func rulesQueryReturnsPersistedRulesInOrderAndNormalizesRuleFields() throws {
         let controller = makeLayoutPlanTestController()
         let invalidRuleId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let tiledRuleId = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
@@ -550,8 +550,7 @@ private func prepareIPCQueryRouterNiriState(
                 bundleId: "com.example.float",
                 appNameSubstring: " Float App ",
                 titleRegex: "[",
-                alwaysFloat: true,
-                manage: .off,
+                layout: .float,
                 assignToWorkspace: " 2 "
             ),
             AppRule(

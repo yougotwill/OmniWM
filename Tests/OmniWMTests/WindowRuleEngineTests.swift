@@ -60,12 +60,12 @@ private func makeWindowRuleFacts(
         #expect(engine.needsWindowReevaluation)
     }
 
-    @Test func legacyAlwaysFloatStillProducesFloatingDecision() {
+    @Test func explicitFloatRuleProducesFloatingDecision() {
         let engine = WindowRuleEngine()
         let rule = AppRule(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000111")!,
             bundleId: "com.example.legacy",
-            alwaysFloat: true
+            layout: .float
         )
         engine.rebuild(rules: [rule])
 
@@ -79,7 +79,7 @@ private func makeWindowRuleFacts(
         #expect(decision.heuristicReasons.isEmpty)
         if case .userRule(rule.id) = decision.source {
         } else {
-            Issue.record("Expected legacy always-float rule to remain a user rule decision")
+            Issue.record("Expected explicit float rule to remain a user rule decision")
         }
     }
 
@@ -259,7 +259,7 @@ private func makeWindowRuleFacts(
         let rule = AppRule(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000163")!,
             bundleId: "dentalplus-air",
-            alwaysFloat: true
+            layout: .float
         )
         engine.rebuild(rules: [rule])
 

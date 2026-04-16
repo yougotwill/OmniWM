@@ -124,7 +124,10 @@ struct NiriTopologyKernelPlan {
     var snapshot: NiriTopologyKernelSnapshot
 
     var effectKind: NiriTopologyEffectKind {
-        NiriTopologyEffectKind(rawValue: result.effect_kind) ?? .none
+        KernelContract.require(
+            NiriTopologyEffectKind(rawValue: result.effect_kind),
+            "Unknown Niri topology effect kind \(result.effect_kind)"
+        )
     }
 
     var didApply: Bool {
@@ -453,7 +456,11 @@ extension NiriLayoutEngine {
         if result.has_restore_previous_view_offset != 0 {
             state.viewOffsetPixels = .static(CGFloat(result.restore_previous_view_offset))
         } else {
-            switch NiriTopologyViewportAction(rawValue: result.viewport_action) ?? .none {
+            let viewportAction = KernelContract.require(
+                NiriTopologyViewportAction(rawValue: result.viewport_action),
+                "Unknown Niri topology viewport action \(result.viewport_action)"
+            )
+            switch viewportAction {
             case .deltaOnly, .none:
                 if !motion.animationsEnabled, state.viewOffsetPixels.isAnimating {
                     state.viewOffsetPixels = .static(state.viewOffsetPixels.target())
