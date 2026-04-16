@@ -19,8 +19,8 @@ final class SettingsFilePersistence {
     nonisolated static let configVersion = 4
     nonisolated static let defaultDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/omniwm", isDirectory: true)
-    nonisolated static let fileName = "settings.json"
-    nonisolated static let corruptFileName = "settings.json.corrupt"
+    nonisolated static let fileName = "settings.toml"
+    nonisolated static let corruptFileName = "settings.toml.corrupt"
     nonisolated static var fileURL: URL {
         defaultDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
     }
@@ -88,7 +88,7 @@ final class SettingsFilePersistence {
             try ensureDirectoryExists()
             var canonicalExport = export
             canonicalExport.version = Self.configVersion
-            let data = try SettingsExport.makeEncoder().encode(canonicalExport)
+            let data = try SettingsTOMLCodec.encode(canonicalExport)
             try data.write(to: fileURL, options: .atomic)
 
             let fingerprint = currentFingerprint()
@@ -190,7 +190,7 @@ final class SettingsFilePersistence {
 
     private func readExport() throws -> SettingsExport {
         let data = try Data(contentsOf: fileURL)
-        let export = try JSONDecoder().decode(SettingsExport.self, from: data)
+        let export = try SettingsTOMLCodec.decode(data)
         guard export.version == Self.configVersion else {
             throw UnsupportedSettingsVersionError(foundVersion: export.version)
         }

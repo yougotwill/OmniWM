@@ -20,7 +20,7 @@ import Testing
         settings.flushNow()
 
         let rawData = try Data(contentsOf: settings.settingsFileURL)
-        let export = try JSONDecoder().decode(SettingsExport.self, from: rawData)
+        let export = try SettingsTOMLCodec.decode(rawData)
 
         #expect(export.focusFollowsWindowToMonitor == true)
         #expect(export.commandPaletteLastMode == CommandPaletteMode.menu.rawValue)

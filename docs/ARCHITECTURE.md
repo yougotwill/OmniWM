@@ -1031,7 +1031,7 @@ Actions can carry multiple persisted bindings, so any extra default shortcuts sh
 
 6. **Handle migration** if needed in `Sources/OmniWM/Core/Config/SettingsMigration.swift`.
 
-7. **Add round-trip coverage** in tests: verify the setting survives store load/save and config export/import so it cannot silently disappear from `~/.config/omniwm/settings.json`.
+7. **Add round-trip coverage** in tests: verify the setting survives store load/save and config export/import so it cannot silently disappear from `~/.config/omniwm/settings.toml`.
 
 ### 6.4 Modifying Layout Behavior
 

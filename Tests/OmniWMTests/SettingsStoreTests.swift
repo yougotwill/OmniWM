@@ -75,7 +75,7 @@ private func writeSettingsExport(
         canonical.version = SettingsFilePersistence.configVersion
     }
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try SettingsExport.makeEncoder().encode(canonical).write(to: url, options: .atomic)
+    try SettingsTOMLCodec.encode(canonical).write(to: url, options: .atomic)
 }
 
 @Suite struct MonitorSettingsStoreTests {
@@ -178,14 +178,14 @@ private func writeSettingsExport(
     @Test func unsupportedSchemaVersionIsRenamedAsideAndReplacedWithDefaults() throws {
         let defaults = makeTestDefaults()
         let directory = configurationDirectoryForTests(defaults: defaults)
-        let url = directory.appendingPathComponent("settings.json", isDirectory: false)
+        let url = directory.appendingPathComponent("settings.toml", isDirectory: false)
         var export = SettingsExport.defaults()
         export.version = SettingsFilePersistence.configVersion + 1
         try writeSettingsExport(export, to: url, preserveVersion: true)
 
         let persistence = SettingsFilePersistence(directory: directory, startWatching: false)
         let loaded = persistence.load()
-        let corruptURL = directory.appendingPathComponent("settings.json.corrupt", isDirectory: false)
+        let corruptURL = directory.appendingPathComponent("settings.toml.corrupt", isDirectory: false)
 
         #expect(loaded == SettingsExport.defaults())
         #expect(FileManager.default.fileExists(atPath: url.path))
@@ -195,17 +195,36 @@ private func writeSettingsExport(
     @Test func corruptFileIsRenamedAsideAndReplacedWithDefaults() throws {
         let defaults = makeTestDefaults()
         let directory = configurationDirectoryForTests(defaults: defaults)
-        let url = directory.appendingPathComponent("settings.json", isDirectory: false)
+        let url = directory.appendingPathComponent("settings.toml", isDirectory: false)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data("not json".utf8).write(to: url)
+        try Data("this is =!==== not valid toml".utf8).write(to: url)
 
         let persistence = SettingsFilePersistence(directory: directory, startWatching: false)
         let export = persistence.load()
-        let corruptURL = directory.appendingPathComponent("settings.json.corrupt", isDirectory: false)
+        let corruptURL = directory.appendingPathComponent("settings.toml.corrupt", isDirectory: false)
 
         #expect(export == SettingsExport.defaults())
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(FileManager.default.fileExists(atPath: corruptURL.path))
+    }
+
+    @Test func legacySettingsJsonIsIgnoredWhenTomlMissing() throws {
+        let defaults = makeTestDefaults()
+        let directory = configurationDirectoryForTests(defaults: defaults)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacyJsonURL = directory.appendingPathComponent("settings.json", isDirectory: false)
+        let tomlURL = directory.appendingPathComponent("settings.toml", isDirectory: false)
+        let legacyJsonPayload = #"{"version": 4, "hotkeysEnabled": false}"#
+        try Data(legacyJsonPayload.utf8).write(to: legacyJsonURL)
+
+        let persistence = SettingsFilePersistence(directory: directory, startWatching: false)
+        let export = persistence.load()
+
+        #expect(export == SettingsExport.defaults())
+        #expect(FileManager.default.fileExists(atPath: tomlURL.path))
+        #expect(FileManager.default.fileExists(atPath: legacyJsonURL.path))
+        let legacyContents = try String(contentsOf: legacyJsonURL, encoding: .utf8)
+        #expect(legacyContents == legacyJsonPayload)
     }
 }
 
@@ -244,7 +263,7 @@ private func writeSettingsExport(
         #expect(settings.hotkeysEnabled == SettingsExport.defaults().hotkeysEnabled)
     }
 
-    @Test func runtimeStateSidecarKeepsRestoreCatalogOutOfSettingsJson() throws {
+    @Test func runtimeStateSidecarKeepsRestoreCatalogOutOfSettingsFile() throws {
         let defaults = makeTestDefaults()
         let settings = SettingsStore(defaults: defaults)
         let runtimeState = runtimeStateStoreForTests(defaults: defaults)
@@ -254,12 +273,11 @@ private func writeSettingsExport(
         runtimeState.flushNow()
         settings.flushNow()
 
-        let rawData = try Data(contentsOf: settings.settingsFileURL)
-        let json = try #require(JSONSerialization.jsonObject(with: rawData) as? [String: Any])
+        let rawSettings = try String(contentsOf: settings.settingsFileURL, encoding: .utf8)
         let runtimeStateData = try Data(contentsOf: runtimeState.fileURL)
         let runtimeJSON = try #require(JSONSerialization.jsonObject(with: runtimeStateData) as? [String: Any])
 
-        #expect(json.keys.contains { $0.localizedCaseInsensitiveContains("restoreCatalog") } == false)
+        #expect(rawSettings.localizedCaseInsensitiveContains("restorecatalog") == false)
         #expect(runtimeJSON["windowRestoreCatalog"] != nil)
         #expect(SettingsStore(defaults: defaults).loadPersistedWindowRestoreCatalog() == catalog)
     }
@@ -267,7 +285,7 @@ private func writeSettingsExport(
     @Test func settingsStoreNormalizesWorkspaceConfigurationsLoadedFromFile() throws {
         let defaults = makeTestDefaults()
         let directory = configurationDirectoryForTests(defaults: defaults)
-        let url = directory.appendingPathComponent("settings.json", isDirectory: false)
+        let url = directory.appendingPathComponent("settings.toml", isDirectory: false)
         var export = SettingsExport.defaults()
         export.workspaceConfigurations = [
             WorkspaceConfiguration(name: "2", monitorAssignment: .main),
@@ -342,13 +360,14 @@ private func writeSettingsExport(
             reloadCount += 1
         }
 
-        try Data("not json".utf8).write(to: settings.settingsFileURL, options: .atomic)
+        let invalidPayload = "this is =!==== not valid toml"
+        try Data(invalidPayload.utf8).write(to: settings.settingsFileURL, options: .atomic)
         try? await Task.sleep(nanoseconds: 200_000_000)
 
         #expect(settings.focusFollowsWindowToMonitor == SettingsExport.defaults().focusFollowsWindowToMonitor)
         #expect(reloadCount == 0)
         let rawData = try Data(contentsOf: settings.settingsFileURL)
-        #expect(String(data: rawData, encoding: .utf8) == "not json")
+        #expect(String(data: rawData, encoding: .utf8) == invalidPayload)
     }
 }
 
