@@ -1684,6 +1684,7 @@ final class WMController {
             ) else {
                 if let existingEntry {
                     affectedWorkspaceIds.insert(existingEntry.workspaceId)
+                    layoutRefreshController.discardHiddenTracking(for: existingEntry.token)
                     _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
                     relayoutNeeded = true
                 }
@@ -1843,6 +1844,7 @@ final class WMController {
             decision: evaluation.decision,
             existingEntry: entry
         ) else {
+            layoutRefreshController.discardHiddenTracking(for: token)
             _ = workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
             layoutRefreshController.requestRelayout(
                 reason: .windowRuleReevaluation,

@@ -467,6 +467,12 @@ final class AXEventHandler: CGSEventDelegate {
             {
                 controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token)
             }
+            if controller.layoutRefreshController.handleFreshFrameEvent(for: token) {
+                controller.layoutRefreshController.requestRelayout(
+                    reason: .axWindowChanged,
+                    affectedWorkspaceIds: [entry.workspaceId]
+                )
+            }
             return
         }
 
@@ -475,6 +481,7 @@ final class AXEventHandler: CGSEventDelegate {
             return
         }
 
+        _ = controller.layoutRefreshController.handleFreshFrameEvent(for: token)
         debugCounters.geometryRelayoutRequests += 1
         controller.layoutRefreshController.requestRelayout(reason: .axWindowChanged)
     }
@@ -775,6 +782,7 @@ final class AXEventHandler: CGSEventDelegate {
             removedNodeId = engine.findNode(for: token)?.id
         }
 
+        controller.layoutRefreshController.discardHiddenTracking(for: token)
         _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         controller.clearManualWindowOverride(for: token)
         _ = controller.renderKeyboardFocusBorder(

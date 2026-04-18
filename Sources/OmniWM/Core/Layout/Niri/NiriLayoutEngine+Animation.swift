@@ -23,8 +23,8 @@ extension NiriLayoutEngine {
         }
 
         let activeIdx = state.activeColumnIndex
-        let offset = columnX(at: removedIdx + 1, columns: cols, gaps: gaps)
-                   - columnX(at: removedIdx, columns: cols, gaps: gaps)
+        let offset = columnPlanningX(at: removedIdx + 1, columns: cols, gaps: gaps)
+                   - columnPlanningX(at: removedIdx, columns: cols, gaps: gaps)
         let postRemovalCount = cols.count - 1
 
         if activeIdx <= removedIdx {
@@ -112,7 +112,7 @@ extension NiriLayoutEngine {
             addedCol.resolveAndCacheWidth(workingAreaWidth: workingAreaWidth, gaps: gaps)
         }
 
-        let offset = addedCol.cachedWidth + gaps
+        let offset = addedCol.planningWidth + gaps
 
         if activeIdx <= addedIdx {
             for col in cols[(addedIdx + 1)...] {

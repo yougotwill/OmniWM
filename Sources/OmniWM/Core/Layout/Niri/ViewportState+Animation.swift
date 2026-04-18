@@ -3,12 +3,12 @@ import Foundation
 
 extension ViewportState {
     func viewPosPixels(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
+        let activeColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
         return activeColX + viewOffsetPixels.current()
     }
 
     func targetViewPosPixels(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
+        let activeColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
         return activeColX + viewOffsetPixels.target()
     }
 

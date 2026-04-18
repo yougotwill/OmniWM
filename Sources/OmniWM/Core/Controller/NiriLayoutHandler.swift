@@ -663,8 +663,19 @@ private func hasPendingNiriAnimationWork(
             }
             let previousOffscreenSide = window.hiddenState?.offscreenSide
             if let side = hiddenHandles[token] {
-                if forceHiddenReapply || previousOffscreenSide != side {
-                    diff.visibilityChanges.append(.hide(token, side: side))
+                guard let hiddenFrame = frames[token] else { continue }
+                let request = LayoutHideRequest(
+                    token: token,
+                    side: side,
+                    hiddenFrame: hiddenFrame
+                )
+                let roundedOrigin = controller?
+                    .layoutRefreshController
+                    .hiddenOriginForComparison(request.hiddenFrame.origin, token: token)
+                    ?? request.hiddenFrame.origin
+                let lastAppliedOrigin = controller?.layoutRefreshController.lastVerifiedHideOrigin(for: token)
+                if forceHiddenReapply || lastAppliedOrigin != roundedOrigin {
+                    diff.visibilityChanges.append(.hide(request))
                 }
                 continue
             }

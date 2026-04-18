@@ -2421,6 +2421,137 @@ private func waitUntilAXEventTest(
         )
     }
 
+    @Test @MainActor func floatingFrameChangedRetriesWorkspaceHideAfterFreshFrameWakeup() async {
+        let controller = makeAXEventTestController()
+        AXWindowService.fastFrameProviderForTests = { _ in nil }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+            controller.axEventHandler.frameProvider = nil
+        }
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let inactiveWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing monitor or inactive workspace")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 8142),
+            pid: getpid(),
+            windowId: 8142,
+            to: inactiveWorkspaceId,
+            mode: .floating
+        )
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for fresh-frame wakeup test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        controller.axEventHandler.frameProvider = { _ in
+            CGRect(x: 120, y: 140, width: 360, height: 240)
+        }
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 8142)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(relayoutReasons == [.axWindowChanged])
+        #expect(!controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+        #expect(
+            controller.workspaceManager.floatingState(for: token)?.lastFrame
+                == CGRect(x: 120, y: 140, width: 360, height: 240)
+        )
+    }
+
+    @Test @MainActor func interactiveGestureDoesNotConsumeWorkspaceHideFreshFrameWakeup() async {
+        let controller = makeAXEventTestController()
+        AXWindowService.fastFrameProviderForTests = { _ in nil }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+            controller.axEventHandler.frameProvider = nil
+            controller.mouseEventHandler.state.isResizing = false
+        }
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId)
+        else {
+            Issue.record("Missing active workspace or monitor")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: 8143),
+            pid: getpid(),
+            windowId: 8143,
+            to: workspaceId
+        )
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for gesture wakeup test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        controller.axEventHandler.frameProvider = { _ in
+            CGRect(x: 200, y: 160, width: 480, height: 320)
+        }
+        controller.mouseEventHandler.state.isResizing = true
+
+        var relayoutReasons: [RefreshReason] = []
+        controller.layoutRefreshController.resetDebugState()
+        controller.layoutRefreshController.debugHooks.onRelayout = { reason, _ in
+            relayoutReasons.append(reason)
+            return true
+        }
+
+        controller.axEventHandler.cgsEventObserver(
+            CGSEventObserver.shared,
+            didReceive: .frameChanged(windowId: 8143)
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(relayoutReasons.isEmpty)
+        #expect(controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+    }
+
     @Test @MainActor func interactiveGestureSuppresssFrameChangedRelayoutButKeepsBorderPath() async {
         let controller = makeAXEventTestController()
         guard let workspaceId = controller.activeWorkspace()?.id else {

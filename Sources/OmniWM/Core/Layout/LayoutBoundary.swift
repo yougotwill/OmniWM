@@ -96,9 +96,15 @@ struct LayoutRestoreChange {
     let hiddenState: WindowModel.HiddenState
 }
 
+struct LayoutHideRequest {
+    let token: WindowToken
+    let side: HideSide
+    let hiddenFrame: CGRect
+}
+
 enum LayoutVisibilityChange {
     case show(WindowToken)
-    case hide(WindowToken, side: HideSide)
+    case hide(LayoutHideRequest)
 }
 
 struct LayoutFocusedFrame {

@@ -128,6 +128,10 @@ import QuartzCore
     private var activeFrameContext: RefreshFrameContext?
     private var pendingRevealTransactionsByWindowId: [Int: PendingRevealTransaction] = [:]
     private var pendingRevealVerificationTasksByWindowId: [Int: Task<Void, Never>] = [:]
+    private var lastAppliedHideOrigins: [WindowToken: CGPoint] = [:]
+    private var verifiedHideOriginTokens: Set<WindowToken> = []
+    private var workspaceInactiveHideRetryCountByWindowId: [Int: Int] = [:]
+    private var workspaceInactiveHideAwaitingFreshFrameWindowIds: Set<Int> = []
     private let refreshScheduler = RefreshScheduler()
 
     func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
@@ -184,6 +188,10 @@ import QuartzCore
         }
 
         layoutState.closingAnimationsByDisplay.removeValue(forKey: displayId)
+        lastAppliedHideOrigins.removeAll()
+        verifiedHideOriginTokens.removeAll()
+        workspaceInactiveHideRetryCountByWindowId.removeAll()
+        workspaceInactiveHideAwaitingFreshFrameWindowIds.removeAll()
 
         if migrateAnimations {
             if let wsId = niriHandler.scrollAnimationByDisplay.removeValue(forKey: displayId) {
@@ -1321,6 +1329,7 @@ import QuartzCore
         }
 
         for token in decisionBasedRemovals {
+            discardHiddenTracking(for: token)
             _ = controller.workspaceManager.removeWindow(pid: token.pid, windowId: token.windowId)
         }
 
@@ -1454,6 +1463,90 @@ import QuartzCore
             }
         }
         return activeWorkspaceIds
+    }
+
+    func workspaceIsCurrentlyActive(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        currentActiveWorkspaceIds().contains(workspaceId)
+    }
+
+    func lastAppliedHideOrigin(for token: WindowToken) -> CGPoint? {
+        lastAppliedHideOrigins[token]
+    }
+
+    func lastVerifiedHideOrigin(for token: WindowToken) -> CGPoint? {
+        guard verifiedHideOriginTokens.contains(token) else { return nil }
+        return lastAppliedHideOrigins[token]
+    }
+
+    func hiddenOriginForComparison(_ origin: CGPoint, token: WindowToken) -> CGPoint {
+        roundedHiddenOrigin(origin, for: token)
+    }
+
+    func workspaceInactiveHideRetryCount(for windowId: Int) -> Int? {
+        workspaceInactiveHideRetryCountByWindowId[windowId]
+    }
+
+    func isAwaitingFreshFrameAfterWorkspaceHideFailure(for windowId: Int) -> Bool {
+        workspaceInactiveHideAwaitingFreshFrameWindowIds.contains(windowId)
+    }
+
+    fileprivate func rememberHiddenOrigin(
+        for token: WindowToken,
+        origin: CGPoint,
+        verified: Bool = true
+    ) {
+        lastAppliedHideOrigins[token] = roundedHiddenOrigin(origin, for: token)
+        if verified {
+            verifiedHideOriginTokens.insert(token)
+        } else {
+            verifiedHideOriginTokens.remove(token)
+        }
+        resetWorkspaceInactiveHideRetryState(forWindowId: token.windowId)
+    }
+
+    fileprivate func clearHiddenOrigin(for token: WindowToken) {
+        lastAppliedHideOrigins.removeValue(forKey: token)
+        verifiedHideOriginTokens.remove(token)
+    }
+
+    fileprivate func clearHiddenRecord(for token: WindowToken) {
+        clearHiddenOrigin(for: token)
+        resetWorkspaceInactiveHideRetryState(forWindowId: token.windowId)
+        controller?.workspaceManager.setHiddenState(nil, for: token)
+    }
+
+    func discardHiddenTracking(for token: WindowToken) {
+        clearHiddenOrigin(for: token)
+        resetWorkspaceInactiveHideRetryState(forWindowId: token.windowId)
+    }
+
+    @discardableResult
+    func handleFreshFrameEvent(for token: WindowToken) -> Bool {
+        guard workspaceInactiveHideAwaitingFreshFrameWindowIds.remove(token.windowId) != nil else {
+            return false
+        }
+        resetWorkspaceInactiveHideRetryState(forWindowId: token.windowId)
+        return true
+    }
+
+    private func resetWorkspaceInactiveHideRetryState(forWindowId windowId: Int) {
+        workspaceInactiveHideRetryCountByWindowId.removeValue(forKey: windowId)
+        workspaceInactiveHideAwaitingFreshFrameWindowIds.remove(windowId)
+    }
+
+    private func roundedHiddenOrigin(_ origin: CGPoint, for token: WindowToken) -> CGPoint {
+        origin.roundedToPhysicalPixels(scale: hiddenOriginScale(for: token))
+    }
+
+    private func hiddenOriginScale(for token: WindowToken) -> CGFloat {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: token),
+              let monitor = controller.workspaceManager.monitor(for: entry.workspaceId)
+        else {
+            return 2.0
+        }
+
+        return backingScale(for: monitor)
     }
 
     private func enqueueRefresh(
@@ -1745,7 +1838,7 @@ import QuartzCore
 
     fileprivate enum HideOperationResolution {
         case movable(WindowPositionPlan, hiddenState: WindowModel.HiddenState)
-        case alreadyHidden(hiddenState: WindowModel.HiddenState)
+        case alreadyHidden(hiddenState: WindowModel.HiddenState, origin: CGPoint)
         case unavailable
     }
 
@@ -1769,57 +1862,143 @@ import QuartzCore
         }
     }
 
+    @discardableResult
+    fileprivate func applyHidePositionPlans(_ plans: [WindowPositionPlan]) -> Set<WindowToken> {
+        applyPositionPlans(plans)
+
+        var verifiedTokens: Set<WindowToken> = []
+        verifiedTokens.reserveCapacity(plans.count)
+        for plan in plans where verifyAppliedHideOrigin(for: plan.entry, expectedOrigin: plan.origin) {
+            verifiedTokens.insert(plan.entry.token)
+        }
+        return verifiedTokens
+    }
+
+    private func resolvedHideSourceFrame(
+        for entry: WindowModel.Entry,
+        frameHint: CGRect? = nil,
+        treatLastAppliedFrameAsLive: Bool = true
+    ) -> (liveFrame: CGRect?, sourceFrame: CGRect)? {
+        let observedFrame = fastFrame(for: entry.token, axRef: entry.axRef)
+            ?? (try? AXWindowService.frame(entry.axRef))
+        let liveFrame = observedFrame
+            ?? (treatLastAppliedFrameAsLive ? controller?.axManager.lastAppliedFrame(for: entry.windowId) : nil)
+        guard let sourceFrame = liveFrame ?? frameHint else {
+            return nil
+        }
+        return (liveFrame, sourceFrame)
+    }
+
+    private func buildHideRequest(
+        for entry: WindowModel.Entry,
+        monitor: Monitor,
+        side: HideSide,
+        reason: HideReason,
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil,
+        frameHint: CGRect? = nil,
+        treatLastAppliedFrameAsLive: Bool = true
+    ) -> LayoutHideRequest? {
+        guard let source = resolvedHideSourceFrame(
+            for: entry,
+            frameHint: frameHint,
+            treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
+        ),
+              let origin = liveFrameHideOrigin(
+                  for: source.sourceFrame,
+                  monitor: monitor,
+                  side: side,
+                  pid: entry.handle.pid,
+                  reason: reason,
+                  hiddenPlacementMonitors: hiddenPlacementMonitors
+              )
+        else {
+            return nil
+        }
+
+        return LayoutHideRequest(
+            token: entry.token,
+            side: side,
+            hiddenFrame: CGRect(origin: origin, size: source.sourceFrame.size)
+        )
+    }
+
+    fileprivate func resolveHideOperation(
+        for entry: WindowModel.Entry,
+        monitor: Monitor,
+        request: LayoutHideRequest,
+        reason: HideReason,
+        frameHint: CGRect? = nil,
+        workspaceIsCurrentlyActive: Bool,
+        treatLastAppliedFrameAsLive: Bool = true
+    ) -> HideOperationResolution {
+        guard let source = resolvedHideSourceFrame(
+            for: entry,
+            frameHint: frameHint,
+            treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
+        ) else {
+            return .unavailable
+        }
+
+        let hiddenState = updatedHiddenState(
+            for: entry,
+            frame: source.sourceFrame,
+            monitor: monitor,
+            side: request.side,
+            reason: reason,
+            workspaceIsCurrentlyActive: workspaceIsCurrentlyActive
+        )
+
+        let moveEpsilon: CGFloat = 0.01
+        if let liveFrame = source.liveFrame,
+           abs(liveFrame.origin.x - request.hiddenFrame.origin.x) < moveEpsilon,
+           abs(liveFrame.origin.y - request.hiddenFrame.origin.y) < moveEpsilon
+        {
+            return .alreadyHidden(
+                hiddenState: hiddenState,
+                origin: roundedHiddenOrigin(request.hiddenFrame.origin, for: entry.token)
+            )
+        }
+
+        return .movable(
+            WindowPositionPlan(
+                entry: entry,
+                origin: request.hiddenFrame.origin,
+                frameSize: request.hiddenFrame.size
+            ),
+            hiddenState: hiddenState
+        )
+    }
+
     fileprivate func resolveHideOperation(
         for entry: WindowModel.Entry,
         monitor: Monitor,
         side: HideSide,
         reason: HideReason,
         hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil,
-        frameHint: CGRect? = nil
+        frameHint: CGRect? = nil,
+        workspaceIsCurrentlyActive: Bool,
+        treatLastAppliedFrameAsLive: Bool = true
     ) -> HideOperationResolution {
-        guard let controller else { return .unavailable }
-        let liveFrame = fastFrame(for: entry.token, axRef: entry.axRef)
-            ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
-            ?? (try? AXWindowService.frame(entry.axRef))
-        guard let frame = liveFrame ?? frameHint
-        else {
-            return .unavailable
-        }
-        let usingFrameHint = liveFrame == nil && frameHint != nil
-        let hiddenState = updatedHiddenState(
+        guard let request = buildHideRequest(
             for: entry,
-            frame: frame,
             monitor: monitor,
             side: side,
-            reason: reason
-        )
-
-        guard let origin = liveFrameHideOrigin(
-            for: frame,
-            monitor: monitor,
-            side: side,
-            pid: entry.handle.pid,
             reason: reason,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
+            hiddenPlacementMonitors: hiddenPlacementMonitors,
+            frameHint: frameHint,
+            treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
         ) else {
             return .unavailable
         }
 
-        let moveEpsilon: CGFloat = 0.01
-        if !usingFrameHint,
-           abs(frame.origin.x - origin.x) < moveEpsilon,
-           abs(frame.origin.y - origin.y) < moveEpsilon
-        {
-            return .alreadyHidden(hiddenState: hiddenState)
-        }
-
-        return .movable(
-            WindowPositionPlan(
-                entry: entry,
-                origin: origin,
-                frameSize: frame.size
-            ),
-            hiddenState: hiddenState
+        return resolveHideOperation(
+            for: entry,
+            monitor: monitor,
+            request: request,
+            reason: reason,
+            frameHint: frameHint,
+            workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+            treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
         )
     }
 
@@ -1828,13 +2007,19 @@ import QuartzCore
         frame: CGRect,
         monitor: Monitor,
         side: HideSide,
-        reason: HideReason
+        reason: HideReason,
+        workspaceIsCurrentlyActive: Bool
     ) -> WindowModel.HiddenState {
         guard let controller else {
             return WindowModel.HiddenState(
                 proportionalPosition: .zero,
                 referenceMonitorId: nil,
-                reason: hiddenWindowReason(for: reason, side: side, existingState: nil)
+                reason: hiddenWindowReason(
+                    for: reason,
+                    side: side,
+                    existingState: nil,
+                    workspaceIsCurrentlyActive: workspaceIsCurrentlyActive
+                )
             )
         }
 
@@ -1855,20 +2040,29 @@ import QuartzCore
         return WindowModel.HiddenState(
             proportionalPosition: proportionalPosition,
             referenceMonitorId: referenceMonitorId,
-            reason: hiddenWindowReason(for: reason, side: side, existingState: existingState)
+            reason: hiddenWindowReason(
+                for: reason,
+                side: side,
+                existingState: existingState,
+                workspaceIsCurrentlyActive: workspaceIsCurrentlyActive
+            )
         )
     }
 
     private func hiddenWindowReason(
         for reason: HideReason,
         side: HideSide,
-        existingState: WindowModel.HiddenState?
+        existingState: WindowModel.HiddenState?,
+        workspaceIsCurrentlyActive: Bool
     ) -> WindowModel.HiddenReason {
         if existingState?.isScratchpad == true, reason != .scratchpad {
             return .scratchpad
         }
 
-        if existingState?.workspaceInactive == true, reason == .layoutTransient {
+        if existingState?.workspaceInactive == true,
+           reason == .layoutTransient,
+           !workspaceIsCurrentlyActive
+        {
             return .workspaceInactive
         }
 
@@ -1891,24 +2085,135 @@ import QuartzCore
     ) {
         guard let controller else { return }
         let frameEntry = (pid: entry.handle.pid, windowId: entry.windowId)
+        let frameHint: CGRect? = if reason == .workspaceInactive {
+            workspaceInactiveFrameHint(for: entry)
+        } else {
+            nil
+        }
+        let workspaceIsCurrentlyActive = workspaceIsCurrentlyActive(entry.workspaceId)
+        let treatLastAppliedFrameAsLive = reason != .workspaceInactive
+        let usingWorkspaceInactiveFrameHint = reason == .workspaceInactive
+            && frameHint != nil
+            && resolvedHideSourceFrame(
+                for: entry,
+                frameHint: frameHint,
+                treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
+            )?.liveFrame == nil
         switch resolveHideOperation(
             for: entry,
             monitor: monitor,
             side: side,
             reason: reason,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
+            hiddenPlacementMonitors: hiddenPlacementMonitors,
+            frameHint: frameHint,
+            workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+            treatLastAppliedFrameAsLive: treatLastAppliedFrameAsLive
         ) {
         case let .movable(plan, hiddenState):
-            controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+            let normalizedHiddenState = normalizedHiddenStateForCurrentWorkspace(
+                hiddenState,
+                workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+                side: side
+            )
+            controller.axManager.cancelPendingFrameJobs([frameEntry])
+            if usingWorkspaceInactiveFrameHint {
+                applyPositionPlans([plan])
+                guard verifyAppliedHideOrigin(for: entry, expectedOrigin: plan.origin) else {
+                    handleUnavailableWorkspaceInactiveHide(entry)
+                    return
+                }
+                controller.workspaceManager.setHiddenState(normalizedHiddenState, for: entry.token)
+                controller.axManager.suppressFrameWrites([frameEntry])
+                rememberHiddenOrigin(for: entry.token, origin: plan.origin)
+                return
+            }
+
+            controller.workspaceManager.setHiddenState(
+                normalizedHiddenState,
+                for: entry.token
+            )
+            controller.axManager.suppressFrameWrites([frameEntry])
+            let verifiedHideTokens = applyHidePositionPlans([plan])
+            rememberHiddenOrigin(
+                for: entry.token,
+                origin: plan.origin,
+                verified: verifiedHideTokens.contains(entry.token)
+            )
+        case let .alreadyHidden(hiddenState, origin):
+            controller.workspaceManager.setHiddenState(
+                normalizedHiddenStateForCurrentWorkspace(
+                    hiddenState,
+                    workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+                    side: side
+                ),
+                for: entry.token
+            )
             controller.axManager.cancelPendingFrameJobs([frameEntry])
             controller.axManager.suppressFrameWrites([frameEntry])
-            applyPositionPlans([plan])
-        case let .alreadyHidden(hiddenState):
-            controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
-            controller.axManager.cancelPendingFrameJobs([frameEntry])
-            controller.axManager.suppressFrameWrites([frameEntry])
+            rememberHiddenOrigin(for: entry.token, origin: origin)
         case .unavailable:
-            break
+            guard reason == .workspaceInactive else { break }
+            handleUnavailableWorkspaceInactiveHide(entry)
+        }
+    }
+
+    private func workspaceInactiveFrameHint(for entry: WindowModel.Entry) -> CGRect? {
+        guard let controller else { return nil }
+        return controller.axManager.lastAppliedFrame(for: entry.windowId)
+            ?? controller.workspaceManager.managedRestoreSnapshot(for: entry.token)?.frame
+            ?? controller.workspaceManager.nativeFullscreenRestoreContext(for: entry.token)?.restoreFrame
+    }
+
+    fileprivate func normalizedHiddenStateForCurrentWorkspace(
+        _ hiddenState: WindowModel.HiddenState,
+        workspaceIsCurrentlyActive: Bool,
+        side: HideSide
+    ) -> WindowModel.HiddenState {
+        guard workspaceIsCurrentlyActive, hiddenState.workspaceInactive else {
+            return hiddenState
+        }
+
+        return WindowModel.HiddenState(
+            proportionalPosition: hiddenState.proportionalPosition,
+            referenceMonitorId: hiddenState.referenceMonitorId,
+            reason: .layoutTransient(side)
+        )
+    }
+
+    private func handleUnavailableWorkspaceInactiveHide(_ entry: WindowModel.Entry) {
+        guard let controller else { return }
+
+        let frameEntry = [(entry.handle.pid, entry.windowId)]
+        controller.axManager.cancelPendingFrameJobs(frameEntry)
+        controller.axManager.suppressFrameWrites(frameEntry)
+
+        let remainingRetries = workspaceInactiveHideRetryCountByWindowId[entry.windowId] ?? 1
+        guard remainingRetries > 0 else {
+            workspaceInactiveHideAwaitingFreshFrameWindowIds.insert(entry.windowId)
+            return
+        }
+
+        workspaceInactiveHideRetryCountByWindowId[entry.windowId] = remainingRetries - 1
+        requestRelayout(
+            reason: .axWindowChanged,
+            affectedWorkspaceIds: [entry.workspaceId]
+        )
+    }
+
+    private func verifyAppliedHideOrigin(
+        for entry: WindowModel.Entry,
+        expectedOrigin: CGPoint
+    ) -> Bool {
+        let verifyEpsilon: CGFloat = 1.0
+        let candidateOrigins: [CGPoint] = [
+            observedWindowOrigin(entry),
+            controller?.axManager.lastAppliedFrame(for: entry.windowId)?.origin,
+            (try? AXWindowService.frame(entry.axRef))?.origin,
+        ].compactMap { $0 }
+
+        return candidateOrigins.contains { observedOrigin in
+            abs(observedOrigin.x - expectedOrigin.x) <= verifyEpsilon
+                && abs(observedOrigin.y - expectedOrigin.y) <= verifyEpsilon
         }
     }
 
@@ -2177,7 +2482,7 @@ import QuartzCore
         }
         pendingRevealVerificationTasksByWindowId.removeValue(forKey: windowId)?.cancel()
 
-        controller.workspaceManager.setHiddenState(nil, for: pendingTransaction.token)
+        clearHiddenRecord(for: pendingTransaction.token)
         if let confirmedFrame {
             controller.axManager.confirmFrameWrite(for: pendingTransaction.windowId, frame: confirmedFrame)
         }
@@ -2196,7 +2501,7 @@ import QuartzCore
         let frameEntry = [(pendingTransaction.pid, pendingTransaction.windowId)]
 
         if pendingTransaction.hiddenState.workspaceInactive {
-            controller.workspaceManager.setHiddenState(nil, for: pendingTransaction.token)
+            clearHiddenRecord(for: pendingTransaction.token)
             controller.axManager.unsuppressFrameWrites(frameEntry)
             return
         }
@@ -2269,7 +2574,7 @@ import QuartzCore
                 "start windowId=\(entry.windowId) mode=none outcome=noGeometry"
             )
             if hiddenState.workspaceInactive {
-                controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                clearHiddenRecord(for: entry.token)
                 controller.axManager.unsuppressFrameWrites(frameEntry)
                 onSuccess?()
             } else {
@@ -2280,7 +2585,7 @@ import QuartzCore
                 "start windowId=\(entry.windowId) mode=positionPlan"
             )
             applyPositionPlans([plan])
-            controller.workspaceManager.setHiddenState(nil, for: entry.token)
+            clearHiddenRecord(for: entry.token)
             controller.axManager.unsuppressFrameWrites(frameEntry)
             onSuccess?()
         case let .asyncFrame(frame):
@@ -2288,7 +2593,7 @@ import QuartzCore
                 recordRevealTrace(
                     "start windowId=\(entry.windowId) mode=asyncFrame immediate targetFrame=\(NSStringFromRect(frame))"
                 )
-                controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                clearHiddenRecord(for: entry.token)
                 controller.axManager.unsuppressFrameWrites(frameEntry)
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
                 controller.axManager.applyFramesParallel([(entry.pid, entry.windowId, frame)])
@@ -2351,10 +2656,14 @@ import QuartzCore
         hiddenState: WindowModel.HiddenState
     ) -> WindowPositionPlan? {
         guard let controller else { return nil }
-        guard let frame = fastFrame(for: entry.token, axRef: entry.axRef)
+        guard var frame = fastFrame(for: entry.token, axRef: entry.axRef)
             ?? controller.axManager.lastAppliedFrame(for: entry.windowId)
         else {
             return nil
+        }
+
+        if let hiddenOrigin = lastAppliedHideOrigin(for: entry.token) {
+            frame.origin = hiddenOrigin
         }
 
         let fallbackMonitor = hiddenState.referenceMonitorId
@@ -2456,7 +2765,7 @@ final class LayoutDiffExecutor {
         let diff = plan.diff
 
         var resolvedEntries: [WindowToken: WindowModel.Entry] = [:]
-        var hiddenEntries: [(entry: WindowModel.Entry, side: HideSide)] = []
+        var hiddenEntries: [(entry: WindowModel.Entry, request: LayoutHideRequest)] = []
         var hiddenTokens: Set<WindowToken> = []
         var shownEntries: [(entry: WindowModel.Entry, hiddenState: WindowModel.HiddenState?)] = []
         var restoreEntries: [(entry: WindowModel.Entry, hiddenState: WindowModel.HiddenState)] = []
@@ -2498,11 +2807,11 @@ final class LayoutDiffExecutor {
                 guard let entry = resolveEntry(for: token) else { continue }
                 guard entry.layoutReason != .nativeFullscreen else { continue }
                 shownEntries.append((entry, controller.workspaceManager.hiddenState(for: token)))
-            case let .hide(token, side):
-                hiddenTokens.insert(token)
-                guard let entry = resolveEntry(for: token) else { continue }
+            case let .hide(request):
+                hiddenTokens.insert(request.token)
+                guard let entry = resolveEntry(for: request.token) else { continue }
                 guard entry.layoutReason != .nativeFullscreen else { continue }
-                hiddenEntries.append((entry, side))
+                hiddenEntries.append((entry, request))
             }
         }
 
@@ -2590,7 +2899,7 @@ final class LayoutDiffExecutor {
                 where !pendingRevealTokens.contains(entry.token)
                 && !blockedRevealTokens.contains(entry.token)
             {
-                controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                refreshController.clearHiddenRecord(for: entry.token)
             }
         }
 
@@ -2600,7 +2909,7 @@ final class LayoutDiffExecutor {
                 && !pendingRevealTokens.contains(entry.token)
                 && !blockedRevealTokens.contains(entry.token)
             {
-                controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                refreshController.clearHiddenRecord(for: entry.token)
             }
         }
 
@@ -2712,7 +3021,7 @@ final class LayoutDiffExecutor {
     }
 
     private func applyHiddenEntryUpdates(
-        _ hiddenEntries: [(entry: WindowModel.Entry, side: HideSide)],
+        _ hiddenEntries: [(entry: WindowModel.Entry, request: LayoutHideRequest)],
         controller: WMController,
         monitor: Monitor,
         nativeFullscreenRestoreFinalizeTokens: Set<WindowToken>
@@ -2720,9 +3029,10 @@ final class LayoutDiffExecutor {
         var hiddenJobs: [(pid: pid_t, windowId: Int)] = []
         hiddenJobs.reserveCapacity(hiddenEntries.count)
         var hidePlans: [LayoutRefreshController.WindowPositionPlan] = []
+        var hideOriginsToRemember: [(token: WindowToken, origin: CGPoint)] = []
         var hiddenNativeFullscreenRestoreFinalizeTokens: Set<WindowToken> = []
 
-        for (entry, side) in hiddenEntries {
+        for (entry, request) in hiddenEntries {
             let nativeFullscreenRestoreFrameHint: CGRect? = if nativeFullscreenRestoreFinalizeTokens
                 .contains(entry.token)
             {
@@ -2731,23 +3041,41 @@ final class LayoutDiffExecutor {
             } else {
                 nil
             }
+            let workspaceIsCurrentlyActive = refreshController.workspaceIsCurrentlyActive(entry.workspaceId)
             switch refreshController.resolveHideOperation(
                 for: entry,
                 monitor: monitor,
-                side: side,
+                request: request,
                 reason: .layoutTransient,
-                frameHint: nativeFullscreenRestoreFrameHint
+                frameHint: nativeFullscreenRestoreFrameHint,
+                workspaceIsCurrentlyActive: workspaceIsCurrentlyActive
             ) {
             case let .movable(plan, hiddenState):
-                controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+                controller.workspaceManager.setHiddenState(
+                    refreshController.normalizedHiddenStateForCurrentWorkspace(
+                        hiddenState,
+                        workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+                        side: request.side
+                    ),
+                    for: entry.token
+                )
                 hiddenJobs.append((entry.handle.pid, entry.windowId))
                 hidePlans.append(plan)
+                hideOriginsToRemember.append((token: entry.token, origin: plan.origin))
                 if nativeFullscreenRestoreFinalizeTokens.contains(entry.token) {
                     hiddenNativeFullscreenRestoreFinalizeTokens.insert(entry.token)
                 }
-            case let .alreadyHidden(hiddenState):
-                controller.workspaceManager.setHiddenState(hiddenState, for: entry.token)
+            case let .alreadyHidden(hiddenState, origin):
+                controller.workspaceManager.setHiddenState(
+                    refreshController.normalizedHiddenStateForCurrentWorkspace(
+                        hiddenState,
+                        workspaceIsCurrentlyActive: workspaceIsCurrentlyActive,
+                        side: request.side
+                    ),
+                    for: entry.token
+                )
                 hiddenJobs.append((entry.handle.pid, entry.windowId))
+                refreshController.rememberHiddenOrigin(for: entry.token, origin: origin)
                 if nativeFullscreenRestoreFinalizeTokens.contains(entry.token) {
                     hiddenNativeFullscreenRestoreFinalizeTokens.insert(entry.token)
                 }
@@ -2761,7 +3089,14 @@ final class LayoutDiffExecutor {
             controller.axManager.suppressFrameWrites(hiddenJobs)
         }
         if !hidePlans.isEmpty {
-            refreshController.applyPositionPlans(hidePlans)
+            let verifiedHideTokens = refreshController.applyHidePositionPlans(hidePlans)
+            for hideOrigin in hideOriginsToRemember {
+                guard verifiedHideTokens.contains(hideOrigin.token) else { continue }
+                refreshController.rememberHiddenOrigin(
+                    for: hideOrigin.token,
+                    origin: hideOrigin.origin
+                )
+            }
         }
         for token in hiddenNativeFullscreenRestoreFinalizeTokens {
             _ = controller.workspaceManager.finalizeNativeFullscreenRestore(for: token)

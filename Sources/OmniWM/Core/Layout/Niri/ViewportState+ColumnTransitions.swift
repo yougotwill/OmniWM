@@ -13,13 +13,13 @@ extension ViewportState {
         guard !columns.isEmpty else { return }
         let clampedIndex = index.clamped(to: 0 ... (columns.count - 1))
 
-        let oldActiveColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
-        let newActiveColX = columnX(at: clampedIndex, columns: columns, gap: gap)
+        let oldActiveColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
+        let newActiveColX = columnPlanningX(at: clampedIndex, columns: columns, gap: gap)
         let offsetDelta = oldActiveColX - newActiveColX
 
         viewOffsetPixels.offset(delta: Double(offsetDelta))
 
-        let targetOffset = computeCenteredOffset(
+        let targetOffset = computePlanningCenteredOffset(
             columnIndex: clampedIndex,
             columns: columns,
             gap: gap,
@@ -52,17 +52,17 @@ extension ViewportState {
         guard !columns.isEmpty else { return }
         let clampedIndex = newIndex.clamped(to: 0 ... (columns.count - 1))
 
-        let oldActiveColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
+        let oldActiveColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
 
         let prevActiveColumn = activeColumnIndex
         activeColumnIndex = clampedIndex
 
-        let newActiveColX = columnX(at: clampedIndex, columns: columns, gap: gap)
+        let newActiveColX = columnPlanningX(at: clampedIndex, columns: columns, gap: gap)
         let offsetDelta = oldActiveColX - newActiveColX
 
         viewOffsetPixels.offset(delta: Double(offsetDelta))
 
-        let targetOffset = computeVisibleOffset(
+        let targetOffset = computePlanningVisibleOffset(
             columnIndex: clampedIndex,
             columns: columns,
             gap: gap,
@@ -153,7 +153,7 @@ extension ViewportState {
         let clampedIndex = columnIndex.clamped(to: 0 ... (columns.count - 1))
         activeColumnIndex = clampedIndex
 
-        let targetOffset = computeCenteredOffset(
+        let targetOffset = computePlanningCenteredOffset(
             columnIndex: clampedIndex,
             columns: columns,
             gap: gap,
@@ -173,7 +173,7 @@ extension ViewportState {
         guard abs(deltaPixels) > CGFloat.ulpOfOne else { return nil }
         guard !columns.isEmpty else { return nil }
 
-        let totalW = totalWidth(columns: columns, gap: gap)
+        let totalW = totalPlanningWidth(columns: columns, gap: gap)
         guard totalW > 0 else { return nil }
 
         let currentOffset = viewOffsetPixels.current()

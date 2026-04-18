@@ -54,8 +54,16 @@ extension ViewportState {
         containerPosition(at: index, containers: columns, gap: gap, sizeKeyPath: \.cachedWidth)
     }
 
+    func columnPlanningX(at index: Int, columns: [NiriContainer], gap: CGFloat) -> CGFloat {
+        containerPosition(at: index, containers: columns, gap: gap, sizeKeyPath: \.planningWidth)
+    }
+
     func totalWidth(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
         totalSpan(containers: columns, gap: gap, sizeKeyPath: \.cachedWidth)
+    }
+
+    func totalPlanningWidth(columns: [NiriContainer], gap: CGFloat) -> CGFloat {
+        totalSpan(containers: columns, gap: gap, sizeKeyPath: \.planningWidth)
     }
 
     func containerPosition(
@@ -190,6 +198,21 @@ extension ViewportState {
         )
     }
 
+    func computePlanningCenteredOffset(
+        columnIndex: Int,
+        columns: [NiriContainer],
+        gap: CGFloat,
+        viewportWidth: CGFloat
+    ) -> CGFloat {
+        computeCenteredOffset(
+            containerIndex: columnIndex,
+            containers: columns,
+            gap: gap,
+            viewportSpan: viewportWidth,
+            sizeKeyPath: \.planningWidth
+        )
+    }
+
     func computeVisibleOffset(
         columnIndex: Int,
         columns: [NiriContainer],
@@ -216,6 +239,32 @@ extension ViewportState {
         )
     }
 
+    func computePlanningVisibleOffset(
+        columnIndex: Int,
+        columns: [NiriContainer],
+        gap: CGFloat,
+        viewportWidth: CGFloat,
+        currentOffset: CGFloat,
+        centerMode: CenterFocusedColumn,
+        alwaysCenterSingleColumn: Bool = false,
+        fromColumnIndex: Int? = nil,
+        scale: CGFloat = 2.0
+    ) -> CGFloat {
+        let columnPosition = columnPlanningX(at: columnIndex, columns: columns, gap: gap)
+        return computeVisibleOffset(
+            containerIndex: columnIndex,
+            containers: columns,
+            gap: gap,
+            viewportSpan: viewportWidth,
+            sizeKeyPath: \.planningWidth,
+            currentViewStart: columnPosition + currentOffset,
+            centerMode: centerMode,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn,
+            fromContainerIndex: fromColumnIndex,
+            scale: scale
+        )
+    }
+
     func snapTarget(
         projectedViewPos: Double,
         currentViewPos: Double,
@@ -232,6 +281,27 @@ extension ViewportState {
             gap: gap,
             viewportSpan: viewportWidth,
             sizeKeyPath: \.cachedWidth,
+            centerMode: centerMode,
+            alwaysCenterSingleColumn: alwaysCenterSingleColumn
+        )
+    }
+
+    func planningSnapTarget(
+        projectedViewPos: Double,
+        currentViewPos: Double,
+        columns: [NiriContainer],
+        gap: CGFloat,
+        viewportWidth: CGFloat,
+        centerMode: CenterFocusedColumn,
+        alwaysCenterSingleColumn: Bool = false
+    ) -> GeometrySnapTarget {
+        snapTarget(
+            projectedViewPos: projectedViewPos,
+            currentViewPos: currentViewPos,
+            containers: columns,
+            gap: gap,
+            viewportSpan: viewportWidth,
+            sizeKeyPath: \.planningWidth,
             centerMode: centerMode,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )

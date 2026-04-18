@@ -387,6 +387,10 @@ class NiriContainer: NiriNode {
     var widthAnimation: SpringAnimation?
     var targetWidth: CGFloat?
 
+    var planningWidth: CGFloat {
+        targetWidth ?? cachedWidth
+    }
+
     private var _cachedWindowNodes: [NiriWindow]?
 
     override init() {

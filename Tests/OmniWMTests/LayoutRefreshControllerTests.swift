@@ -242,9 +242,25 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             ),
             for: token
         )
+        let visibleFrame = CGRect(x: 240, y: monitor.visibleFrame.minY + 80, width: 640, height: 420)
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, visibleFrame)])
 
         var hideDiff = WorkspaceLayoutDiff()
-        hideDiff.visibilityChanges = [.hide(token, side: .right)]
+        let hiddenFrame = CGRect(
+            x: monitor.visibleFrame.maxX + 24,
+            y: monitor.visibleFrame.minY + 80,
+            width: 640,
+            height: 420
+        )
+        hideDiff.visibilityChanges = [
+            .hide(
+                LayoutHideRequest(
+                    token: token,
+                    side: .right,
+                    hiddenFrame: hiddenFrame
+                )
+            )
+        ]
         hideDiff.borderMode = .none
 
         controller.layoutRefreshController.executeLayoutPlan(
@@ -256,7 +272,9 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
             )
         )
 
-        #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true)
+        #expect(controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == false)
+        #expect(controller.workspaceManager.hiddenState(for: token)?.offscreenSide == .right)
+        #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: token) == hiddenFrame.origin)
 
         var showDiff = WorkspaceLayoutDiff()
         showDiff.visibilityChanges = [.show(token)]
@@ -272,6 +290,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         )
 
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: token) == nil)
     }
 
     @Test @MainActor func coordinatedBorderUpdateUsesObservedGhosttyFrameWhenItDiffersFromLayoutFrame() {
@@ -599,9 +618,16 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.setActiveWorkspace(visibleWorkspaceId, on: secondaryMonitor.id))
 
         let token = addLayoutPlanTestWindow(on: controller, workspaceId: hiddenWorkspaceId, windowId: 608)
+        let visibleFrame = CGRect(x: 2160, y: 180, width: 800, height: 600)
         controller.axManager.applyFramesParallel(
-            [(pid: token.pid, windowId: token.windowId, frame: CGRect(x: 2160, y: 180, width: 800, height: 600))]
+            [(pid: token.pid, windowId: token.windowId, frame: visibleFrame)]
         )
+        AXWindowService.fastFrameProviderForTests = { axRef in
+            axRef.windowId == token.windowId ? visibleFrame : nil
+        }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+        }
 
         controller.layoutRefreshController.hideInactiveWorkspacesSync()
 
@@ -1793,6 +1819,222 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
         #expect(controller.axManager.hasPendingFrameWrite(for: token.windowId) == false)
         #expect(controller.axManager.recentFrameWriteFailure(for: token.windowId) == nil)
+    }
+
+    @Test @MainActor func workspaceInactiveHideUsesManagedRestoreSnapshotFrameHintOrFailsClosedWhenMoveCannotBeVerified() {
+        let controller = makeLayoutPlanTestController()
+        AXWindowService.fastFrameProviderForTests = { _ in nil }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+        }
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let inactiveWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing monitor or workspace for workspace-inactive frame-hint test")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeUnavailableLayoutPlanTestWindow(windowId: 607),
+            pid: 607,
+            windowId: 607,
+            to: inactiveWorkspaceId,
+            mode: .tiling
+        )
+        let hintFrame = CGRect(x: 140, y: 160, width: 720, height: 460)
+        _ = controller.workspaceManager.setManagedRestoreSnapshot(
+            ManagedWindowRestoreSnapshot(
+                token: token,
+                workspaceId: inactiveWorkspaceId,
+                frame: hintFrame,
+                topologyProfile: controller.workspaceManager.topologyProfile,
+                niriState: nil,
+                replacementMetadata: nil
+            ),
+            for: token
+        )
+
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for workspace-inactive frame-hint test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        if controller.workspaceManager.hiddenState(for: token)?.workspaceInactive == true {
+            #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: token) != nil)
+        } else {
+            #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+            #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: token) == nil)
+            #expect(controller.layoutRefreshController.workspaceInactiveHideRetryCount(for: token.windowId) == 0)
+        }
+    }
+
+    @Test @MainActor func workspaceInactiveHideTreatsLastAppliedFrameAsHintAndFailsClosedWhenMoveCannotBeVerified() {
+        let controller = makeLayoutPlanTestController()
+        AXWindowService.fastFrameProviderForTests = { _ in nil }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+        }
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let inactiveWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing monitor or workspace for cached-frame workspace hide test")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeUnavailableLayoutPlanTestWindow(windowId: 611),
+            pid: 611,
+            windowId: 611,
+            to: inactiveWorkspaceId,
+            mode: .tiling
+        )
+        let staleCachedFrame = CGRect(x: 260, y: 200, width: 720, height: 460)
+        controller.axManager.applyFramesParallel([(token.pid, token.windowId, staleCachedFrame)])
+
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for cached-frame workspace hide test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: token) == nil)
+        #expect(controller.layoutRefreshController.workspaceInactiveHideRetryCount(for: token.windowId) == 0)
+        #expect(!controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+    }
+
+    @Test @MainActor func workspaceInactiveHideRetriesOnceThenAwaitsFreshFrame() {
+        let controller = makeLayoutPlanTestController()
+        AXWindowService.fastFrameProviderForTests = { _ in nil }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+        }
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or workspace for workspace-inactive retry test")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeUnavailableLayoutPlanTestWindow(windowId: 608),
+            pid: 608,
+            windowId: 608,
+            to: workspaceId,
+            mode: .tiling
+        )
+        guard let entry = controller.workspaceManager.entry(for: token) else {
+            Issue.record("Missing entry for workspace-inactive retry test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.workspaceManager.hiddenState(for: token) == nil)
+        #expect(controller.layoutRefreshController.workspaceInactiveHideRetryCount(for: token.windowId) == 0)
+        #expect(!controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+
+        controller.layoutRefreshController.hideWindow(
+            entry,
+            monitor: monitor,
+            side: .left,
+            reason: .workspaceInactive
+        )
+
+        #expect(controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+
+        controller.layoutRefreshController.handleFreshFrameEvent(for: token)
+
+        #expect(controller.layoutRefreshController.workspaceInactiveHideRetryCount(for: token.windowId) == nil)
+        #expect(!controller.layoutRefreshController.isAwaitingFreshFrameAfterWorkspaceHideFailure(for: token.windowId))
+    }
+
+    @Test @MainActor func hiddenOriginClearsOnWorkspaceAndScratchpadRevealPaths() async {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let activeWorkspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id,
+              let inactiveWorkspaceId = controller.workspaceManager.workspaceId(for: "2", createIfMissing: false)
+        else {
+            Issue.record("Missing monitor or workspace for hidden-origin clearing test")
+            return
+        }
+
+        let workspaceToken = addLayoutPlanTestWindow(on: controller, workspaceId: inactiveWorkspaceId, windowId: 609)
+        let scratchpadToken = addLayoutPlanTestWindow(on: controller, workspaceId: activeWorkspaceId, windowId: 610)
+
+        let workspaceVisibleFrame = CGRect(x: 180, y: 180, width: 640, height: 420)
+        let scratchpadVisibleFrame = CGRect(x: 320, y: 220, width: 680, height: 440)
+        controller.axManager.applyFramesParallel([(workspaceToken.pid, workspaceToken.windowId, workspaceVisibleFrame)])
+        controller.axManager.applyFramesParallel([(scratchpadToken.pid, scratchpadToken.windowId, scratchpadVisibleFrame)])
+        AXWindowService.fastFrameProviderForTests = { axRef in
+            switch axRef.windowId {
+            case workspaceToken.windowId:
+                workspaceVisibleFrame
+            case scratchpadToken.windowId:
+                scratchpadVisibleFrame
+            default:
+                nil
+            }
+        }
+        defer {
+            AXWindowService.fastFrameProviderForTests = nil
+        }
+
+        guard let workspaceEntry = controller.workspaceManager.entry(for: workspaceToken),
+              let scratchpadEntry = controller.workspaceManager.entry(for: scratchpadToken)
+        else {
+            Issue.record("Missing entries for hidden-origin clearing test")
+            return
+        }
+
+        controller.layoutRefreshController.hideWindow(
+            workspaceEntry,
+            monitor: monitor,
+            side: .right,
+            reason: .workspaceInactive
+        )
+        controller.layoutRefreshController.hideWindow(
+            scratchpadEntry,
+            monitor: monitor,
+            side: .left,
+            reason: .scratchpad
+        )
+
+        #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: workspaceToken) != nil)
+        #expect(controller.layoutRefreshController.lastAppliedHideOrigin(for: scratchpadToken) != nil)
+
+        controller.axManager.applyFramesParallel([
+            (workspaceToken.pid, workspaceToken.windowId, CGRect(x: -1400, y: 180, width: 640, height: 420)),
+            (scratchpadToken.pid, scratchpadToken.windowId, CGRect(x: -1500, y: 220, width: 680, height: 440)),
+        ])
+
+        controller.layoutRefreshController.unhideWindow(workspaceEntry, monitor: monitor)
+        controller.layoutRefreshController.restoreScratchpadWindow(scratchpadEntry, monitor: monitor)
+
+        let clearedHiddenOrigins = await waitForConditionForTests {
+            controller.layoutRefreshController.lastAppliedHideOrigin(for: workspaceToken) == nil
+                && controller.layoutRefreshController.lastAppliedHideOrigin(for: scratchpadToken) == nil
+        }
+
+        #expect(clearedHiddenOrigins)
     }
 
     @Test @MainActor func hideWindowWithoutResolvedGeometryDoesNotMarkWindowHidden() {

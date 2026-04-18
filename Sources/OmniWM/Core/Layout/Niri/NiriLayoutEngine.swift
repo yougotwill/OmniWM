@@ -308,6 +308,22 @@ final class NiriLayoutEngine {
         return x
     }
 
+    func columnPlanningX(at index: Int, columns: [NiriContainer], gaps: CGFloat) -> CGFloat {
+        var x: CGFloat = 0
+        for i in 0 ..< index where i < columns.count {
+            x += columns[i].planningWidth + gaps
+        }
+        return x
+    }
+
+    func totalPlanningWidth(columns: [NiriContainer], gaps: CGFloat) -> CGFloat {
+        guard !columns.isEmpty else { return 0 }
+        let totalColumnWidth = columns.reduce(CGFloat.zero) { partial, column in
+            partial + column.planningWidth
+        }
+        return totalColumnWidth + gaps * CGFloat(max(0, columns.count - 1))
+    }
+
     func findColumn(containing window: NiriWindow, in workspaceId: WorkspaceDescriptor.ID) -> NiriContainer? {
         guard let col = column(of: window),
               let root = col.parent as? NiriRoot,

@@ -36,7 +36,7 @@ extension ViewportState {
 
         gesture.currentViewOffset = viewOffset
 
-        let totalColumnWidth = Double(totalWidth(columns: columns, gap: gap))
+        let totalColumnWidth = Double(totalPlanningWidth(columns: columns, gap: gap))
         guard totalColumnWidth.isFinite, totalColumnWidth > 0 else {
             return nil
         }
@@ -74,7 +74,7 @@ extension ViewportState {
             return
         }
 
-        let totalColumnWidth = Double(totalWidth(columns: columns, gap: gap))
+        let totalColumnWidth = Double(totalPlanningWidth(columns: columns, gap: gap))
         guard totalColumnWidth.isFinite, totalColumnWidth > 0 else {
             endGestureWithoutSnap(currentOffset: currentOffset)
             return
@@ -87,11 +87,11 @@ extension ViewportState {
         let projectedTrackerPos = gesture.tracker.projectedEndPosition() * normFactor
         let projectedOffset = projectedTrackerPos + gesture.deltaFromTracker
 
-        let activeColX = columnX(at: activeColumnIndex, columns: columns, gap: gap)
+        let activeColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
         let currentViewPos = Double(activeColX) + currentOffset
         let projectedViewPos = Double(activeColX) + projectedOffset
 
-        let result = snapTarget(
+        let result = planningSnapTarget(
             projectedViewPos: projectedViewPos,
             currentViewPos: currentViewPos,
             columns: columns,
@@ -101,7 +101,7 @@ extension ViewportState {
             alwaysCenterSingleColumn: alwaysCenterSingleColumn
         )
 
-        let newColX = columnX(at: result.columnIndex, columns: columns, gap: gap)
+        let newColX = columnPlanningX(at: result.columnIndex, columns: columns, gap: gap)
         let offsetDelta = activeColX - newColX
 
         activeColumnIndex = result.columnIndex

@@ -185,7 +185,7 @@ extension NiriLayoutEngine {
             rawColumns.append(
                 omniwm_niri_topology_column_input(
                     id: columnId,
-                    span: column.cachedWidth,
+                    span: column.planningWidth,
                     window_start_index: numericCast(windowStart),
                     window_count: numericCast(column.windowNodes.count),
                     active_window_index: Int32(clamping: column.activeTileIdx),
@@ -548,7 +548,7 @@ extension NiriLayoutEngine {
             var positions: [NodeId: CGFloat] = [:]
             positions.reserveCapacity(cols.count)
             for (index, column) in cols.enumerated() {
-                positions[column.id] = state.columnX(at: index, columns: cols, gap: gaps)
+                positions[column.id] = state.columnPlanningX(at: index, columns: cols, gap: gaps)
             }
             preparation.columnPositionSnapshot = positions
 
@@ -586,7 +586,7 @@ extension NiriLayoutEngine {
             let cols = columns(in: workspaceId)
             for (index, column) in cols.enumerated() {
                 guard let oldPosition = positions[column.id] else { continue }
-                let newPosition = state.columnX(at: index, columns: cols, gap: gaps)
+                let newPosition = state.columnPlanningX(at: index, columns: cols, gap: gaps)
                 let displacement = oldPosition - newPosition
                 guard abs(displacement) > 0.5 else { continue }
                 if column.hasMoveAnimationRunning {

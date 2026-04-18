@@ -13,7 +13,9 @@ extension NiriLayoutEngine {
     ) -> Bool {
         let oldColumnIndex = findColumn(containing: node, in: workspaceId)
             .flatMap { columnIndex(of: $0, in: workspaceId) }
-        let oldColumnPosition = oldColumnIndex.map { state.columnX(at: $0, columns: columns(in: workspaceId), gap: gaps) }
+        let oldColumnPosition = oldColumnIndex.map {
+            state.columnPlanningX(at: $0, columns: columns(in: workspaceId), gap: gaps)
+        }
         let oldTileIndex = (node.parent as? NiriContainer)?.windowNodes.firstIndex { $0 === node } ?? 0
         let oldTileOffset = (node.parent as? NiriContainer).map {
             computeTileOffset(column: $0, tileIdx: oldTileIndex, gaps: gaps)
@@ -70,14 +72,14 @@ extension NiriLayoutEngine {
            let targetColumn = findColumn(containing: movedWindow, in: workspaceId)
         {
             let newColumns = columns(in: workspaceId)
-            let targetColumnPosition = state.columnX(at: targetColumnIndex, columns: newColumns, gap: gaps)
+            let targetColumnPosition = state.columnPlanningX(at: targetColumnIndex, columns: newColumns, gap: gaps)
             let targetTileOffset = computeTileOffset(
                 column: targetColumn,
                 tileIdx: max(0, targetWindowIndex),
                 gaps: gaps
             )
             let columnDisplacement: CGFloat = if effect == .consumeWindow, direction == .right {
-                targetColumn.cachedWidth + gaps
+                targetColumn.planningWidth + gaps
             } else {
                 0
             }
