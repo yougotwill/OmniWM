@@ -98,6 +98,7 @@ extension ViewportState {
         activeColumnIndex = 0
         viewOffsetPixels = .static(0.0)
         selectionProgress = 0.0
+        preserveViewportDuringTopologySync = false
         selectedNodeId = nil
     }
 

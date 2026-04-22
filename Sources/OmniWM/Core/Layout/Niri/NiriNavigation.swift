@@ -2,13 +2,34 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
+    private struct ColumnSelectionMove {
+        let node: NiriNode
+        let columnIndex: Int?
+    }
+
     func moveSelectionByColumns(
         steps: Int,
         currentSelection: NiriNode,
         in workspaceId: WorkspaceDescriptor.ID,
         targetRowIndex: Int? = nil
     ) -> NiriNode? {
-        guard steps != 0 else { return currentSelection }
+        selectionMoveByColumns(
+            steps: steps,
+            currentSelection: currentSelection,
+            in: workspaceId,
+            targetRowIndex: targetRowIndex
+        )?.node
+    }
+
+    private func selectionMoveByColumns(
+        steps: Int,
+        currentSelection: NiriNode,
+        in workspaceId: WorkspaceDescriptor.ID,
+        targetRowIndex: Int? = nil
+    ) -> ColumnSelectionMove? {
+        guard steps != 0 else {
+            return ColumnSelectionMove(node: currentSelection, columnIndex: nil)
+        }
         let direction: Direction = steps > 0 ? .right : .left
         var state = ViewportState()
         state.selectedNodeId = currentSelection.id
@@ -26,7 +47,45 @@ extension NiriLayoutEngine {
             return nil
         }
         guard plan.didApply else { return nil }
-        return findWindow(in: plan, id: plan.result.selected_window_id)
+        guard let selected = findWindow(in: plan, id: plan.result.selected_window_id) else {
+            return nil
+        }
+        let columnIndex = plan.result.active_column_index >= 0
+            ? Int(plan.result.active_column_index)
+            : nil
+        return ColumnSelectionMove(node: selected, columnIndex: columnIndex)
+    }
+
+    func moveScrollSelectionByColumns(
+        steps: Int,
+        in workspaceId: WorkspaceDescriptor.ID,
+        state: inout ViewportState,
+        columns: [NiriContainer],
+        gap: CGFloat
+    ) -> NiriWindow? {
+        guard let currentId = state.selectedNodeId,
+              let currentNode = findNode(by: currentId),
+              let move = selectionMoveByColumns(
+                  steps: steps,
+                  currentSelection: currentNode,
+                  in: workspaceId
+              )
+        else {
+            return nil
+        }
+
+        state.selectedNodeId = move.node.id
+
+        guard let windowNode = move.node as? NiriWindow else { return nil }
+        if let columnIndex = move.columnIndex {
+            state.reanchorActiveColumnPreservingViewport(
+                columnIndex,
+                columns: columns,
+                gap: gap
+            )
+        }
+
+        return windowNode
     }
 
     func moveSelectionHorizontal(

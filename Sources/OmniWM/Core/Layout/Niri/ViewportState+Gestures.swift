@@ -45,10 +45,6 @@ extension ViewportState {
         guard avgColumnWidth.isFinite, avgColumnWidth > 0 else {
             return nil
         }
-
-
-
-
         selectionProgress += deltaPixels * CGFloat(normFactor)
         let steps = Int((selectionProgress / CGFloat(avgColumnWidth)).rounded(.towardZero))
         if steps != 0 {
@@ -83,10 +79,10 @@ extension ViewportState {
             return
         }
 
-        let velocity = gesture.currentVelocity()
         let normFactor = gesture.isTrackpad
             ? Double(viewportWidth) / viewGestureWorkingAreaMovement
             : 1.0
+        let velocity = gesture.currentVelocity() * normFactor
         let projectedTrackerPos = gesture.tracker.projectedEndPosition() * normFactor
         let projectedOffset = projectedTrackerPos + gesture.deltaFromTracker
 
@@ -116,6 +112,7 @@ extension ViewportState {
             activatePrevColumnOnRemoval = nil
             viewOffsetToRestore = nil
             selectionProgress = 0.0
+            preserveViewportDuringTopologySync = false
             return
         }
 
@@ -133,6 +130,7 @@ extension ViewportState {
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
         selectionProgress = 0.0
+        preserveViewportDuringTopologySync = false
     }
 
     private mutating func endGestureWithoutSnap(currentOffset: Double) {
@@ -140,6 +138,7 @@ extension ViewportState {
         activatePrevColumnOnRemoval = nil
         viewOffsetToRestore = nil
         selectionProgress = 0.0
+        preserveViewportDuringTopologySync = false
     }
 
 }

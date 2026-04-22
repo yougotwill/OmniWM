@@ -549,6 +549,29 @@ private func makeContainers(
         #expect(abs(toFirst.viewOffsetPixels.target() + 60) < 0.001)
     }
 
+    @Test func scrollReanchorPreservesPlanningViewportAndClearsRestoreBookkeeping() {
+        let columns = makeContainers(widths: [100, 200])
+        columns[0].targetWidth = 300
+        columns[1].targetWidth = 400
+
+        var state = ViewportState()
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(25)
+        state.viewOffsetToRestore = 77
+        state.activatePrevColumnOnRemoval = 88
+
+        state.reanchorActiveColumnPreservingViewport(
+            1,
+            columns: columns,
+            gap: 10
+        )
+
+        #expect(state.activeColumnIndex == 1)
+        #expect(abs(state.viewOffsetPixels.target() + 285) < 0.001)
+        #expect(state.viewOffsetToRestore == nil)
+        #expect(state.activatePrevColumnOnRemoval == nil)
+    }
+
     @Test func updateGestureReturnsNilForZeroWidthSingleColumn() {
         var state = ViewportState()
         state.beginGesture(isTrackpad: true)
@@ -616,6 +639,38 @@ private func makeContainers(
             #expect(state.viewOffsetToRestore == nil, Comment(rawValue: scenario.label))
             #expect(state.activatePrevColumnOnRemoval == nil, Comment(rawValue: scenario.label))
         }
+    }
+
+    @Test func endGestureWithEnabledMotionCreatesSettleSpring() {
+        let columns = makeContainers(widths: [400, 400])
+
+        var state = ViewportState()
+        state.animationClock = AnimationClock(time: 1.0)
+        state.activeColumnIndex = 0
+        state.viewOffsetPixels = .static(-400)
+        state.beginGesture(isTrackpad: false)
+        _ = state.updateGesture(
+            deltaPixels: 500,
+            timestamp: 1.0,
+            columns: columns,
+            gap: 8,
+            viewportWidth: 1200
+        )
+
+        state.endGesture(
+            columns: columns,
+            gap: 8,
+            viewportWidth: 1200,
+            motion: .enabled,
+            centerMode: .always
+        )
+
+        #expect(state.activeColumnIndex == 1)
+        #expect(state.viewOffsetPixels.isAnimating)
+        #expect(abs(state.viewOffsetPixels.target() + 400) < 0.001)
+        #expect(state.selectionProgress == 0)
+        #expect(state.viewOffsetToRestore == nil)
+        #expect(state.activatePrevColumnOnRemoval == nil)
     }
 
     @Test func endGestureMatchesSharedSnapTargetAcrossNormalAndFullscreenScenarios() {
@@ -701,7 +756,7 @@ private func makeContainers(
                 continue
             }
 
-            let activeColumnX = state.columnX(
+            let activeColumnX = state.columnPlanningX(
                 at: state.activeColumnIndex,
                 columns: columns,
                 gap: scenario.gap
@@ -710,7 +765,7 @@ private func makeContainers(
             let projectedViewPos = Double(activeColumnX)
                 + gesture.tracker.projectedEndPosition()
                 + gesture.deltaFromTracker
-            let expectedTarget = state.snapTarget(
+            let expectedTarget = state.planningSnapTarget(
                 projectedViewPos: projectedViewPos,
                 currentViewPos: currentViewPos,
                 columns: columns,
@@ -729,7 +784,7 @@ private func makeContainers(
 
             let expectedOffset = expectedTarget.viewPos
                 - Double(
-                    state.columnX(
+                    state.columnPlanningX(
                         at: expectedTarget.columnIndex,
                         columns: columns,
                         gap: scenario.gap

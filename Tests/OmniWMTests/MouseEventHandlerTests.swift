@@ -626,6 +626,155 @@ private func prepareMouseResizeFixture(
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
     }
 
+    @Test @MainActor func mouseWheelViewportScrollUsesStaticOffset() async {
+        let controller = makeMouseEventTestController()
+        controller.settings.scrollGestureEnabled = true
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.syncMonitorsToNiriEngine()
+
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId),
+              let engine = controller.niriEngine
+        else {
+            Issue.record("Missing Niri context for mouse wheel scroll test")
+            return
+        }
+
+        let firstToken = controller.workspaceManager.addWindow(
+            makeMouseEventTestWindow(windowId: 611),
+            pid: getpid(),
+            windowId: 611,
+            to: workspaceId
+        )
+        let secondToken = controller.workspaceManager.addWindow(
+            makeMouseEventTestWindow(windowId: 614),
+            pid: getpid(),
+            windowId: 614,
+            to: workspaceId
+        )
+        guard let firstHandle = controller.workspaceManager.handle(for: firstToken),
+              let secondHandle = controller.workspaceManager.handle(for: secondToken)
+        else {
+            Issue.record("Missing handles for mouse wheel scroll test")
+            return
+        }
+
+        _ = engine.syncWindows(
+            [firstHandle, secondHandle],
+            in: workspaceId,
+            selectedNodeId: nil,
+            focusedHandle: firstHandle
+        )
+        guard let node = engine.findNode(for: firstHandle) else {
+            Issue.record("Missing node for mouse wheel scroll test")
+            return
+        }
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = node.id
+            state.activeColumnIndex = 0
+            state.viewOffsetPixels = .static(0)
+        }
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        controller.mouseEventHandler.applyMouseViewportScrollDelta(
+            120,
+            isTrackpad: false,
+            engine: engine,
+            wsId: workspaceId,
+            monitor: monitor
+        )
+
+        let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(!state.viewOffsetPixels.isGesture)
+        #expect(!state.viewOffsetPixels.isAnimating)
+        #expect(abs(state.viewOffsetPixels.target() - 120) < 0.001)
+
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        let postRelayoutState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(!postRelayoutState.viewOffsetPixels.isGesture)
+        #expect(!postRelayoutState.viewOffsetPixels.isAnimating)
+        #expect(abs(postRelayoutState.viewOffsetPixels.target() - 120) < 0.001)
+    }
+
+    @Test @MainActor func committedTrackpadGestureFinalizationStartsSettleAnimation() async {
+        let controller = makeMouseEventTestController()
+        controller.settings.scrollGestureEnabled = true
+        controller.enableNiriLayout(
+            maxWindowsPerColumn: 1,
+            centerFocusedColumn: .always,
+            alwaysCenterSingleColumn: false
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+        controller.syncMonitorsToNiriEngine()
+
+        guard let workspaceId = controller.activeWorkspace()?.id,
+              let monitor = controller.workspaceManager.monitor(for: workspaceId),
+              let engine = controller.niriEngine
+        else {
+            Issue.record("Missing Niri context for trackpad settle test")
+            return
+        }
+
+        let token = controller.workspaceManager.addWindow(
+            makeMouseEventTestWindow(windowId: 612),
+            pid: getpid(),
+            windowId: 612,
+            to: workspaceId
+        )
+        guard let handle = controller.workspaceManager.handle(for: token) else {
+            Issue.record("Missing handle for trackpad settle test")
+            return
+        }
+
+        _ = engine.syncWindows(
+            [handle],
+            in: workspaceId,
+            selectedNodeId: nil,
+            focusedHandle: handle
+        )
+        guard let node = engine.findNode(for: handle) else {
+            Issue.record("Missing node for trackpad settle test")
+            return
+        }
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = node.id
+            state.activeColumnIndex = 0
+            state.viewOffsetPixels = .static(0)
+        }
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .workspaceTransition,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        controller.mouseEventHandler.applyMouseViewportScrollDelta(
+            40,
+            isTrackpad: true,
+            engine: engine,
+            wsId: workspaceId,
+            monitor: monitor
+        )
+
+        let inFlightState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(inFlightState.viewOffsetPixels.isGesture)
+
+        controller.mouseEventHandler.finalizeOrCancelCommittedGesture(
+            using: .init(workspaceId: workspaceId, monitorId: monitor.id),
+            engine: engine
+        )
+
+        let finalizedState = controller.workspaceManager.niriViewportState(for: workspaceId)
+        #expect(!finalizedState.viewOffsetPixels.isGesture)
+        #expect(finalizedState.viewOffsetPixels.isAnimating)
+        #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == workspaceId)
+    }
+
     @Test @MainActor func scrollBurstOnlyMergesWithinMatchingModifierAndPhaseGroups() {
         let controller = makeMouseEventTestController()
         let handler = controller.mouseEventHandler

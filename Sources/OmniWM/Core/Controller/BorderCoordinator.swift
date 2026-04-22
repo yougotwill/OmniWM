@@ -487,6 +487,7 @@ final class BorderCoordinator {
            previousOwner == nextOwner,
            !source.requiresManagedWindowInfoRefresh,
            !source.invalidatesManagedEligibilityCache,
+           !managedTargetPrefersObservedFrame(target),
            let preferredFrame,
            let orderingMetadata = ownerState.orderingMetadata
         {
@@ -977,6 +978,18 @@ final class BorderCoordinator {
         return observedFrame(for: axRef) ?? windowInfo?.frame ?? preferredFrame
     }
 
+    private func managedTargetPrefersObservedFrame(_ target: KeyboardFocusTarget) -> Bool {
+        guard target.isManaged,
+              let controller,
+              let entry = controller.workspaceManager.entry(for: target.token)
+        else {
+            return false
+        }
+
+        return controller.axManager.shouldPreferObservedFrame(for: entry.windowId)
+            || controller.appInfoCache.bundleId(for: target.pid) == Self.ghosttyBundleId
+    }
+
     private func cachedManagedRenderContext(
         target: KeyboardFocusTarget,
         owner: BorderOwner,
@@ -995,6 +1008,7 @@ final class BorderCoordinator {
 
         guard owner.isManaged,
               reuseManagedCache,
+              !managedTargetPrefersObservedFrame(target),
               ownerState.owner == owner,
               ownerState.lastRenderPolicy == policy,
               ownerState.cachedAXRef?.windowId == axRef.windowId,

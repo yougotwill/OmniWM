@@ -1103,40 +1103,48 @@ final class MouseEventHandler {
                 vstate.cancelAnimation()
             }
 
-            if !vstate.viewOffsetPixels.isGesture {
-                vstate.beginGesture(isTrackpad: isTrackpad)
+            let steps: Int?
+            if isTrackpad {
+                if !vstate.viewOffsetPixels.isGesture {
+                    vstate.beginGesture(isTrackpad: isTrackpad)
+                }
+
+                let timestamp = CACurrentMediaTime()
+                steps = vstate.updateGesture(
+                    deltaPixels: delta,
+                    timestamp: timestamp,
+                    columns: columns,
+                    gap: gap,
+                    viewportWidth: viewportWidth
+                )
+            } else {
+                steps = vstate.scrollByPixels(
+                    delta,
+                    columns: columns,
+                    gap: gap,
+                    viewportWidth: viewportWidth,
+                    changeSelection: true
+                )
             }
 
-            let timestamp = CACurrentMediaTime()
-            if let steps = vstate.updateGesture(
-                deltaPixels: delta,
-                timestamp: timestamp,
-                columns: columns,
-                gap: gap,
-                viewportWidth: viewportWidth
-            ) {
-                if let currentId = vstate.selectedNodeId,
-                   let currentNode = engine.findNode(by: currentId),
-                   let newNode = engine.moveSelectionByColumns(
-                       steps: steps,
-                       currentSelection: currentNode,
-                       in: wsId
-                   )
-                {
-                    vstate.selectedNodeId = newNode.id
-
-                    if let windowNode = newNode as? NiriWindow {
-                        _ = controller.workspaceManager.applySessionPatch(
-                            .init(
-                                workspaceId: wsId,
-                                viewportState: nil,
-                                rememberedFocusToken: windowNode.token
-                            )
-                        )
-                        engine.updateFocusTimestamp(for: windowNode.id)
-                        targetWindowHandle = controller.workspaceManager.handle(for: windowNode.token)
-                    }
-                }
+            if let steps,
+               let windowNode = engine.moveScrollSelectionByColumns(
+                   steps: steps,
+                   in: wsId,
+                   state: &vstate,
+                   columns: columns,
+                   gap: gap
+               )
+            {
+                _ = controller.workspaceManager.applySessionPatch(
+                    .init(
+                        workspaceId: wsId,
+                        viewportState: nil,
+                        rememberedFocusToken: windowNode.token
+                    )
+                )
+                engine.updateFocusTimestamp(for: windowNode.id)
+                targetWindowHandle = controller.workspaceManager.handle(for: windowNode.token)
             }
         }
         controller.layoutRefreshController.requestImmediateRelayout(
@@ -1160,10 +1168,10 @@ final class MouseEventHandler {
             return
         }
 
+        var startedAnimation = false
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let columns = engine.columns(in: wsId)
         let gap = CGFloat(controller.workspaceManager.gaps)
-
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
             controller.niriLayoutHandler.syncAnimationRefreshRate(
                 for: monitor,
@@ -1178,8 +1186,19 @@ final class MouseEventHandler {
                 centerMode: engine.centerFocusedColumn,
                 alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn
             )
+            startedAnimation = controller.niriLayoutHandler.startScrollAnimationIfNeeded(
+                for: wsId,
+                state: endState,
+                engine: engine
+            )
         }
-        controller.layoutRefreshController.startScrollAnimation(for: wsId)
+
+        if !startedAnimation {
+            controller.layoutRefreshController.requestImmediateRelayout(
+                reason: .interactiveGesture,
+                affectedWorkspaceIds: [wsId]
+            )
+        }
     }
 
     private func cancelCommittedGestureViewportState(for wsId: WorkspaceDescriptor.ID) {
@@ -1191,6 +1210,7 @@ final class MouseEventHandler {
             vstate.selectionProgress = 0.0
             vstate.viewOffsetToRestore = nil
             vstate.activatePrevColumnOnRemoval = nil
+            vstate.preserveViewportDuringTopologySync = false
             didCancel = true
         }
         if didCancel {
@@ -1212,12 +1232,6 @@ final class MouseEventHandler {
         }
         resetGestureState()
     }
-
-
-
-
-
-
 
     private func finalizeOrAbortActiveGesture(engine: NiriLayoutEngine) {
         if state.gesturePhase == .committed, let lockedContext = state.lockedGestureContext {

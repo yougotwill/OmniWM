@@ -29,16 +29,19 @@ private func hasPendingNiriAnimationWork(
         self.controller = controller
     }
 
-    private func startScrollAnimationIfNeeded(
+    @discardableResult
+    func startScrollAnimationIfNeeded(
         for workspaceId: WorkspaceDescriptor.ID,
         state: ViewportState,
         engine: NiriLayoutEngine
-    ) {
-        guard let controller else { return }
+    ) -> Bool {
+        guard let controller else { return false }
+        guard controller.motionPolicy.animationsEnabled else { return false }
         guard hasPendingNiriAnimationWork(state: state, engine: engine, workspaceId: workspaceId) else {
-            return
+            return false
         }
         controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+        return true
     }
 
     func registerScrollAnimation(_ workspaceId: WorkspaceDescriptor.ID, on displayId: CGDirectDisplayID) -> Bool {
@@ -411,11 +414,11 @@ private func hasPendingNiriAnimationWork(
         let newTokens = windowTokens.filter { !existingHandleIds.contains($0) }
         let offsetBefore = state.viewOffsetPixels.current()
 
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
+        pass.engine.prepareColumnWidths(
+            in: pass.wsId,
+            workingAreaWidth: pass.insetFrame.width,
+            gaps: pass.gap
+        )
 
         let resetForSingleWindow = windowTokens.count == 1
             && pass.engine.effectiveSingleWindowAspectRatio(in: pass.wsId).ratio != nil
@@ -461,11 +464,11 @@ private func hasPendingNiriAnimationWork(
             motion: motion
         )
 
-        for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
-        }
+        pass.engine.prepareColumnWidths(
+            in: pass.wsId,
+            workingAreaWidth: pass.insetFrame.width,
+            gaps: pass.gap
+        )
 
         if !existingHandleIds.isEmpty,
            plan.effectKind == .addColumn,
@@ -936,9 +939,11 @@ private func hasPendingNiriAnimationWork(
         let gap = CGFloat(controller.workspaceManager.gaps)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
 
-        for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
-            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
-        }
+        engine.prepareColumnWidths(
+            in: wsId,
+            workingAreaWidth: workingFrame.width,
+            gaps: gap
+        )
 
         if let newNode = engine.focusTarget(
             direction: direction,

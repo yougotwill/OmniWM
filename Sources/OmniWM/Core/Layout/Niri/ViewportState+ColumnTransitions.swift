@@ -37,6 +37,25 @@ extension ViewportState {
         viewOffsetToRestore = nil
     }
 
+    mutating func reanchorActiveColumnPreservingViewport(
+        _ index: Int,
+        columns: [NiriContainer],
+        gap: CGFloat
+    ) {
+        guard !columns.isEmpty else { return }
+        let clampedIndex = index.clamped(to: 0 ... (columns.count - 1))
+        guard clampedIndex != activeColumnIndex else { return }
+
+        let oldActiveColX = columnPlanningX(at: activeColumnIndex, columns: columns, gap: gap)
+        let newActiveColX = columnPlanningX(at: clampedIndex, columns: columns, gap: gap)
+        let offsetDelta = oldActiveColX - newActiveColX
+
+        activeColumnIndex = clampedIndex
+        viewOffsetPixels.offset(delta: Double(offsetDelta))
+        activatePrevColumnOnRemoval = nil
+        viewOffsetToRestore = nil
+    }
+
     mutating func transitionToColumn(
         _ newIndex: Int,
         columns: [NiriContainer],
@@ -180,6 +199,7 @@ extension ViewportState {
         let newOffset = currentOffset + deltaPixels
 
         viewOffsetPixels = .static(newOffset)
+        preserveViewportDuringTopologySync = true
 
         if changeSelection {
             selectionProgress += deltaPixels

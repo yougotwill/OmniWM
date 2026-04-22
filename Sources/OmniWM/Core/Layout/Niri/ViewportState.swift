@@ -159,6 +159,8 @@ struct ViewportState {
 
     var activatePrevColumnOnRemoval: CGFloat?
 
+    var preserveViewportDuringTopologySync = false
+
     let springConfig: SpringConfig = .snappy
 
     var animationClock: AnimationClock?

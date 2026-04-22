@@ -271,7 +271,9 @@ extension NiriLayoutEngine {
             reset_for_single_window: resetForSingleWindow ? 1 : 0,
             is_active_workspace: isActiveWorkspace ? 1 : 0,
             has_completed_initial_refresh: hasCompletedInitialRefresh ? 1 : 0,
-            viewport_is_gesture_or_animation: (state.viewOffsetPixels.isGesture || state.viewOffsetPixels.isAnimating) ?
+            viewport_is_gesture_or_animation: (state.viewOffsetPixels.isGesture
+                || state.viewOffsetPixels.isAnimating
+                || state.preserveViewportDuringTopologySync) ?
                 1 : 0
         )
     }
@@ -492,6 +494,7 @@ extension NiriLayoutEngine {
 
         if !state.viewOffsetPixels.isGesture {
             state.selectionProgress = 0
+            state.preserveViewportDuringTopologySync = false
         }
     }
 

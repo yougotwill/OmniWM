@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 
 extension NiriLayoutEngine {
+    func prepareColumnWidths(
+        in workspaceId: WorkspaceDescriptor.ID,
+        workingAreaWidth: CGFloat,
+        gaps: CGFloat
+    ) {
+        for column in columns(in: workspaceId) where column.cachedWidth <= 0 {
+            column.resolveAndCacheWidth(workingAreaWidth: workingAreaWidth, gaps: gaps)
+        }
+    }
+
     private func cachedWidthForResizeStart(
         _ column: NiriContainer,
         in workspaceId: WorkspaceDescriptor.ID,

@@ -263,16 +263,15 @@ extension NiriLayoutEngine {
             )
         }
 
-        for container in containers {
-            switch orientation {
-            case .horizontal:
-                if container.cachedWidth <= 0 {
-                    container.resolveAndCacheWidth(
-                        workingAreaWidth: workingArea.workingFrame.width,
-                        gaps: gaps.horizontal
-                    )
-                }
-            case .vertical:
+        switch orientation {
+        case .horizontal:
+            prepareColumnWidths(
+                in: workspaceId,
+                workingAreaWidth: workingArea.workingFrame.width,
+                gaps: gaps.horizontal
+            )
+        case .vertical:
+            for container in containers {
                 if container.cachedHeight <= 0 {
                     container.resolveAndCacheHeight(
                         workingAreaHeight: workingArea.workingFrame.height,

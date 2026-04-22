@@ -108,9 +108,11 @@ extension NiriLayoutEngine {
         let addedCol = cols[addedIdx]
         let activeIdx = state.activeColumnIndex
 
-        if addedCol.cachedWidth <= 0 {
-            addedCol.resolveAndCacheWidth(workingAreaWidth: workingAreaWidth, gaps: gaps)
-        }
+        prepareColumnWidths(
+            in: workspaceId,
+            workingAreaWidth: workingAreaWidth,
+            gaps: gaps
+        )
 
         let offset = addedCol.planningWidth + gaps
 
