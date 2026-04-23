@@ -29,6 +29,12 @@ private func hasPendingNiriAnimationWork(
         self.controller = controller
     }
 
+    private func hiddenPlacementMonitorContexts() -> [HiddenPlacementMonitorContext] {
+        guard let controller else { return [] }
+        return Monitor.sortedByPosition(controller.workspaceManager.monitors)
+            .map(HiddenPlacementMonitorContext.init)
+    }
+
     @discardableResult
     func startScrollAnimationIfNeeded(
         for workspaceId: WorkspaceDescriptor.ID,
@@ -311,7 +317,8 @@ private func hasPendingNiriAnimationWork(
             gaps: gaps,
             state: snapshot.viewportState,
             workingArea: area,
-            animationTime: animationTime
+            animationTime: animationTime,
+            hiddenPlacementMonitors: hiddenPlacementMonitorContexts()
         )
 
         let diff = layoutDiff(
@@ -566,7 +573,8 @@ private func hasPendingNiriAnimationWork(
             gaps: gaps,
             state: state,
             workingArea: area,
-            animationTime: nil
+            animationTime: nil,
+            hiddenPlacementMonitors: hiddenPlacementMonitorContexts()
         )
 
         let restoreFrameOverrides = restoreContexts.compactMapValues(\.restoreFrame)
@@ -1568,7 +1576,9 @@ struct NodeActivationOptions {
             gaps: layoutGaps,
             state: state,
             workingArea: workingArea,
-            animationTime: animationTime
+            animationTime: animationTime,
+            hiddenPlacementMonitors: Monitor.sortedByPosition(controller.workspaceManager.monitors)
+                .map(HiddenPlacementMonitorContext.init)
         ).frames
         _ = engine.triggerMoveAnimations(
             in: wsId,

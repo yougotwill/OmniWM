@@ -230,6 +230,7 @@ typedef struct {
     double rendered_height;
     double resolved_span;
     uint8_t hidden_edge;
+    uint8_t physical_hidden_edge;
 } omniwm_niri_window_output;
 
 typedef struct {

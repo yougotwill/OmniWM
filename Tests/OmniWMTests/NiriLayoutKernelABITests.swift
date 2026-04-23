@@ -100,7 +100,8 @@ private func zeroWindowOutput() -> omniwm_niri_window_output {
         rendered_width: 0,
         rendered_height: 0,
         resolved_span: 0,
-        hidden_edge: 0
+        hidden_edge: 0,
+        physical_hidden_edge: 0
     )
 }
 
@@ -128,7 +129,8 @@ private func sentinelWindowOutput() -> omniwm_niri_window_output {
         rendered_width: 999,
         rendered_height: 999,
         resolved_span: 999,
-        hidden_edge: 255
+        hidden_edge: 255,
+        physical_hidden_edge: 255
     )
 }
 
@@ -361,9 +363,11 @@ struct NiriLayoutKernelABITests {
         #expect(abs(windowOutputs[0].rendered_width - 1200) < 0.001)
         #expect(abs(windowOutputs[0].resolved_span - 900) < 0.001)
         #expect(windowOutputs[0].hidden_edge == UInt8(OMNIWM_NIRI_HIDDEN_EDGE_NONE))
+        #expect(windowOutputs[0].physical_hidden_edge == UInt8(OMNIWM_NIRI_HIDDEN_EDGE_NONE))
         #expect(containerOutputs[1].canonical_x == 999)
         #expect(windowOutputs[1].resolved_span == 999)
         #expect(windowOutputs[1].hidden_edge == 255)
+        #expect(windowOutputs[1].physical_hidden_edge == 255)
     }
 
     @Test func offscreenSecondContainerReturnsMaximumHiddenEdgeInStableIndexOrder() {
@@ -408,6 +412,7 @@ struct NiriLayoutKernelABITests {
         #expect(abs(windowOutputs[1].canonical_x - 608) < 0.001)
         #expect(abs(windowOutputs[1].rendered_x - 599.5) < 0.001)
         #expect(windowOutputs[1].hidden_edge == UInt8(OMNIWM_NIRI_HIDDEN_EDGE_MAXIMUM))
+        #expect(windowOutputs[1].physical_hidden_edge == UInt8(OMNIWM_NIRI_HIDDEN_EDGE_MAXIMUM))
     }
 
     @Test func insufficientOutputCapacityReturnsInvalidArgument() {

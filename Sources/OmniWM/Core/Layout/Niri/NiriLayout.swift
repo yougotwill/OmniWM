@@ -322,8 +322,14 @@ extension NiriLayoutEngine {
             secondaryGap = gaps.horizontal
         }
 
+        var resolvedHiddenPlacementMonitors = hiddenPlacementMonitors
+        if let hiddenPlacementMonitor,
+           !resolvedHiddenPlacementMonitors.contains(where: { $0.id == hiddenPlacementMonitor.id }) {
+            resolvedHiddenPlacementMonitors.append(hiddenPlacementMonitor)
+        }
+
         let hiddenPlacementMonitorIndex = hiddenPlacementMonitor.flatMap { targetMonitor in
-            hiddenPlacementMonitors.firstIndex { $0.id == targetMonitor.id }
+            resolvedHiddenPlacementMonitors.firstIndex { $0.id == targetMonitor.id }
         } ?? -1
 
         let totalWindowCount = containers.reduce(into: 0) { $0 += $1.windowNodes.count }
@@ -370,7 +376,7 @@ extension NiriLayoutEngine {
         }
 
         let rawMonitors = ContiguousArray(
-            hiddenPlacementMonitors.map { monitor in
+            resolvedHiddenPlacementMonitors.map { monitor in
                 omniwm_niri_hidden_placement_monitor(
                     frame_x: monitor.frame.minX,
                     frame_y: monitor.frame.minY,
@@ -495,7 +501,8 @@ extension NiriLayoutEngine {
                 rendered_width: 0,
                 rendered_height: 0,
                 resolved_span: 0,
-                hidden_edge: 0
+                hidden_edge: 0,
+                physical_hidden_edge: 0
             ),
             count: snapshot.rawWindows.count
         )
@@ -563,7 +570,10 @@ extension NiriLayoutEngine {
             window.renderedFrame = renderedFrame
             frames[window.token] = renderedFrame
 
-            if let hiddenEdge = AxisHideEdge(kernelRawValue: output.hidden_edge) {
+            let hiddenEdgeRawValue = output.physical_hidden_edge != UInt8(OMNIWM_NIRI_HIDDEN_EDGE_NONE)
+                ? output.physical_hidden_edge
+                : output.hidden_edge
+            if let hiddenEdge = AxisHideEdge(kernelRawValue: hiddenEdgeRawValue) {
                 hiddenHandles[window.token] = hiddenEdge.encodedHideSide
             }
         }
@@ -646,7 +656,8 @@ extension NiriLayoutEngine {
             rendered_width: 0,
             rendered_height: 0,
             resolved_span: 0,
-            hidden_edge: 0
+            hidden_edge: 0,
+            physical_hidden_edge: 0
         )
 
         let status = withUnsafePointer(to: rawContainer) { containerPointer in

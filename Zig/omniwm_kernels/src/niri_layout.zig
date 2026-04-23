@@ -115,6 +115,7 @@ const NiriWindowOutput = extern struct {
     rendered_height: f64,
     resolved_span: f64,
     hidden_edge: u8,
+    physical_hidden_edge: u8,
 };
 
 const Point = struct {
@@ -145,6 +146,16 @@ const OverflowRegions = struct {
         self.items[self.len] = item;
         self.len += 1;
     }
+};
+
+const HiddenPlacementOrigin = struct {
+    origin: Point,
+    edge: u8,
+};
+
+const HiddenRenderedContainer = struct {
+    rect: Rect,
+    physical_edge: u8,
 };
 
 fn swiftMax(lhs: f64, rhs: f64) f64 {
@@ -497,7 +508,7 @@ fn hiddenPlacementOrigin(
     input: NiriLayoutInput,
     own_monitor_index: usize,
     monitors: []const HiddenPlacementMonitor,
-) Point {
+) HiddenPlacementOrigin {
     const reveal = 1.0 / swiftMax(1.0, sanitizeScale(input.scale));
     const monitor = monitors[own_monitor_index];
     const visible_frame = monitorVisibleFrame(monitor);
@@ -564,7 +575,7 @@ fn hiddenPlacementOrigin(
         monitors,
     );
     if (primary_overlap == 0) {
-        return primary_origin;
+        return .{ .origin = primary_origin, .edge = requested_edge };
     }
 
     const alternate_edge = oppositeHiddenEdge(requested_edge);
@@ -583,7 +594,10 @@ fn hiddenPlacementOrigin(
         monitors,
     );
 
-    return if (alternate_overlap < primary_overlap) alternate_origin else primary_origin;
+    if (alternate_overlap < primary_overlap) {
+        return .{ .origin = alternate_origin, .edge = alternate_edge };
+    }
+    return .{ .origin = primary_origin, .edge = requested_edge };
 }
 
 fn hiddenColumnRect(
@@ -631,7 +645,7 @@ fn hiddenRenderedContainerRect(
     edge: u8,
     input: NiriLayoutInput,
     monitors: []const HiddenPlacementMonitor,
-) Rect {
+) HiddenRenderedContainer {
     if (input.hidden_placement_monitor_index >= 0 and @as(usize, @intCast(input.hidden_placement_monitor_index)) < monitors.len) {
         const own_monitor_index: usize = @intCast(input.hidden_placement_monitor_index);
         const orthogonal_origin = switch (input.orientation) {
@@ -639,7 +653,7 @@ fn hiddenRenderedContainerRect(
             orientation_vertical => canonical_rect.x,
             else => canonical_rect.y,
         };
-        const origin = hiddenPlacementOrigin(
+        const placement = hiddenPlacementOrigin(
             canonical_rect.width,
             canonical_rect.height,
             edge,
@@ -648,21 +662,33 @@ fn hiddenRenderedContainerRect(
             own_monitor_index,
             monitors,
         );
-        return roundRect(
-            Rect{
-                .x = origin.x,
-                .y = origin.y,
-                .width = canonical_rect.width,
-                .height = canonical_rect.height,
-            },
-            input.scale,
-        );
+        return .{
+            .rect = roundRect(
+                Rect{
+                    .x = placement.origin.x,
+                    .y = placement.origin.y,
+                    .width = canonical_rect.width,
+                    .height = canonical_rect.height,
+                },
+                input.scale,
+            ),
+            .physical_edge = placement.edge,
+        };
     }
 
     return switch (input.orientation) {
-        orientation_horizontal => roundRect(hiddenColumnRect(edge, canonical_rect, viewRect(input), input.scale), input.scale),
-        orientation_vertical => roundRect(hiddenRowRect(edge, canonical_rect, viewRect(input), input.scale), input.scale),
-        else => canonical_rect,
+        orientation_horizontal => .{
+            .rect = roundRect(hiddenColumnRect(edge, canonical_rect, viewRect(input), input.scale), input.scale),
+            .physical_edge = edge,
+        },
+        orientation_vertical => .{
+            .rect = roundRect(hiddenRowRect(edge, canonical_rect, viewRect(input), input.scale), input.scale),
+            .physical_edge = edge,
+        },
+        else => .{
+            .rect = canonical_rect,
+            .physical_edge = edge,
+        },
     };
 }
 
@@ -748,6 +774,7 @@ fn writeWindowOutput(
     rendered_rect: Rect,
     resolved_span: f64,
     hidden_edge: u8,
+    physical_hidden_edge: u8,
 ) void {
     output.* = .{
         .canonical_x = canonical_rect.x,
@@ -760,6 +787,7 @@ fn writeWindowOutput(
         .rendered_height = rendered_rect.height,
         .resolved_span = resolved_span,
         .hidden_edge = hidden_edge,
+        .physical_hidden_edge = physical_hidden_edge,
     };
 }
 
@@ -769,6 +797,7 @@ fn layoutWindowsForContainer(
     canonical_container_rect: Rect,
     rendered_container_rect: Rect,
     hidden_edge: u8,
+    physical_hidden_edge: u8,
     windows: []const NiriWindowInput,
     axis_inputs: []AxisInput,
     axis_outputs: []AxisOutput,
@@ -885,6 +914,7 @@ fn layoutWindowsForContainer(
             rendered_rect,
             resolved_span,
             if (window.sizing_mode == window_sizing_fullscreen) hidden_edge_none else hidden_edge,
+            if (window.sizing_mode == window_sizing_fullscreen) hidden_edge_none else physical_hidden_edge,
         );
 
         if (container.is_tabbed == 0) {
@@ -949,6 +979,7 @@ fn solveWithScratch(
             canonical_rect,
             rendered_rect,
             hidden_edge_none,
+            hidden_edge_none,
             windows[window_start .. window_start + window_count],
             axis_inputs[window_start .. window_start + window_count],
             axis_outputs[window_start .. window_start + window_count],
@@ -989,10 +1020,13 @@ fn solveWithScratch(
         const visibility_rect = visibleRenderedContainerRect(canonical_rect, view_position, container, input);
 
         var resolved_hidden_edge: u8 = hidden_edge_none;
+        var physical_hidden_edge: u8 = hidden_edge_none;
         var rendered_rect = visibility_rect;
         if (!containerIntersectsViewport(visibility_rect, viewport_frame, input.orientation)) {
             resolved_hidden_edge = hiddenEdge(visibility_rect, viewport_frame, fallback_edge, input.orientation);
-            rendered_rect = hiddenRenderedContainerRect(canonical_rect, resolved_hidden_edge, input, monitors);
+            const hidden_container = hiddenRenderedContainerRect(canonical_rect, resolved_hidden_edge, input, monitors);
+            rendered_rect = hidden_container.rect;
+            physical_hidden_edge = hidden_container.physical_edge;
         } else {
             const neighboring_edge = overflowEdgeIntersectingNeighboringMonitor(
                 visibility_rect,
@@ -1002,7 +1036,9 @@ fn solveWithScratch(
             );
             if (neighboring_edge != hidden_edge_none) {
                 resolved_hidden_edge = neighboring_edge;
-                rendered_rect = hiddenRenderedContainerRect(canonical_rect, resolved_hidden_edge, input, monitors);
+                const hidden_container = hiddenRenderedContainerRect(canonical_rect, resolved_hidden_edge, input, monitors);
+                rendered_rect = hidden_container.rect;
+                physical_hidden_edge = hidden_container.physical_edge;
             }
         }
 
@@ -1016,6 +1052,7 @@ fn solveWithScratch(
             canonical_rect,
             rendered_rect,
             resolved_hidden_edge,
+            physical_hidden_edge,
             windows[window_start .. window_start + window_count],
             axis_inputs[window_start .. window_start + window_count],
             axis_outputs[window_start .. window_start + window_count],
@@ -1169,6 +1206,7 @@ fn expectWindowRect(
     try std.testing.expectApproxEqAbs(rendered_rect.height, output.rendered_height, 0.001);
     try std.testing.expectApproxEqAbs(resolved_span, output.resolved_span, 0.001);
     try std.testing.expectEqual(hidden_edge, output.hidden_edge);
+    try std.testing.expectEqual(hidden_edge, output.physical_hidden_edge);
 }
 
 test "niri solver handles empty inputs" {
@@ -1428,7 +1466,136 @@ test "niri solver keeps neighboring-monitor overflow hidden until fully containe
         ),
     );
     try std.testing.expectEqual(hidden_edge_maximum, window_outputs[1].hidden_edge);
+    try std.testing.expectEqual(hidden_edge_minimum, window_outputs[1].physical_hidden_edge);
     try std.testing.expect(window_outputs[1].rendered_x < monitors[1].frame_x);
+}
+
+test "niri solver reports physical hidden edge when monitor boundary flips placement" {
+    var input = testInput();
+    input.working_x = 1600;
+    input.view_x = 1600;
+    input.active_container_index = 2;
+    input.hidden_placement_monitor_index = 1;
+
+    const containers = [_]NiriContainerInput{
+        .{
+            .span = 1200,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .window_start_index = 0,
+            .window_count = 1,
+            .is_tabbed = 0,
+            .has_manual_single_window_width_override = 0,
+        },
+        .{
+            .span = 1200,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .window_start_index = 1,
+            .window_count = 1,
+            .is_tabbed = 0,
+            .has_manual_single_window_width_override = 0,
+        },
+        .{
+            .span = 1200,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .window_start_index = 2,
+            .window_count = 1,
+            .is_tabbed = 0,
+            .has_manual_single_window_width_override = 0,
+        },
+    };
+    const windows = [_]NiriWindowInput{
+        .{
+            .weight = 1,
+            .min_constraint = 1,
+            .max_constraint = 0,
+            .fixed_value = 0,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .has_max_constraint = 0,
+            .is_constraint_fixed = 0,
+            .has_fixed_value = 0,
+            .sizing_mode = window_sizing_normal,
+        },
+        .{
+            .weight = 1,
+            .min_constraint = 1,
+            .max_constraint = 0,
+            .fixed_value = 0,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .has_max_constraint = 0,
+            .is_constraint_fixed = 0,
+            .has_fixed_value = 0,
+            .sizing_mode = window_sizing_normal,
+        },
+        .{
+            .weight = 1,
+            .min_constraint = 1,
+            .max_constraint = 0,
+            .fixed_value = 0,
+            .render_offset_x = 0,
+            .render_offset_y = 0,
+            .has_max_constraint = 0,
+            .is_constraint_fixed = 0,
+            .has_fixed_value = 0,
+            .sizing_mode = window_sizing_normal,
+        },
+    };
+    const monitors = [_]HiddenPlacementMonitor{
+        .{
+            .frame_x = 0,
+            .frame_y = 0,
+            .frame_width = 1600,
+            .frame_height = 900,
+            .visible_x = 0,
+            .visible_y = 0,
+            .visible_width = 1600,
+            .visible_height = 900,
+        },
+        .{
+            .frame_x = 1600,
+            .frame_y = 0,
+            .frame_width = 1600,
+            .frame_height = 900,
+            .visible_x = 1600,
+            .visible_y = 0,
+            .visible_width = 1600,
+            .visible_height = 900,
+        },
+    };
+    var container_outputs = [_]NiriContainerOutput{
+        std.mem.zeroes(NiriContainerOutput),
+        std.mem.zeroes(NiriContainerOutput),
+        std.mem.zeroes(NiriContainerOutput),
+    };
+    var window_outputs = [_]NiriWindowOutput{
+        std.mem.zeroes(NiriWindowOutput),
+        std.mem.zeroes(NiriWindowOutput),
+        std.mem.zeroes(NiriWindowOutput),
+    };
+
+    try std.testing.expectEqual(
+        kernel_ok,
+        omniwm_niri_layout_solve(
+            &input,
+            &containers,
+            containers.len,
+            &windows,
+            windows.len,
+            &monitors,
+            monitors.len,
+            &container_outputs,
+            container_outputs.len,
+            &window_outputs,
+            window_outputs.len,
+        ),
+    );
+    try std.testing.expectEqual(hidden_edge_minimum, window_outputs[0].hidden_edge);
+    try std.testing.expectEqual(hidden_edge_maximum, window_outputs[0].physical_hidden_edge);
+    try std.testing.expect(window_outputs[0].rendered_x >= monitors[1].frame_x);
 }
 
 test "niri solver handles large window counts through heap scratch" {

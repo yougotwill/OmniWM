@@ -168,7 +168,8 @@ extension NiriLayoutEngine {
         gaps: LayoutGaps,
         state: ViewportState,
         workingArea: WorkingAreaContext? = nil,
-        animationTime: TimeInterval? = nil
+        animationTime: TimeInterval? = nil,
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) -> [WindowToken: CGRect] {
         calculateCombinedLayoutWithVisibility(
             in: workspaceId,
@@ -176,7 +177,8 @@ extension NiriLayoutEngine {
             gaps: gaps,
             state: state,
             workingArea: workingArea,
-            animationTime: animationTime
+            animationTime: animationTime,
+            hiddenPlacementMonitors: hiddenPlacementMonitors
         ).frames
     }
 
@@ -186,15 +188,18 @@ extension NiriLayoutEngine {
         gaps: LayoutGaps,
         state: ViewportState,
         workingArea: WorkingAreaContext? = nil,
-        animationTime: TimeInterval? = nil
+        animationTime: TimeInterval? = nil,
+        hiddenPlacementMonitors explicitHiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) -> LayoutResult {
         let area = workingArea ?? WorkingAreaContext(
             workingFrame: monitor.visibleFrame,
             viewFrame: monitor.frame,
             scale: 2.0
         )
-        let hiddenPlacementMonitor = HiddenPlacementMonitorContext(monitor)
-        let hiddenPlacementMonitors = monitors.values.map(HiddenPlacementMonitorContext.init)
+        let hiddenPlacementContexts = resolvedHiddenPlacementContexts(
+            target: monitor,
+            explicit: explicitHiddenPlacementMonitors
+        )
 
         let orientation = self.monitor(for: monitor.id)?.orientation ?? monitor.autoOrientation
 
@@ -208,8 +213,8 @@ extension NiriLayoutEngine {
             workingArea: area,
             orientation: orientation,
             animationTime: animationTime,
-            hiddenPlacementMonitor: hiddenPlacementMonitor,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
+            hiddenPlacementMonitor: hiddenPlacementContexts.target,
+            hiddenPlacementMonitors: hiddenPlacementContexts.monitors
         )
     }
 
@@ -219,7 +224,8 @@ extension NiriLayoutEngine {
         gaps: LayoutGaps,
         state: ViewportState,
         workingArea: WorkingAreaContext? = nil,
-        animationTime: TimeInterval? = nil
+        animationTime: TimeInterval? = nil,
+        hiddenPlacementMonitors explicitHiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
     ) -> (frames: [WindowToken: CGRect], hiddenHandles: [WindowToken: HideSide]) {
         framePool.removeAll(keepingCapacity: true)
         hiddenPool.removeAll(keepingCapacity: true)
@@ -229,8 +235,10 @@ extension NiriLayoutEngine {
             viewFrame: monitor.frame,
             scale: 2.0
         )
-        let hiddenPlacementMonitor = HiddenPlacementMonitorContext(monitor)
-        let hiddenPlacementMonitors = monitors.values.map(HiddenPlacementMonitorContext.init)
+        let hiddenPlacementContexts = resolvedHiddenPlacementContexts(
+            target: monitor,
+            explicit: explicitHiddenPlacementMonitors
+        )
 
         let orientation = self.monitor(for: monitor.id)?.orientation ?? monitor.autoOrientation
 
@@ -246,11 +254,35 @@ extension NiriLayoutEngine {
             workingArea: area,
             orientation: orientation,
             animationTime: animationTime,
-            hiddenPlacementMonitor: hiddenPlacementMonitor,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
+            hiddenPlacementMonitor: hiddenPlacementContexts.target,
+            hiddenPlacementMonitors: hiddenPlacementContexts.monitors
         )
 
         return (framePool, hiddenPool)
+    }
+
+    private func resolvedHiddenPlacementContexts(
+        target monitor: Monitor,
+        explicit: [HiddenPlacementMonitorContext]?
+    ) -> (target: HiddenPlacementMonitorContext, monitors: [HiddenPlacementMonitorContext]) {
+        let target = HiddenPlacementMonitorContext(monitor)
+        let source = explicit ?? monitors.values.map(HiddenPlacementMonitorContext.init)
+        var contextsById: [Monitor.ID: HiddenPlacementMonitorContext] = [:]
+        for context in source {
+            contextsById[context.id] = context
+        }
+        contextsById[target.id] = target
+
+        let contexts = contextsById.values.sorted {
+            if $0.frame.minX != $1.frame.minX {
+                return $0.frame.minX < $1.frame.minX
+            }
+            if $0.frame.maxY != $1.frame.maxY {
+                return $0.frame.maxY > $1.frame.maxY
+            }
+            return $0.id.displayId < $1.id.displayId
+        }
+        return (target, contexts)
     }
 
     func captureWindowFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect] {

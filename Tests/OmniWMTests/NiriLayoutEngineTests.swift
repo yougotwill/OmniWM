@@ -268,7 +268,12 @@ private func assertHideOnlyMonitorBoundaryDiff(
     side: HideSide,
     disallowedMonitor: Monitor
 ) {
-    #expect(hasHideVisibilityChange(plan.diff.visibilityChanges, token: token, side: side))
+    guard let request = hideRequest(plan.diff.visibilityChanges, token: token) else {
+        Issue.record("Expected a hide request for \(token)")
+        return
+    }
+    #expect(request.side == side)
+    #expect(!request.hiddenFrame.intersects(disallowedMonitor.frame))
     #expect(!hasFrameChange(plan.diff.frameChanges, token: token))
     for change in plan.diff.frameChanges {
         #expect(!change.frame.intersects(disallowedMonitor.frame))
@@ -5004,7 +5009,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
 
         var partialRevealState = hiddenState
         partialRevealState.viewOffsetPixels = .static(20)
@@ -5016,7 +5021,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
 
         var fullRevealState = hiddenState
         fullRevealState.viewOffsetPixels = .static(primaryMonitor.visibleFrame.width + fixture.gap)
@@ -5060,7 +5065,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
 
         var partialRevealState = hiddenState
         partialRevealState.viewOffsetPixels = .static(-20)
@@ -5072,7 +5077,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
 
         var fullRevealState = hiddenState
         fullRevealState.viewOffsetPixels = .static(-(secondaryMonitor.visibleFrame.width + fixture.gap))
@@ -5277,7 +5282,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: baseTime
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
 
         leakingColumn.animateMoveFrom(
             displacement: CGPoint(x: -40, y: 0),
@@ -5304,7 +5309,7 @@ private func makeCenteredCrossMonitorFixture(
         }
 
         #expect(leakingColumn.renderOffset(at: partialTime).x < -8)
-        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .left)
         #expect(!hiddenPlacementFrame.intersects(secondaryMonitor.frame))
 
         leakingColumn.moveAnimation = nil
@@ -5357,7 +5362,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
 
         var partialRevealState = hiddenState
         partialRevealState.viewOffsetPixels = .static(20)
@@ -5369,7 +5374,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
 
         var fullRevealState = hiddenState
         fullRevealState.viewOffsetPixels = .static(lowerMonitor.visibleFrame.height + fixture.gap)
@@ -5413,7 +5418,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
 
         var partialRevealState = hiddenState
         partialRevealState.viewOffsetPixels = .static(-20)
@@ -5425,7 +5430,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: nil
         )
-        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .left)
+        #expect(partialRevealLayout.hiddenHandles[leakingWindow.token] == .right)
 
         var fullRevealState = hiddenState
         fullRevealState.viewOffsetPixels = .static(-(upperMonitor.visibleFrame.height + fixture.gap))
@@ -5548,7 +5553,7 @@ private func makeCenteredCrossMonitorFixture(
             workingArea: fixture.area,
             animationTime: baseTime
         )
-        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(hiddenLayout.hiddenHandles[leakingWindow.token] == .left)
 
         let revealTarget = lowerMonitor.visibleFrame.height + fixture.gap
         var animatingState = state
@@ -5577,7 +5582,7 @@ private func makeCenteredCrossMonitorFixture(
 
         #expect(animatingState.viewOffsetPixels.value(at: partialTime) > 8)
         #expect(animatingState.viewOffsetPixels.value(at: partialTime) < revealTarget)
-        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .right)
+        #expect(partialLayout.hiddenHandles[leakingWindow.token] == .left)
         #expect(!hiddenPlacementFrame.intersects(upperMonitor.frame))
 
         var fullyContainedState = state
@@ -6119,7 +6124,7 @@ private func makeCenteredCrossMonitorFixture(
         assertHideOnlyMonitorBoundaryDiff(
             primaryPlan,
             token: leakingWindow.token,
-            side: .right,
+            side: .left,
             disallowedMonitor: fixture.neighboringMonitor
         )
     }
@@ -6185,7 +6190,7 @@ private func makeCenteredCrossMonitorFixture(
         assertHideOnlyMonitorBoundaryDiff(
             secondaryPlan,
             token: leakingWindow.token,
-            side: .left,
+            side: .right,
             disallowedMonitor: fixture.neighboringMonitor
         )
     }
@@ -6309,13 +6314,13 @@ private func makeCenteredCrossMonitorFixture(
             monitor: monitors.lower
         )
 
-        guard hiddenHandles[upperWindow] == .right,
+        guard hiddenHandles[upperWindow] == .left,
               let canonicalFrame = engine.findNode(for: upperWindow)?.frame,
               let hiddenFrame = frames[upperWindow],
               let liveOrigin = controller.layoutRefreshController.liveFrameHideOrigin(
                   for: canonicalFrame,
                   monitor: monitors.lower,
-                  side: .right,
+                  side: .left,
                   pid: upperWindow.pid,
                   reason: .layoutTransient
               )
