@@ -163,6 +163,21 @@ extension NiriLayoutEngine {
         return root.columns.contains { $0.hasMoveAnimationRunning || $0.hasWidthAnimationRunning }
     }
 
+    func cancelAllMotionAnimations(in workspaceId: WorkspaceDescriptor.ID) {
+        guard let root = roots[workspaceId] else { return }
+        for column in root.columns {
+            column.moveAnimation = nil
+            if let targetWidth = column.targetWidth {
+                column.cachedWidth = targetWidth
+            }
+            column.widthAnimation = nil
+            column.targetWidth = nil
+            for window in column.windowNodes {
+                window.stopMoveAnimations()
+            }
+        }
+    }
+
     func calculateCombinedLayout(
         in workspaceId: WorkspaceDescriptor.ID,
         monitor: Monitor,

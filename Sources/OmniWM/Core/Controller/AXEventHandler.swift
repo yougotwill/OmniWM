@@ -662,32 +662,13 @@ final class AXEventHandler: CGSEventDelegate {
             .flatMap { controller.workspaceManager.descriptor(for: $0)?.name }
             .map { controller.settings.layoutType(for: $0) } ?? .defaultLayout
 
-        if let entry,
-           let wsId = affectedWorkspaceId,
-           let monitor = controller.workspaceManager.monitor(for: wsId),
-           controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
-           layoutType != .dwindle
-        {
-           let shouldAnimate = if let engine = controller.niriEngine,
-                                    let windowNode = engine.findNode(for: token)
-            {
-                !windowNode.isHiddenInTabbedMode
-            } else {
-                true
-            }
-            if shouldAnimate {
-                controller.layoutRefreshController.startWindowCloseAnimation(
-                    entry: entry,
-                    monitor: monitor
-                )
-            }
-        }
-
         var oldFrames: [WindowToken: CGRect] = [:]
         var removedNodeId: NodeId?
         var niriRevealSide: NiriRemovalRevealSide?
         var niriStrictRecoveryToken: WindowToken?
+        var niriViewportStateBeforeRemoval: ViewportState?
         if let wsId = affectedWorkspaceId, layoutType != .dwindle, let engine = controller.niriEngine {
+            niriViewportStateBeforeRemoval = controller.workspaceManager.niriViewportState(for: wsId)
             oldFrames = engine.captureWindowFrames(in: wsId)
             if let removedNode = engine.findNode(for: token) {
                 removedNodeId = removedNode.id
@@ -717,6 +698,65 @@ final class AXEventHandler: CGSEventDelegate {
         let shouldRecoverFocus = token == focusedTokenBeforeRemoval
             || isSelectedNiriRemoval
             || isSameAppFocusedPreemption
+        let niriAnimationPolicy: NiriRemovalAnimationPolicy = if shouldRecoverFocus,
+                                                                 layoutType != .dwindle,
+                                                                 removedNodeId != nil
+        {
+            .staticViewportPreserving
+        } else {
+            .ordinary
+        }
+        var didStartCloseAnimation = false
+        if niriAnimationPolicy.shouldStartCloseAnimation,
+           let entry,
+           let wsId = affectedWorkspaceId,
+           let monitor = controller.workspaceManager.monitor(for: wsId),
+           controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
+           layoutType != .dwindle
+        {
+            let shouldAnimate = if let engine = controller.niriEngine,
+                                   let windowNode = engine.findNode(for: token)
+            {
+                !windowNode.isHiddenInTabbedMode
+            } else {
+                true
+            }
+            if shouldAnimate {
+                controller.layoutRefreshController.startWindowCloseAnimation(
+                    entry: entry,
+                    monitor: monitor
+                )
+                didStartCloseAnimation = true
+            }
+        }
+        if let wsId = affectedWorkspaceId,
+           layoutType != .dwindle,
+           removedNodeId != nil
+        {
+            controller.layoutRefreshController.emitNiriRemovalAnimationDiagnostic(
+                NiriRemovalAnimationDiagnostic(
+                    phase: .intake,
+                    workspaceId: wsId,
+                    removedNodeId: removedNodeId,
+                    removedWindow: token,
+                    recoveryTarget: niriStrictRecoveryToken,
+                    revealSide: niriRevealSide,
+                    activeColumnBefore: niriViewportStateBeforeRemoval?.activeColumnIndex,
+                    activeColumnAfter: nil,
+                    currentOffset: niriViewportStateBeforeRemoval?.viewOffsetPixels.current(),
+                    targetOffset: niriViewportStateBeforeRemoval?.viewOffsetPixels.target(),
+                    stationaryOffset: niriViewportStateBeforeRemoval?.stationary(),
+                    viewportAction: .none,
+                    animationPolicy: niriAnimationPolicy,
+                    closeAnimation: didStartCloseAnimation,
+                    survivorMoveAnimation: false,
+                    columnAnimation: false,
+                    viewportAnimation: niriViewportStateBeforeRemoval?.viewOffsetPixels.isAnimating ?? false,
+                    startNiriScroll: false,
+                    skipFrameApplicationForAnimation: false
+                )
+            )
+        }
         let isAffectedWorkspaceActive = affectedWorkspaceId.map { wsId in
             controller.workspaceManager.monitor(for: wsId).map { monitor in
                 controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
@@ -751,9 +791,11 @@ final class AXEventHandler: CGSEventDelegate {
                 workspaceId: wsId,
                 layoutType: layoutType,
                 removedNodeId: removedNodeId,
+                removedWindow: token,
                 niriOldFrames: oldFrames,
                 niriRevealSide: niriRevealSide,
-                shouldRecoverFocus: shouldRecoverFocus
+                shouldRecoverFocus: shouldRecoverFocus,
+                niriAnimationPolicy: niriAnimationPolicy
             )
         }
         scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(token.pid)])
@@ -838,16 +880,18 @@ final class AXEventHandler: CGSEventDelegate {
         resetFocusedRemovalActivationSuppression()
     }
 
+    @discardableResult
     private func completeFocusedRemovalRecoveryIfExpected(
         token: WindowToken,
         workspaceId: WorkspaceDescriptor.ID
-    ) {
+    ) -> Bool {
         guard let suppression = focusedRemovalActivationSuppression,
               suppression.workspaceId == workspaceId,
               suppression.expectedRecoveryToken == token
-        else { return }
+        else { return false }
 
         resetFocusedRemovalActivationSuppression()
+        return true
     }
 
     private func shouldIgnoreActivationDuringFocusedRemovalSuppression(
@@ -1132,7 +1176,10 @@ final class AXEventHandler: CGSEventDelegate {
                 onMonitor: monitorId
             )
         }
-        completeFocusedRemovalRecoveryIfExpected(token: entry.token, workspaceId: wsId)
+        let isCompletingFocusedRemovalRecovery = completeFocusedRemovalRecoveryIfExpected(
+            token: entry.token,
+            workspaceId: wsId
+        )
 
         let target = controller.keyboardFocusTarget(for: entry.token, axRef: entry.axRef)
         controller.focusBridge.setFocusedTarget(target)
@@ -1181,7 +1228,14 @@ final class AXEventHandler: CGSEventDelegate {
             var state = controller.workspaceManager.niriViewportState(for: wsId)
             controller.niriLayoutHandler.activateNode(
                 node, in: wsId, state: &state,
-                options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
+                options: isCompletingFocusedRemovalRecovery
+                    ? .init(
+                        ensureVisible: false,
+                        layoutRefresh: false,
+                        axFocus: false,
+                        startAnimation: false
+                    )
+                    : .init(layoutRefresh: isWorkspaceActive, axFocus: false)
             )
             _ = controller.workspaceManager.applySessionPatch(
                 .init(

@@ -62,12 +62,114 @@ enum NiriRemovalRevealSide: Equatable {
     }
 }
 
+enum NiriRemovalAnimationPolicy: Equatable {
+    case ordinary
+    case staticViewportPreserving
+
+    var shouldStartCloseAnimation: Bool {
+        self == .ordinary
+    }
+
+    var shouldStartSurvivorMoveAnimations: Bool {
+        self == .ordinary
+    }
+
+    var shouldStartColumnAnimations: Bool {
+        self == .ordinary
+    }
+
+    var shouldStartScrollAnimation: Bool {
+        self == .ordinary
+    }
+
+    var shouldDeferFrameApplication: Bool {
+        self == .ordinary
+    }
+
+    func merging(_ other: NiriRemovalAnimationPolicy) -> NiriRemovalAnimationPolicy {
+        if self == .staticViewportPreserving || other == .staticViewportPreserving {
+            return .staticViewportPreserving
+        }
+        return .ordinary
+    }
+}
+
+enum NiriRemovalDiagnosticPhase: Equatable {
+    case intake
+    case topologyPlanning
+    case animationDirectives
+    case frameApplication
+    case displayLinkTick
+}
+
+enum NiriRemovalViewportAction: Equatable {
+    case none
+    case staticPreserved
+    case animated
+}
+
+struct NiriRemovalAnimationDiagnostic: Equatable {
+    var phase: NiriRemovalDiagnosticPhase
+    var workspaceId: WorkspaceDescriptor.ID
+    var removedNodeId: NodeId?
+    var removedWindow: WindowToken? = nil
+    var recoveryTarget: WindowToken?
+    var revealSide: NiriRemovalRevealSide?
+    var activeColumnBefore: Int?
+    var activeColumnAfter: Int?
+    var currentOffset: CGFloat?
+    var targetOffset: CGFloat?
+    var stationaryOffset: CGFloat?
+    var viewportAction: NiriRemovalViewportAction
+    var animationPolicy: NiriRemovalAnimationPolicy
+    var closeAnimation: Bool
+    var survivorMoveAnimation: Bool
+    var columnAnimation: Bool
+    var viewportAnimation: Bool
+    var startNiriScroll: Bool
+    var skipFrameApplicationForAnimation: Bool
+
+    func withPhase(
+        _ phase: NiriRemovalDiagnosticPhase,
+        closeAnimation: Bool? = nil,
+        survivorMoveAnimation: Bool? = nil,
+        columnAnimation: Bool? = nil,
+        viewportAnimation: Bool? = nil,
+        startNiriScroll: Bool? = nil,
+        skipFrameApplicationForAnimation: Bool? = nil
+    ) -> NiriRemovalAnimationDiagnostic {
+        var diagnostic = self
+        diagnostic.phase = phase
+        if let closeAnimation {
+            diagnostic.closeAnimation = closeAnimation
+        }
+        if let survivorMoveAnimation {
+            diagnostic.survivorMoveAnimation = survivorMoveAnimation
+        }
+        if let columnAnimation {
+            diagnostic.columnAnimation = columnAnimation
+        }
+        if let viewportAnimation {
+            diagnostic.viewportAnimation = viewportAnimation
+        }
+        if let startNiriScroll {
+            diagnostic.startNiriScroll = startNiriScroll
+        }
+        if let skipFrameApplicationForAnimation {
+            diagnostic.skipFrameApplicationForAnimation = skipFrameApplicationForAnimation
+        }
+        return diagnostic
+    }
+}
+
 struct NiriWindowRemovalSeed {
     let removedNodeIds: [NodeId]
     let oldFrames: [WindowToken: CGRect]
+    var removedWindow: WindowToken?
     let selectedRemovalAnchorNodeId: NodeId?
     let revealSide: NiriRemovalRevealSide?
     let shouldRecoverFocus: Bool
+    var animationPolicy: NiriRemovalAnimationPolicy = .ordinary
 }
 
 struct NiriWorkspaceSnapshot {
@@ -202,6 +304,7 @@ struct WorkspaceLayoutPlan {
     var managedRestoreMaterialStateChanges: [ManagedRestoreMaterialStateChange] = []
     var persistManagedRestoreSnapshots: Bool = true
     var skipFrameApplicationForAnimation: Bool = false
+    var niriRemovalAnimationDiagnostic: NiriRemovalAnimationDiagnostic?
 }
 
 typealias RefreshPostLayoutAction = @MainActor () -> Void

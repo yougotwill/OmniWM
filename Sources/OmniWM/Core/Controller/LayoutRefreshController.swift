@@ -29,6 +29,7 @@ import QuartzCore
         var onRelayout: ((RefreshReason, RefreshRoute) async -> Bool)?
         var onVisibilityRefresh: ((RefreshReason) async -> Bool)?
         var onWindowRemoval: ((RefreshReason, [WindowRemovalPayload]) -> Bool)?
+        var onNiriRemovalAnimationDiagnostic: ((NiriRemovalAnimationDiagnostic) -> Void)?
     }
 
     @MainActor
@@ -223,11 +224,11 @@ import QuartzCore
         workspaceInactiveHideAwaitingFreshFrameWindowIds.removeAll()
 
         if migrateAnimations {
-            if let wsId = niriHandler.scrollAnimationByDisplay.removeValue(forKey: displayId) {
+            if let wsId = niriHandler.unregisterScrollAnimation(on: displayId) {
                 startScrollAnimation(for: wsId)
             }
         } else {
-            niriHandler.scrollAnimationByDisplay.removeValue(forKey: displayId)
+            niriHandler.unregisterScrollAnimation(on: displayId)
         }
         dwindleHandler.dwindleAnimationByDisplay.removeValue(forKey: displayId)
     }
@@ -270,16 +271,19 @@ import QuartzCore
     }
 
     func stopScrollAnimation(for displayId: CGDirectDisplayID) {
-        niriHandler.scrollAnimationByDisplay.removeValue(forKey: displayId)
+        niriHandler.unregisterScrollAnimation(on: displayId)
         stopDisplayLinkIfIdle(for: displayId)
     }
 
     func stopAllScrollAnimations() {
-        let displayIds = Array(niriHandler.scrollAnimationByDisplay.keys)
-        niriHandler.scrollAnimationByDisplay.removeAll()
+        let displayIds = niriHandler.clearScrollAnimations()
         for displayId in displayIds {
             stopDisplayLinkIfIdle(for: displayId)
         }
+    }
+
+    func emitNiriRemovalAnimationDiagnostic(_ diagnostic: NiriRemovalAnimationDiagnostic) {
+        debugHooks.onNiriRemovalAnimationDiagnostic?(diagnostic)
     }
 
     func startDwindleAnimation(for workspaceId: WorkspaceDescriptor.ID, monitor: Monitor) {
@@ -434,6 +438,14 @@ import QuartzCore
 
     func executeLayoutPlan(_ plan: WorkspaceLayoutPlan) {
         applySessionPatch(plan.sessionPatch)
+        if let diagnostic = plan.niriRemovalAnimationDiagnostic {
+            emitNiriRemovalAnimationDiagnostic(
+                diagnostic.withPhase(
+                    .frameApplication,
+                    skipFrameApplicationForAnimation: plan.skipFrameApplicationForAnimation
+                )
+            )
+        }
         diffExecutor.execute(plan)
         applyAnimationDirectives(
             plan.animationDirectives,
@@ -734,9 +746,11 @@ import QuartzCore
         workspaceId: WorkspaceDescriptor.ID,
         layoutType: LayoutType,
         removedNodeId: NodeId?,
+        removedWindow: WindowToken? = nil,
         niriOldFrames: [WindowToken: CGRect],
         niriRevealSide: NiriRemovalRevealSide? = nil,
         shouldRecoverFocus: Bool,
+        niriAnimationPolicy: NiriRemovalAnimationPolicy = .ordinary,
         postLayout: PostLayoutAction? = nil
     ) {
         assert(RefreshReason.windowDestroyed.requestRoute == .windowRemoval, "Invalid window-removal reason")
@@ -749,9 +763,11 @@ import QuartzCore
                     workspaceId: workspaceId,
                     layoutType: layoutType,
                     removedNodeId: removedNodeId,
+                    removedWindow: removedWindow,
                     niriOldFrames: niriOldFrames,
                     niriRevealSide: niriRevealSide,
-                    shouldRecoverFocus: shouldRecoverFocus
+                    shouldRecoverFocus: shouldRecoverFocus,
+                    niriAnimationPolicy: niriAnimationPolicy
                 )
             )
         )
@@ -1034,7 +1050,7 @@ import QuartzCore
         for displayId in Array(layoutState.displayLinksByDisplay.keys) {
             removeCachedDisplayLink(for: displayId)?.invalidate()
         }
-        niriHandler.scrollAnimationByDisplay.removeAll()
+        _ = niriHandler.clearScrollAnimations()
         dwindleHandler.dwindleAnimationByDisplay.removeAll()
         layoutState.closingAnimationsByDisplay.removeAll()
 
@@ -1228,6 +1244,9 @@ import QuartzCore
                 let existingSeed = niriRemovalSeeds[payload.workspaceId]
                 let existingOldFrames = existingSeed?.oldFrames ?? [:]
                 let shouldRecoverFocus = existingSeed?.shouldRecoverFocus == true || payload.shouldRecoverFocus
+                let animationPolicy = existingSeed?.animationPolicy
+                    .merging(payload.niriAnimationPolicy)
+                    ?? payload.niriAnimationPolicy
                 let selectedRemovalAnchorNodeId = if payload.shouldRecoverFocus {
                     payload.removedNodeId ?? existingSeed?.selectedRemovalAnchorNodeId
                 } else {
@@ -1241,9 +1260,11 @@ import QuartzCore
                 niriRemovalSeeds[payload.workspaceId] = NiriWindowRemovalSeed(
                     removedNodeIds: removedNodeIds,
                     oldFrames: existingOldFrames.merging(payload.niriOldFrames) { current, _ in current },
+                    removedWindow: existingSeed?.removedWindow ?? payload.removedWindow,
                     selectedRemovalAnchorNodeId: selectedRemovalAnchorNodeId,
                     revealSide: revealSide,
-                    shouldRecoverFocus: shouldRecoverFocus
+                    shouldRecoverFocus: shouldRecoverFocus,
+                    animationPolicy: animationPolicy
                 )
             }
 

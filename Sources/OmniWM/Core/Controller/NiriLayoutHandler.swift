@@ -67,6 +67,7 @@ private func strictLeftSelectionOnRemoval(
     }
 
     var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
+    private var removalDiagnosticByWorkspace: [WorkspaceDescriptor.ID: NiriRemovalAnimationDiagnostic] = [:]
 
     init(controller: WMController?) {
         self.controller = controller
@@ -101,8 +102,42 @@ private func strictLeftSelectionOnRemoval(
         return true
     }
 
+    @discardableResult
+    func unregisterScrollAnimation(on displayId: CGDirectDisplayID) -> WorkspaceDescriptor.ID? {
+        guard let workspaceId = scrollAnimationByDisplay.removeValue(forKey: displayId) else {
+            return nil
+        }
+        removalDiagnosticByWorkspace.removeValue(forKey: workspaceId)
+        return workspaceId
+    }
+
+    func clearScrollAnimations() -> [CGDirectDisplayID] {
+        let displayIds = Array(scrollAnimationByDisplay.keys)
+        scrollAnimationByDisplay.removeAll()
+        removalDiagnosticByWorkspace.removeAll()
+        return displayIds
+    }
+
     func hasScrollAnimationRunning(in workspaceId: WorkspaceDescriptor.ID) -> Bool {
         scrollAnimationByDisplay.values.contains(workspaceId)
+    }
+
+    private func emitNiriRemovalAnimationDiagnostic(
+        _ diagnostic: NiriRemovalAnimationDiagnostic
+    ) {
+        controller?.layoutRefreshController.emitNiriRemovalAnimationDiagnostic(diagnostic)
+    }
+
+    private func hasNiriScrollDirective(
+        _ directives: [AnimationDirective],
+        workspaceId: WorkspaceDescriptor.ID
+    ) -> Bool {
+        directives.contains { directive in
+            if case let .startNiriScroll(candidate) = directive {
+                return candidate == workspaceId
+            }
+            return false
+        }
     }
 
     func tickScrollAnimation(targetTime: CFTimeInterval, displayId: CGDirectDisplayID) {
@@ -140,6 +175,18 @@ private func strictLeftSelectionOnRemoval(
                 || windowAnimationsRunning
                 || columnAnimationsRunning
 
+            if let diagnostic = removalDiagnosticByWorkspace[wsId] {
+                self.emitNiriRemovalAnimationDiagnostic(
+                    diagnostic.withPhase(
+                        .displayLinkTick,
+                        survivorMoveAnimation: windowAnimationsRunning,
+                        columnAnimation: columnAnimationsRunning,
+                        viewportAnimation: viewportAnimationRunning,
+                        startNiriScroll: true
+                    )
+                )
+            }
+
             if !animationsOngoing {
                 self.finalizeAnimation()
                 var activeIds = Set<WorkspaceDescriptor.ID>()
@@ -149,6 +196,7 @@ private func strictLeftSelectionOnRemoval(
                     }
                 }
                 controller.layoutRefreshController.hideInactiveWorkspaces(activeWorkspaceIds: activeIds)
+                self.removalDiagnosticByWorkspace.removeValue(forKey: wsId)
                 controller.layoutRefreshController.stopScrollAnimation(for: displayId)
             }
         }
@@ -470,6 +518,7 @@ private func strictLeftSelectionOnRemoval(
             gaps: pass.gap
         )
 
+        let preSyncState = state
         let preSyncColumns = pass.engine.columns(in: pass.wsId)
         let preSyncViewPos = preSyncColumns.isEmpty
             ? CGFloat(0)
@@ -505,7 +554,8 @@ private func strictLeftSelectionOnRemoval(
 
         if plan.effectKind == .removeColumn,
            plan.result.source_column_index >= 0,
-           removalAnchorNodeId == nil
+           removalAnchorNodeId == nil,
+           snapshot.removalSeed?.animationPolicy.shouldStartColumnAnimations ?? true
         {
             var animationState = state
             _ = pass.engine.animateColumnsForRemoval(
@@ -555,6 +605,10 @@ private func strictLeftSelectionOnRemoval(
                 state.viewOffsetPixels = .static(preSyncViewPos - activePosition)
             }
         }
+        if snapshot.removalSeed?.animationPolicy == .staticViewportPreserving {
+            state.cancelAnimation()
+            pass.engine.cancelAllMotionAnimations(in: pass.wsId)
+        }
 
         if !existingHandleIds.isEmpty,
            plan.effectKind == .addColumn,
@@ -590,6 +644,42 @@ private func strictLeftSelectionOnRemoval(
         }
         if let selectedId = state.selectedNodeId {
             pass.engine.updateFocusTimestamp(for: selectedId)
+        }
+        if let removalSeed = snapshot.removalSeed,
+           let removedNodeId = removalSeed.removedNodeIds.first
+        {
+            let viewportAction: NiriRemovalViewportAction = if state.viewOffsetPixels.isAnimating {
+                .animated
+            } else if removalSeed.animationPolicy == .staticViewportPreserving,
+                      removalAnchorNodeId != nil
+            {
+                .staticPreserved
+            } else {
+                .none
+            }
+            emitNiriRemovalAnimationDiagnostic(
+                NiriRemovalAnimationDiagnostic(
+                    phase: .topologyPlanning,
+                    workspaceId: pass.wsId,
+                    removedNodeId: removedNodeId,
+                    removedWindow: removalSeed.removedWindow,
+                    recoveryTarget: rememberedFocusToken,
+                    revealSide: removalSeed.revealSide,
+                    activeColumnBefore: preSyncState.activeColumnIndex,
+                    activeColumnAfter: state.activeColumnIndex,
+                    currentOffset: state.viewOffsetPixels.current(),
+                    targetOffset: state.viewOffsetPixels.target(),
+                    stationaryOffset: state.stationary(),
+                    viewportAction: viewportAction,
+                    animationPolicy: removalSeed.animationPolicy,
+                    closeAnimation: false,
+                    survivorMoveAnimation: false,
+                    columnAnimation: pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId),
+                    viewportAnimation: state.viewOffsetPixels.isAnimating,
+                    startNiriScroll: false,
+                    skipFrameApplicationForAnimation: false
+                )
+            )
         }
 
         if snapshot.hasCompletedInitialRefresh,
@@ -683,26 +773,40 @@ private func strictLeftSelectionOnRemoval(
             directives.append(.activateWindow(token: newWindowToken))
         }
 
+        var removalTriggeredSurvivorMoveAnimation = false
+        var removalHasWindowAnimations = false
+        var removalHasColumnAnimations = false
         if let removalSeed = snapshot.removalSeed,
            !removalSeed.oldFrames.isEmpty,
            !suppressAnimationDirectives
         {
             let newFrames = pass.engine.captureWindowFrames(in: pass.wsId)
-            let oldFrames = fixedViewportRemovalOldFrames(
-                removalSeed.oldFrames,
-                newFrames: newFrames,
-                revealSide: removalSeed.revealSide,
-                viewport: pass.insetFrame
-            )
-            let animationsTriggered = pass.engine.triggerMoveAnimations(
-                in: pass.wsId,
-                oldFrames: oldFrames,
-                newFrames: newFrames,
-                motion: motion
-            )
-            let hasWindowAnimations = pass.engine.hasAnyWindowAnimationsRunning(in: pass.wsId)
-            let hasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
-            if animationsTriggered || hasWindowAnimations || hasColumnAnimations {
+            if motion.animationsEnabled,
+               removalSeed.animationPolicy.shouldStartSurvivorMoveAnimations
+            {
+                let oldFrames = fixedViewportRemovalOldFrames(
+                    removalSeed.oldFrames,
+                    newFrames: newFrames,
+                    revealSide: removalSeed.revealSide,
+                    viewport: pass.insetFrame
+                )
+                removalTriggeredSurvivorMoveAnimation = pass.engine.triggerMoveAnimations(
+                    in: pass.wsId,
+                    oldFrames: oldFrames,
+                    newFrames: newFrames,
+                    motion: motion
+                )
+            }
+            removalHasWindowAnimations = pass.engine.hasAnyWindowAnimationsRunning(in: pass.wsId)
+            removalHasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
+            if motion.animationsEnabled,
+               removalSeed.animationPolicy.shouldStartScrollAnimation,
+               (
+                   removalTriggeredSurvivorMoveAnimation
+                       || removalHasWindowAnimations
+                       || removalHasColumnAnimations
+               )
+            {
                 directives.append(.startNiriScroll(workspaceId: pass.wsId))
             }
         }
@@ -734,6 +838,36 @@ private func strictLeftSelectionOnRemoval(
             diff: diff,
             animationDirectives: directives
         )
+        let willStartNiriScrollAnimation = motion.animationsEnabled
+            && hasNiriScrollDirective(directives, workspaceId: pass.wsId)
+        if let removalSeed = snapshot.removalSeed,
+           let removedNodeId = removalSeed.removedNodeIds.first
+        {
+            let diagnostic = NiriRemovalAnimationDiagnostic(
+                phase: .animationDirectives,
+                workspaceId: pass.wsId,
+                removedNodeId: removedNodeId,
+                removedWindow: removalSeed.removedWindow,
+                recoveryTarget: rememberedFocusToken,
+                revealSide: removalSeed.revealSide,
+                activeColumnBefore: nil,
+                activeColumnAfter: state.activeColumnIndex,
+                currentOffset: state.viewOffsetPixels.current(),
+                targetOffset: state.viewOffsetPixels.target(),
+                stationaryOffset: state.stationary(),
+                viewportAction: state.viewOffsetPixels.isAnimating
+                    ? .animated
+                    : (removalSeed.animationPolicy == .staticViewportPreserving ? .staticPreserved : .none),
+                animationPolicy: removalSeed.animationPolicy,
+                closeAnimation: false,
+                survivorMoveAnimation: removalTriggeredSurvivorMoveAnimation || removalHasWindowAnimations,
+                columnAnimation: removalHasColumnAnimations,
+                viewportAnimation: state.viewOffsetPixels.isAnimating,
+                startNiriScroll: willStartNiriScrollAnimation,
+                skipFrameApplicationForAnimation: false
+            )
+            plan.niriRemovalAnimationDiagnostic = diagnostic
+        }
         if let removalSeed = snapshot.removalSeed,
            removalSeed.shouldRecoverFocus,
            snapshot.isActiveWorkspace,
@@ -761,9 +895,26 @@ private func strictLeftSelectionOnRemoval(
             topologyDidApply: topologyDidApply
         )
         plan.persistManagedRestoreSnapshots = false
-        plan.skipFrameApplicationForAnimation = !suppressAnimationDirectives
+        let shouldDeferFramesForRemovalPolicy = snapshot.removalSeed?
+            .animationPolicy
+            .shouldDeferFrameApplication ?? true
+        plan.skipFrameApplicationForAnimation = shouldDeferFramesForRemovalPolicy
+            && !suppressAnimationDirectives
             && snapshot.useScrollAnimationPath
-            && hasScrollAnimationRunning(in: snapshot.workspaceId)
+            && (
+                hasScrollAnimationRunning(in: snapshot.workspaceId)
+                    || willStartNiriScrollAnimation
+            )
+        if var diagnostic = plan.niriRemovalAnimationDiagnostic {
+            diagnostic.skipFrameApplicationForAnimation = plan.skipFrameApplicationForAnimation
+            plan.niriRemovalAnimationDiagnostic = diagnostic
+            emitNiriRemovalAnimationDiagnostic(diagnostic)
+            if willStartNiriScrollAnimation {
+                removalDiagnosticByWorkspace[pass.wsId] = diagnostic
+            } else {
+                removalDiagnosticByWorkspace.removeValue(forKey: pass.wsId)
+            }
+        }
         return plan
     }
 
@@ -1464,18 +1615,7 @@ private extension NiriLayoutHandler {
         }
 
         state.cancelAnimation()
-
-        for column in pass.engine.columns(in: pass.wsId) {
-            column.moveAnimation = nil
-            column.widthAnimation = nil
-            column.targetWidth = nil
-        }
-
-        if let root = pass.engine.root(for: pass.wsId) {
-            for window in root.allWindows {
-                window.stopMoveAnimations()
-            }
-        }
+        pass.engine.cancelAllMotionAnimations(in: pass.wsId)
     }
 
     func resolvedNativeFullscreenRestoreContexts(

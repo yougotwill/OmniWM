@@ -6386,6 +6386,11 @@ private func makeCenteredCrossMonitorFixture(
 
         _ = controller.workspaceManager.removeWindow(pid: removedToken.pid, windowId: removedToken.windowId)
 
+        var diagnostics: [NiriRemovalAnimationDiagnostic] = []
+        controller.layoutRefreshController.debugHooks.onNiriRemovalAnimationDiagnostic = { diagnostic in
+            diagnostics.append(diagnostic)
+        }
+
         let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
             activeWorkspaces: [workspaceId],
             useScrollAnimationPath: true,
@@ -6416,6 +6421,12 @@ private func makeCenteredCrossMonitorFixture(
         #expect(plan.sessionPatch.rememberedFocusToken == survivingToken)
         #expect(plan.sessionPatch.viewportState?.selectedNodeId == survivingNodeId)
         #expect(hasNiriScrollDirective(plan.animationDirectives, workspaceId: workspaceId))
+        #expect(diagnostics.contains { diagnostic in
+            diagnostic.phase == .animationDirectives
+                && diagnostic.animationPolicy == .ordinary
+                && diagnostic.survivorMoveAnimation
+                && diagnostic.startNiriScroll
+        })
     }
 
     @Test @MainActor func focusedRemovalSeedOverridesSameAppPreemptedSelection() async throws {
@@ -6495,7 +6506,8 @@ private func makeCenteredCrossMonitorFixture(
                     oldFrames: oldFrames,
                     selectedRemovalAnchorNodeId: removedNode.id,
                     revealSide: .right,
-                    shouldRecoverFocus: true
+                    shouldRecoverFocus: true,
+                    animationPolicy: .staticViewportPreserving
                 )
             ]
         )
@@ -6507,6 +6519,10 @@ private func makeCenteredCrossMonitorFixture(
         #expect(plan.sessionPatch.rememberedFocusToken == adjacentLeftToken)
         #expect(plan.sessionPatch.viewportState?.selectedNodeId == adjacentLeftNode.id)
         #expect(hasFocusIntent(plan.focusIntents, token: adjacentLeftToken))
+        #expect(!hasNiriScrollDirective(plan.animationDirectives, workspaceId: workspaceId))
+        #expect(!plan.skipFrameApplicationForAnimation)
+        #expect(!engine.hasAnyWindowAnimationsRunning(in: workspaceId))
+        #expect(!engine.hasAnyColumnAnimationsRunning(in: workspaceId))
         if let postState = plan.sessionPatch.viewportState {
             let postViewStart = planningViewportStart(
                 for: postState,
@@ -6520,6 +6536,62 @@ private func makeCenteredCrossMonitorFixture(
         } else {
             Issue.record("Expected viewport patch after focused removal")
         }
+    }
+
+    @Test @MainActor func ordinaryRemovalWithAnimationsDisabledAppliesFramesImmediately() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for disabled-animation removal test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let removedToken = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 5_811)
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 5_812)
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        guard let engine = controller.niriEngine,
+              let removedNodeId = engine.findNode(for: removedToken)?.id
+        else {
+            Issue.record("Expected Niri engine state for disabled-animation removal test")
+            return
+        }
+
+        engine.cancelAllMotionAnimations(in: workspaceId)
+        let oldFrames = engine.captureWindowFrames(in: workspaceId)
+        _ = controller.workspaceManager.removeWindow(pid: removedToken.pid, windowId: removedToken.windowId)
+        controller.motionPolicy.animationsEnabled = false
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId],
+            useScrollAnimationPath: true,
+            removalSeeds: [
+                workspaceId: NiriWindowRemovalSeed(
+                    removedNodeIds: [removedNodeId],
+                    oldFrames: oldFrames,
+                    selectedRemovalAnchorNodeId: nil,
+                    revealSide: nil,
+                    shouldRecoverFocus: false
+                )
+            ]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected a Niri layout plan after disabled-animation removal")
+            return
+        }
+
+        #expect(!hasNiriScrollDirective(plan.animationDirectives, workspaceId: workspaceId))
+        #expect(!plan.skipFrameApplicationForAnimation)
+        #expect(!engine.hasAnyWindowAnimationsRunning(in: workspaceId))
     }
 
     @Test @MainActor func focusedRemovalSeedDoesNotFallbackRightWhenNoLeftColumnExists() async throws {
@@ -6583,7 +6655,8 @@ private func makeCenteredCrossMonitorFixture(
                     oldFrames: oldFrames,
                     selectedRemovalAnchorNodeId: removedNode.id,
                     revealSide: .left,
-                    shouldRecoverFocus: true
+                    shouldRecoverFocus: true,
+                    animationPolicy: .staticViewportPreserving
                 )
             ]
         )
@@ -6664,7 +6737,8 @@ private func makeCenteredCrossMonitorFixture(
                         removedNodeId: firstRemovedNode.id,
                         niriOldFrames: oldFrames,
                         niriRevealSide: .left,
-                        shouldRecoverFocus: true
+                        shouldRecoverFocus: true,
+                        niriAnimationPolicy: .staticViewportPreserving
                     ),
                     WindowRemovalPayload(
                         workspaceId: workspaceId,
@@ -6672,7 +6746,8 @@ private func makeCenteredCrossMonitorFixture(
                         removedNodeId: latestRemovedNode.id,
                         niriOldFrames: oldFrames,
                         niriRevealSide: .right,
-                        shouldRecoverFocus: true
+                        shouldRecoverFocus: true,
+                        niriAnimationPolicy: .staticViewportPreserving
                     )
                 ]
             )
@@ -6750,7 +6825,8 @@ private func makeCenteredCrossMonitorFixture(
                     oldFrames: oldFrames,
                     selectedRemovalAnchorNodeId: removedNode.id,
                     revealSide: .right,
-                    shouldRecoverFocus: true
+                    shouldRecoverFocus: true,
+                    animationPolicy: .staticViewportPreserving
                 )
             ]
         )

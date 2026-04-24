@@ -14,9 +14,11 @@ struct WindowRemovalPayload: Equatable {
     let workspaceId: WorkspaceDescriptor.ID
     let layoutType: LayoutType
     let removedNodeId: NodeId?
+    var removedWindow: WindowToken? = nil
     let niriOldFrames: [WindowToken: CGRect]
     let niriRevealSide: NiriRemovalRevealSide?
     let shouldRecoverFocus: Bool
+    var niriAnimationPolicy: NiriRemovalAnimationPolicy = .ordinary
 }
 
 struct FollowUpRefresh: Equatable {

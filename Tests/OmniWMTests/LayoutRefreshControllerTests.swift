@@ -29,6 +29,18 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
     AXWindowRef(element: AXUIElementCreateApplication(pid_t.max), windowId: windowId)
 }
 
+private func layoutRefreshHasNiriScrollDirective(
+    _ directives: [AnimationDirective],
+    workspaceId: WorkspaceDescriptor.ID
+) -> Bool {
+    directives.contains { directive in
+        if case let .startNiriScroll(candidate) = directive {
+            return candidate == workspaceId
+        }
+        return false
+    }
+}
+
 @Suite(.serialized) struct LayoutRefreshControllerTests {
     @Test @MainActor func hiddenEdgeRevealUsesOnePointZeroForNonZoomApps() {
         #expect(LayoutRefreshController.hiddenEdgeReveal(isZoomApp: false) == 1.0)
@@ -2783,7 +2795,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         #expect(controller.workspaceManager.hiddenState(for: token) == nil)
     }
 
-    @Test @MainActor func immediateRelayoutDefersFrameApplicationToScrollAnimationTick() async {
+    @Test @MainActor func immediateRelayoutDefersFrameApplicationToScrollAnimationTick() async throws {
         let controller = makeLayoutPlanTestController()
         guard let monitor = controller.workspaceManager.monitors.first,
               let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
@@ -2797,6 +2809,13 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         controller.syncMonitorsToNiriEngine()
 
         let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 620)
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 621)
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        let lastAppliedFrameBeforeAnimation = controller.axManager.lastAppliedFrame(for: token.windowId)
+
         var applyRequestCounts: [Int] = []
         controller.axManager.frameApplyOverrideForTests = { requests in
             applyRequestCounts.append(requests.count)
@@ -2832,7 +2851,7 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
                 )
             )
         }
-        controller.layoutRefreshController.startScrollAnimation(for: workspaceId)
+        #expect(controller.niriLayoutHandler.registerScrollAnimation(workspaceId, on: monitor.displayId))
 
         controller.layoutRefreshController.requestImmediateRelayout(
             reason: .layoutCommand,
@@ -2841,13 +2860,141 @@ private func makeUnavailableLayoutPlanTestWindow(windowId: Int) -> AXWindowRef {
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
         #expect(applyRequestCounts.isEmpty)
-        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == nil)
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == lastAppliedFrameBeforeAnimation)
         #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == workspaceId)
 
         controller.niriLayoutHandler.tickScrollAnimation(targetTime: 1, displayId: monitor.displayId)
 
         #expect(applyRequestCounts.count == 1)
-        #expect(applyRequestCounts[0] > 0)
+        #expect((applyRequestCounts.first ?? 0) > 0)
         #expect(controller.axManager.lastAppliedFrame(for: token.windowId) != nil)
+    }
+
+    @Test @MainActor func focusedNiriRemovalAppliesFinalFramesWithoutScrollHandoff() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for focused-removal static policy test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let sameAppPid: pid_t = 9_201
+        for windowId in 9201 ... 9205 {
+            _ = addLayoutPlanTestWindow(
+                on: controller,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                pid: sameAppPid
+            )
+        }
+
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        guard let engine = controller.niriEngine else {
+            Issue.record("Expected Niri engine for focused-removal static policy test")
+            return
+        }
+        let columns = engine.columns(in: workspaceId)
+        let removedColumnIndex = 2
+        let adjacentLeftColumnIndex = removedColumnIndex - 1
+        guard columns.count >= 5,
+              let adjacentLeftNode = columns[adjacentLeftColumnIndex].windowNodes.first,
+              let removedNode = columns[removedColumnIndex].windowNodes.first
+        else {
+            Issue.record("Expected five Niri columns for focused-removal static policy test")
+            return
+        }
+
+        controller.workspaceManager.withNiriViewportState(for: workspaceId) { state in
+            state.selectedNodeId = removedNode.id
+            state.activeColumnIndex = removedColumnIndex
+        }
+        let oldFrames = engine.captureWindowFrames(in: workspaceId)
+
+        _ = controller.workspaceManager.removeWindow(
+            pid: removedNode.token.pid,
+            windowId: removedNode.token.windowId
+        )
+
+        var diagnostics: [NiriRemovalAnimationDiagnostic] = []
+        controller.layoutRefreshController.debugHooks.onNiriRemovalAnimationDiagnostic = { diagnostic in
+            diagnostics.append(diagnostic)
+        }
+
+        let plans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId],
+            useScrollAnimationPath: true,
+            removalSeeds: [
+                workspaceId: NiriWindowRemovalSeed(
+                    removedNodeIds: [removedNode.id],
+                    oldFrames: oldFrames,
+                    selectedRemovalAnchorNodeId: removedNode.id,
+                    revealSide: .right,
+                    shouldRecoverFocus: true,
+                    animationPolicy: .staticViewportPreserving
+                )
+            ]
+        )
+        guard let plan = plans.first else {
+            Issue.record("Expected focused-removal Niri plan")
+            return
+        }
+        #expect(plan.sessionPatch.rememberedFocusToken == adjacentLeftNode.token)
+        #expect(!plan.skipFrameApplicationForAnimation)
+        #expect(!layoutRefreshHasNiriScrollDirective(plan.animationDirectives, workspaceId: workspaceId))
+        #expect(!engine.hasAnyWindowAnimationsRunning(in: workspaceId))
+        #expect(!engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+
+        var applyRequestCounts: [Int] = []
+        controller.axManager.frameApplyOverrideForTests = { requests in
+            applyRequestCounts.append(requests.count)
+            return requests.map { request in
+                AXFrameApplyResult(
+                    requestId: request.requestId,
+                    pid: request.pid,
+                    windowId: request.windowId,
+                    targetFrame: request.frame,
+                    currentFrameHint: request.currentFrameHint,
+                    writeResult: AXFrameWriteResult(
+                        targetFrame: request.frame,
+                        observedFrame: request.frame,
+                        writeOrder: AXWindowService.frameWriteOrder(
+                            currentFrame: request.currentFrameHint,
+                            targetFrame: request.frame
+                        ),
+                        sizeError: .success,
+                        positionError: .success,
+                        failureReason: nil
+                    )
+                )
+            }
+        }
+
+        controller.layoutRefreshController.executeLayoutPlan(plan)
+
+        #expect(applyRequestCounts.count == 1)
+        #expect((applyRequestCounts.first ?? 0) > 0)
+        #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == nil)
+        #expect(diagnostics.contains { $0.phase == .topologyPlanning && $0.viewportAction == .staticPreserved })
+        #expect(diagnostics.contains { diagnostic in
+            diagnostic.phase == .animationDirectives
+                && diagnostic.animationPolicy == .staticViewportPreserving
+                && !diagnostic.survivorMoveAnimation
+                && !diagnostic.columnAnimation
+                && !diagnostic.viewportAnimation
+                && !diagnostic.startNiriScroll
+        })
+        #expect(diagnostics.contains { diagnostic in
+            diagnostic.phase == .frameApplication
+                && !diagnostic.skipFrameApplicationForAnimation
+        })
     }
 }

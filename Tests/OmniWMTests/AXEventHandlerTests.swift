@@ -878,6 +878,11 @@ private func waitUntilAXEventTest(
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == adjacentLeftNode.id)
         #expect(focusedWindows.contains { $0.0 == adjacentLeftToken.pid && $0.1 == UInt32(adjacentLeftToken.windowId) })
 
+        var enqueuedRefreshKinds: [ScheduledRefreshKind] = []
+        controller.layoutRefreshController.debugHooks.onRefreshEnqueued = { refresh in
+            enqueuedRefreshKinds.append(refresh.kind)
+        }
+        let runningScrollAnimationsBeforeConfirmation = controller.niriLayoutHandler.scrollAnimationByDisplay
         controller.axEventHandler.focusedWindowRefProvider = { pid in
             guard pid == adjacentLeftToken.pid else { return nil }
             return AXWindowRef(element: AXUIElementCreateSystemWide(), windowId: adjacentLeftToken.windowId)
@@ -889,9 +894,17 @@ private func waitUntilAXEventTest(
         )
 
         #expect(controller.workspaceManager.focusedToken == adjacentLeftToken)
+        #expect(enqueuedRefreshKinds.isEmpty)
+        #expect(controller.niriLayoutHandler.scrollAnimationByDisplay == runningScrollAnimationsBeforeConfirmation)
+        if case .spring = controller.workspaceManager.niriViewportState(for: workspaceId).viewOffsetPixels {
+            Issue.record("Recovery activation confirmation should not start a viewport spring")
+        }
     }
 
     @Test @MainActor func selectedNiriDestroyRecoversWhenSameAppFocusArrivesBeforeDestroy() async throws {
+        let axHooksLease = await acquireAXTestHooksLeaseForTests()
+        defer { axHooksLease.release() }
+
         var focusedWindows: [(pid_t, UInt32)] = []
         let operations = WindowFocusOperations(
             activateApp: { _ in },
@@ -945,6 +958,11 @@ private func waitUntilAXEventTest(
         let displacedToken = displacedNode.token
         let adjacentLeftToken = adjacentLeftNode.token
         let removedToken = removedNode.token
+        AXWindowService.fastFrameProviderForTests = { axRef in
+            guard axRef.windowId == removedToken.windowId else { return nil }
+            return CGRect(x: 100, y: 80, width: 900, height: 700)
+        }
+        defer { AXWindowService.fastFrameProviderForTests = nil }
 
         _ = controller.workspaceManager.setManagedFocus(
             removedToken,
@@ -966,12 +984,22 @@ private func waitUntilAXEventTest(
         )
         #expect(controller.workspaceManager.focusedToken == displacedToken)
 
+        var diagnostics: [NiriRemovalAnimationDiagnostic] = []
+        controller.layoutRefreshController.debugHooks.onNiriRemovalAnimationDiagnostic = { diagnostic in
+            diagnostics.append(diagnostic)
+        }
         controller.axEventHandler.handleRemoved(token: removedToken)
         await controller.layoutRefreshController.waitForRefreshWorkForTests()
 
         #expect(controller.workspaceManager.preferredFocusToken(in: workspaceId) == adjacentLeftToken)
         #expect(controller.workspaceManager.niriViewportState(for: workspaceId).selectedNodeId == adjacentLeftNode.id)
         #expect(focusedWindows.contains { $0.0 == adjacentLeftToken.pid && $0.1 == UInt32(adjacentLeftToken.windowId) })
+        #expect(controller.layoutRefreshController.layoutState.closingAnimationsByDisplay[monitor.displayId] == nil)
+        #expect(diagnostics.contains { diagnostic in
+            diagnostic.phase == .intake
+                && diagnostic.animationPolicy == .staticViewportPreserving
+                && !diagnostic.closeAnimation
+        })
     }
 
     @Test @MainActor func newAppActivationWaitsForFocusedWindowBeforeLeavingManagedFocus() async throws {
