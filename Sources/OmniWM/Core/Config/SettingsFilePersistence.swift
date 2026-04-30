@@ -19,6 +19,16 @@ final class SettingsFilePersistence {
         let fingerprint: FileFingerprint
     }
 
+    private struct FileIdentity: Equatable {
+        let deviceID: UInt64
+        let inode: UInt64
+
+        init(_ fingerprint: FileFingerprint) {
+            deviceID = fingerprint.deviceID
+            inode = fingerprint.inode
+        }
+    }
+
     private static let nanosecondsPerSecond: Int64 = 1_000_000_000
 
     nonisolated static let defaultDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
@@ -35,6 +45,9 @@ final class SettingsFilePersistence {
     private let deferSaves: Bool
     private var directoryFileDescriptor: CInt = -1
     private var directoryWatcher: DispatchSourceFileSystemObject?
+    private var settingsFileDescriptor: CInt = -1
+    private var settingsFileWatcher: DispatchSourceFileSystemObject?
+    private var watchedSettingsFileIdentity: FileIdentity?
     private var pendingExport: SettingsExport?
     private var saveScheduled = false
     private var lastWrittenFingerprint: FileFingerprint?
@@ -51,11 +64,15 @@ final class SettingsFilePersistence {
         self.deferSaves = deferSaves
 
         if startWatching {
-            startFileWatcher()
+            startWatchers()
         }
     }
 
     deinit {
+        settingsFileWatcher?.cancel()
+        if settingsFileWatcher == nil, settingsFileDescriptor >= 0 {
+            close(settingsFileDescriptor)
+        }
         directoryWatcher?.cancel()
         if directoryWatcher == nil, directoryFileDescriptor >= 0 {
             close(directoryFileDescriptor)
@@ -96,6 +113,7 @@ final class SettingsFilePersistence {
             let fingerprint = currentFingerprint()
             lastWrittenFingerprint = fingerprint
             lastObservedFingerprint = fingerprint
+            refreshSettingsFileWatcher(for: fingerprint)
         } catch {
             report("Failed to save \(fileURL.path): \(error.localizedDescription)")
         }
@@ -142,7 +160,7 @@ final class SettingsFilePersistence {
         }
     }
 
-    private func startFileWatcher() {
+    private func startWatchers() {
         do {
             try ensureDirectoryExists()
         } catch {
@@ -150,14 +168,20 @@ final class SettingsFilePersistence {
             return
         }
 
+        startDirectoryWatcher()
+        refreshSettingsFileWatcher()
+    }
+
+    private func startDirectoryWatcher() {
         directoryFileDescriptor = open(directoryURL.path, O_EVTONLY)
         guard directoryFileDescriptor >= 0 else {
             report("Failed to watch settings directory \(directoryURL.path).")
             return
         }
 
+        let fileDescriptor = directoryFileDescriptor
         let watcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: directoryFileDescriptor,
+            fileDescriptor: fileDescriptor,
             eventMask: .write,
             queue: .main
         )
@@ -165,16 +189,24 @@ final class SettingsFilePersistence {
             self?.handleDirectoryWriteEvent()
         }
         watcher.setCancelHandler { [weak self] in
-            guard let self, self.directoryFileDescriptor >= 0 else { return }
-            close(self.directoryFileDescriptor)
-            self.directoryFileDescriptor = -1
+            close(fileDescriptor)
+            self?.directoryFileDescriptor = -1
         }
         directoryWatcher = watcher
         watcher.resume()
     }
 
     private func handleDirectoryWriteEvent() {
+        handlePossibleSettingsFileChange()
+    }
+
+    private func handleSettingsFileEvent() {
+        handlePossibleSettingsFileChange()
+    }
+
+    private func handlePossibleSettingsFileChange() {
         let observedFingerprint = currentFingerprint()
+        refreshSettingsFileWatcher(for: observedFingerprint)
 
         if observedFingerprint == lastWrittenFingerprint {
             lastObservedFingerprint = observedFingerprint
@@ -184,6 +216,54 @@ final class SettingsFilePersistence {
         guard observedFingerprint != lastObservedFingerprint else { return }
         guard let export = reloadIfChanged() else { return }
         onExternalChange?(export)
+    }
+
+    private func refreshSettingsFileWatcher(for observedFingerprint: FileFingerprint? = nil) {
+        let fingerprint = observedFingerprint ?? currentFingerprint()
+        guard let fingerprint else {
+            cancelSettingsFileWatcher()
+            return
+        }
+
+        let identity = FileIdentity(fingerprint)
+        guard settingsFileWatcher == nil || watchedSettingsFileIdentity != identity else { return }
+
+        cancelSettingsFileWatcher()
+
+        let fileDescriptor = open(fileURL.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            settingsFileDescriptor = -1
+            watchedSettingsFileIdentity = nil
+            report("Failed to watch settings file \(fileURL.path).")
+            return
+        }
+
+        settingsFileDescriptor = fileDescriptor
+        watchedSettingsFileIdentity = identity
+
+        let watcher = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename],
+            queue: .main
+        )
+        watcher.setEventHandler { [weak self] in
+            self?.handleSettingsFileEvent()
+        }
+        watcher.setCancelHandler { [weak self] in
+            close(fileDescriptor)
+            if self?.settingsFileDescriptor == fileDescriptor {
+                self?.settingsFileDescriptor = -1
+            }
+        }
+        settingsFileWatcher = watcher
+        watcher.resume()
+    }
+
+    private func cancelSettingsFileWatcher() {
+        settingsFileWatcher?.cancel()
+        settingsFileWatcher = nil
+        settingsFileDescriptor = -1
+        watchedSettingsFileIdentity = nil
     }
 
     private func ensureDirectoryExists() throws {

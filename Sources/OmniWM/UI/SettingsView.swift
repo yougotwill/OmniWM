@@ -205,7 +205,7 @@ struct GeneralSettingsTab: View {
                 }
 
                 Text(
-                    "OmniWM stores editable settings in a single canonical JSON file that reloads live when you save it."
+                    "OmniWM stores editable settings in a single canonical TOML file that reloads live when you save it."
                 )
                     .font(.caption)
                     .foregroundColor(.secondary)

@@ -74,6 +74,20 @@ private func writeSettingsExport(
     try SettingsTOMLCodec.encode(export).write(to: url, options: .atomic)
 }
 
+private func writeSettingsExportInPlace(
+    _ export: SettingsExport,
+    to url: URL
+) throws {
+    let data = try SettingsTOMLCodec.encode(export)
+    let handle = try FileHandle(forWritingTo: url)
+    defer {
+        try? handle.close()
+    }
+
+    try handle.truncate(atOffset: 0)
+    try handle.write(contentsOf: data)
+}
+
 private func atomicallyReplaceSettingsDataForTests(
     _ data: Data,
     at url: URL,
@@ -429,6 +443,31 @@ private func atomicallyReplaceSettingsDataForTests(
         #expect(reloaded)
     }
 
+    @Test func externalInPlaceTruncateAndWriteReloadsLiveSettings() async throws {
+        let defaults = makeTestDefaults()
+        let directory = configurationDirectoryForTests(defaults: defaults)
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(directory: directory),
+            runtimeState: RuntimeStateStore(directory: directory)
+        )
+        var reloadCount = 0
+        settings.onExternalSettingsReloaded = {
+            reloadCount += 1
+        }
+
+        var export = settings.toExport()
+        export.focusFollowsWindowToMonitor = true
+        try writeSettingsExportInPlace(export, to: settings.settingsFileURL)
+
+        let reloaded = await waitForConditionForTests(
+            timeoutNanoseconds: 20_000_000_000
+        ) {
+            reloadCount == 1 && settings.focusFollowsWindowToMonitor == true
+        }
+
+        #expect(reloaded)
+    }
+
     @Test func externalAtomicReplacementReloadsWhenSizeAndModificationDateMatchLastWrite() async throws {
         let defaults = makeTestDefaults()
         let directory = configurationDirectoryForTests(defaults: defaults)
@@ -475,6 +514,42 @@ private func atomicallyReplaceSettingsDataForTests(
         }
 
         #expect(reloaded)
+    }
+
+    @Test func atomicReplacementRearmsWatcherForLaterInPlaceEdits() async throws {
+        let defaults = makeTestDefaults()
+        let directory = configurationDirectoryForTests(defaults: defaults)
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(directory: directory),
+            runtimeState: RuntimeStateStore(directory: directory)
+        )
+        var reloadCount = 0
+        settings.onExternalSettingsReloaded = {
+            reloadCount += 1
+        }
+
+        var replacementExport = settings.toExport()
+        replacementExport.gapSize = 7
+        try writeSettingsExport(replacementExport, to: settings.settingsFileURL)
+
+        let replaced = await waitForConditionForTests(
+            timeoutNanoseconds: 20_000_000_000
+        ) {
+            reloadCount == 1 && settings.gapSize == replacementExport.gapSize
+        }
+        #expect(replaced)
+
+        var inPlaceExport = settings.toExport()
+        inPlaceExport.focusFollowsWindowToMonitor = true
+        try writeSettingsExportInPlace(inPlaceExport, to: settings.settingsFileURL)
+
+        let inPlaceReloaded = await waitForConditionForTests(
+            timeoutNanoseconds: 20_000_000_000
+        ) {
+            reloadCount == 2 && settings.focusFollowsWindowToMonitor == true
+        }
+
+        #expect(inPlaceReloaded)
     }
 
     @Test func invalidExternalEditLeavesCurrentSettingsUnchanged() async throws {
