@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
         .root_module = module,
     });
+    lib.bundle_compiler_rt = true;
     b.installArtifact(lib);
 
     const tests = b.addTest(.{
