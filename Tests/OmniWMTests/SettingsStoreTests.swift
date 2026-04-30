@@ -267,6 +267,49 @@ private func atomicallyReplaceSettingsDataForTests(
         #expect(settings.workspaceConfigurations.first?.monitorAssignment == .main)
     }
 
+    @Test func quakeTerminalPercentSettingsNormalizeOnAssignmentAndImport() {
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.quakeTerminalWidthPercent = 5
+        settings.quakeTerminalHeightPercent = 150
+
+        #expect(settings.quakeTerminalWidthPercent == 10)
+        #expect(settings.quakeTerminalHeightPercent == 100)
+
+        var export = SettingsExport.defaults()
+        export.quakeTerminalWidthPercent = Double.nan
+        export.quakeTerminalHeightPercent = -Double.infinity
+        settings.applyExport(export, monitors: [])
+
+        #expect(settings.quakeTerminalWidthPercent == 50)
+        #expect(settings.quakeTerminalHeightPercent == 50)
+    }
+
+    @Test func quakeTerminalCustomFrameRejectsInvalidPersistedGeometry() {
+        let defaults = makeTestDefaults()
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.quakeTerminalUseCustomFrame = true
+        settings.quakeTerminalCustomFrame = CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 300)
+
+        #expect(settings.quakeTerminalUseCustomFrame == false)
+        #expect(settings.quakeTerminalCustomFrame == nil)
+
+        var export = SettingsExport.defaults()
+        export.quakeTerminalUseCustomFrame = true
+        export.quakeTerminalCustomFrame = QuakeTerminalFrameExport(
+            x: 0,
+            y: 0,
+            width: 70_000,
+            height: 300
+        )
+        settings.applyExport(export, monitors: [])
+
+        #expect(settings.quakeTerminalUseCustomFrame == false)
+        #expect(settings.quakeTerminalCustomFrame == nil)
+    }
+
     @Test func mouseWarpAxisRoundTripsThroughCanonicalSettingsFile() {
         let defaults = makeTestDefaults()
         let settings = SettingsStore(defaults: defaults)

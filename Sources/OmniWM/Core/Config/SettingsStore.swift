@@ -363,11 +363,25 @@ final class SettingsStore {
     }
 
     var quakeTerminalWidthPercent = SettingsStore.defaultExport.quakeTerminalWidthPercent {
-        didSet { scheduleSave() }
+        didSet {
+            let normalized = QuakeTerminalGeometryPolicy.normalizedDimensionPercent(quakeTerminalWidthPercent)
+            if normalized != quakeTerminalWidthPercent {
+                quakeTerminalWidthPercent = normalized
+                return
+            }
+            scheduleSave()
+        }
     }
 
     var quakeTerminalHeightPercent = SettingsStore.defaultExport.quakeTerminalHeightPercent {
-        didSet { scheduleSave() }
+        didSet {
+            let normalized = QuakeTerminalGeometryPolicy.normalizedDimensionPercent(quakeTerminalHeightPercent)
+            if normalized != quakeTerminalHeightPercent {
+                quakeTerminalHeightPercent = normalized
+                return
+            }
+            scheduleSave()
+        }
     }
 
     var quakeTerminalAnimationDuration = SettingsStore.defaultExport.quakeTerminalAnimationDuration {
@@ -419,12 +433,13 @@ final class SettingsStore {
             return NSRect(x: x, y: y, width: width, height: height)
         }
         set {
-            if let frame = newValue {
+            if let frame = QuakeTerminalGeometryPolicy.normalizedCustomFrame(newValue) {
                 quakeTerminalCustomFrameX = frame.origin.x
                 quakeTerminalCustomFrameY = frame.origin.y
                 quakeTerminalCustomFrameWidth = frame.size.width
                 quakeTerminalCustomFrameHeight = frame.size.height
             } else {
+                quakeTerminalUseCustomFrame = false
                 quakeTerminalCustomFrameX = nil
                 quakeTerminalCustomFrameY = nil
                 quakeTerminalCustomFrameWidth = nil
@@ -1056,8 +1071,11 @@ final class SettingsStore {
         quakeTerminalMonitorMode = QuakeTerminalMonitorMode(
             rawValue: export.quakeTerminalMonitorMode ?? baseline.quakeTerminalMonitorMode ?? ""
         ) ?? .focusedWindow
-        quakeTerminalUseCustomFrame = export.quakeTerminalUseCustomFrame
-        quakeTerminalCustomFrame = export.quakeTerminalCustomFrame?.frame
+        let normalizedQuakeCustomFrame = QuakeTerminalGeometryPolicy.normalizedCustomFrame(
+            export.quakeTerminalCustomFrame?.frame
+        )
+        quakeTerminalCustomFrame = normalizedQuakeCustomFrame
+        quakeTerminalUseCustomFrame = export.quakeTerminalUseCustomFrame && normalizedQuakeCustomFrame != nil
 
         appearanceMode = AppearanceMode(rawValue: export.appearanceMode) ?? .automatic
     }

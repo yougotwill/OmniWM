@@ -43,24 +43,11 @@ enum QuakeTerminalPosition: String, Codable, CaseIterable, Sendable {
     }
 
     func configuredFrameSize(on screen: NSScreen, widthPercent: Double, heightPercent: Double) -> NSSize {
-        let visibleFrame = screen.visibleFrame
-        switch self {
-        case .top, .bottom:
-            return NSSize(
-                width: visibleFrame.width * widthPercent / 100.0,
-                height: visibleFrame.height * heightPercent / 100.0
-            )
-        case .left, .right:
-            return NSSize(
-                width: visibleFrame.width * widthPercent / 100.0,
-                height: visibleFrame.height * heightPercent / 100.0
-            )
-        case .center:
-            return NSSize(
-                width: visibleFrame.width * widthPercent / 100.0,
-                height: visibleFrame.height * heightPercent / 100.0
-            )
-        }
+        QuakeTerminalGeometryPolicy.configuredFrameSize(
+            visibleFrame: screen.visibleFrame,
+            widthPercent: widthPercent,
+            heightPercent: heightPercent
+        )
     }
 
     @MainActor

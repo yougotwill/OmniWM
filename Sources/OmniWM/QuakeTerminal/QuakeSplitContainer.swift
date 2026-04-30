@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import Cocoa
-import GhosttyKit
 
 enum QuakeSplitDividerMetrics {
     static let visibleThickness: CGFloat = 2
@@ -146,12 +145,9 @@ final class QuakeSplitContainer: NSView {
     }
 
     private func updateSurfaceSizes() {
-        guard let window else { return }
-        let scale = window.backingScaleFactor
+        let scale = window?.backingScaleFactor ?? 1.0
         for view in root.allSurfaceViews() {
-            guard let surface = view.ghosttySurface else { continue }
-            let size = view.frame.size
-            ghostty_surface_set_size(surface, UInt32(size.width * scale), UInt32(size.height * scale))
+            view.syncGhosttySurfaceSize(backingScale: scale)
         }
     }
 

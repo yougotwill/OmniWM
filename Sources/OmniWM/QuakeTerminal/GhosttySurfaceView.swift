@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import AppKit
 import GhosttyKit
+import OSLog
 import QuartzCore
 
 struct GhosttySurfaceResizeEdgeClassifier {
@@ -37,10 +38,14 @@ struct GhosttySurfaceResizeEdgeClassifier {
 
 @MainActor
 final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
+    private static let sizingLog = Logger(subsystem: "com.omniwm.core", category: "QuakeTerminal.GhosttySizing")
+
     private(set) var ghosttySurface: ghostty_surface_t?
     private var markedText: NSMutableAttributedString = NSMutableAttributedString()
     private var keyTextAccumulator: [String]? = nil
     private var lastPerformKeyEvent: TimeInterval?
+    private var lastAppliedSurfacePixelSize: GhosttySurfacePixelSize?
+    private var lastSizingDiagnosticSignature: String?
 
     private let resizeEdgeThreshold: CGFloat = 8.0
 
@@ -53,6 +58,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
     private var interactionMode: InteractionMode = .terminal
     private(set) var isInteracting: Bool = false
     var onFrameChanged: ((NSRect) -> Void)?
+    var onSurfaceSizeSyncForTesting: ((CGSize, CGFloat) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { false }
@@ -137,13 +143,56 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
         metalLayer.contentsScale = scale
         ghostty_surface_set_content_scale(surface, scale, scale)
+        syncGhosttySurfaceSize(backingScale: scale)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        syncGhosttySurfaceSize()
+    }
+
+    func syncGhosttySurfaceSize(backingScale explicitBackingScale: CGFloat? = nil) {
+        let backingScale = explicitBackingScale ?? window?.backingScaleFactor ?? 1.0
+        onSurfaceSizeSyncForTesting?(frame.size, backingScale)
+
         guard let surface = ghosttySurface else { return }
-        let scale = window?.backingScaleFactor ?? 1.0
-        ghostty_surface_set_size(surface, UInt32(newSize.width * scale), UInt32(newSize.height * scale))
+
+        let cellMetrics = GhosttySurfaceCellMetrics(surfaceSize: ghostty_surface_size(surface))
+        let decision = GhosttySurfacePixelSizeNormalizer.normalize(
+            pointSize: frame.size,
+            backingScale: backingScale,
+            cellMetrics: cellMetrics
+        )
+        logSurfaceSizeDecision(decision, pointSize: frame.size, backingScale: backingScale)
+
+        guard let pixelSize = decision.pixelSize else { return }
+        guard pixelSize != lastAppliedSurfacePixelSize else { return }
+
+        ghostty_surface_set_size(surface, pixelSize.widthPx, pixelSize.heightPx)
+        lastAppliedSurfacePixelSize = pixelSize
+    }
+
+    private func logSurfaceSizeDecision(
+        _ decision: GhosttySurfaceSizingDecision,
+        pointSize: CGSize,
+        backingScale: CGFloat
+    ) {
+        guard let diagnostic = decision.diagnostic else {
+            lastSizingDiagnosticSignature = nil
+            return
+        }
+
+        guard diagnostic.signature != lastSizingDiagnosticSignature else { return }
+        lastSizingDiagnosticSignature = diagnostic.signature
+
+        Self.sizingLog.notice(
+            """
+            quake_ghostty_surface_size_diagnostic kind=\(diagnostic.kind.rawValue, privacy: .public) \
+            point_width=\(Double(pointSize.width), privacy: .public) \
+            point_height=\(Double(pointSize.height), privacy: .public) \
+            backing_scale=\(Double(backingScale), privacy: .public)
+            """
+        )
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -184,9 +233,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
         }
 
         syncPreedit(clearIfNeeded: markedTextBefore)
+        let composing = markedText.length > 0 || markedTextBefore
 
         if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
             for text in accumulated {
+                if QuakeGhosttyInputBridge.shouldSuppressComposingControlInput(text, composing: composing) {
+                    continue
+                }
+
                 _ = keyAction(
                     action,
                     event: event,
@@ -197,12 +251,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
             return
         }
 
+        if QuakeGhosttyInputBridge.shouldSuppressComposingControlInput(event.characters, composing: composing) {
+            return
+        }
+
         _ = keyAction(
             action,
             event: event,
             translationEvent: translationEvent,
             text: translationEvent.quakeGhosttyCharacters,
-            composing: markedText.length > 0 || markedTextBefore
+            composing: composing
         )
     }
 
@@ -426,25 +484,23 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient {
 
     private func calculateResizedFrame(startFrame: NSRect, edges: ResizeEdge, delta: CGPoint) -> NSRect {
         var frame = startFrame
-        let minWidth: CGFloat = 200
-        let minHeight: CGFloat = 100
 
         if edges.contains(.right) {
-            frame.size.width = max(minWidth, startFrame.width + delta.x)
+            frame.size.width = max(QuakeTerminalGeometryPolicy.minimumFrameWidthPoints, startFrame.width + delta.x)
         }
         if edges.contains(.left) {
             let proposed = startFrame.width - delta.x
-            if proposed >= minWidth {
+            if proposed >= QuakeTerminalGeometryPolicy.minimumFrameWidthPoints {
                 frame.origin.x = startFrame.origin.x + delta.x
                 frame.size.width = proposed
             }
         }
         if edges.contains(.top) {
-            frame.size.height = max(minHeight, startFrame.height + delta.y)
+            frame.size.height = max(QuakeTerminalGeometryPolicy.minimumFrameHeightPoints, startFrame.height + delta.y)
         }
         if edges.contains(.bottom) {
             let proposed = startFrame.height - delta.y
-            if proposed >= minHeight {
+            if proposed >= QuakeTerminalGeometryPolicy.minimumFrameHeightPoints {
                 frame.origin.y = startFrame.origin.y + delta.y
                 frame.size.height = proposed
             }

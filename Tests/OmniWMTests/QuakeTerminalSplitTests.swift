@@ -190,6 +190,39 @@ import Testing
         #expect(abs((container.root.ratio(at: address) ?? 0) - 0.7) < 0.001)
     }
 
+    @Test func surfaceViewFrameSizeChangeRequestsCentralGhosttySizeSync() {
+        let view = makeSurfaceView()
+        var observedSizes: [CGSize] = []
+        var observedScales: [CGFloat] = []
+        view.onSurfaceSizeSyncForTesting = { size, scale in
+            observedSizes.append(size)
+            observedScales.append(scale)
+        }
+
+        view.setFrameSize(CGSize(width: 333, height: 222))
+
+        #expect(observedSizes == [CGSize(width: 333, height: 222)])
+        #expect(observedScales == [1])
+    }
+
+    @Test func splitRelayoutRequestsCentralGhosttySizeSyncForEveryPane() {
+        let left = makeSurfaceView()
+        let right = makeSurfaceView()
+        let container = QuakeSplitContainer(initialView: left)
+        container.frame = containerBounds
+        container.split(view: left, direction: .horizontal, newView: right)
+
+        var leftSizes: [CGSize] = []
+        var rightSizes: [CGSize] = []
+        left.onSurfaceSizeSyncForTesting = { size, _ in leftSizes.append(size) }
+        right.onSurfaceSizeSyncForTesting = { size, _ in rightSizes.append(size) }
+
+        container.relayout()
+
+        #expect(leftSizes.last == CGSize(width: 200, height: 300))
+        #expect(rightSizes.last == CGSize(width: 200, height: 300))
+    }
+
     private func makeSurfaceView() -> GhosttySurfaceView {
         GhosttySurfaceView(testFrame: CGRect(x: 0, y: 0, width: 200, height: 150))
     }

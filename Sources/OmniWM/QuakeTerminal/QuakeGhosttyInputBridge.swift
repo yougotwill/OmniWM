@@ -87,6 +87,16 @@ enum QuakeGhosttyInputBridge {
             nil
         }
     }
+
+    static func shouldSuppressComposingControlInput(_ text: String?, composing: Bool) -> Bool {
+        guard composing, let text else { return false }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return false
+        }
+        return scalar.value < 0x20
+    }
 }
 
 extension NSEvent {

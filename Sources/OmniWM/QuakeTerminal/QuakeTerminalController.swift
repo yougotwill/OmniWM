@@ -502,7 +502,12 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
     }
 
     private func persistCustomFrame(_ frame: NSRect) {
-        settings.quakeTerminalCustomFrame = frame
+        guard let normalizedFrame = QuakeTerminalGeometryPolicy.normalizedCustomFrame(frame) else {
+            settings.resetQuakeTerminalCustomFrame()
+            return
+        }
+
+        settings.quakeTerminalCustomFrame = normalizedFrame
         settings.quakeTerminalUseCustomFrame = true
         UserDefaults.standard.synchronize()
     }
@@ -513,8 +518,10 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
         let generation = beginAnimationTransition()
 
         if settings.quakeTerminalUseCustomFrame,
-           let customFrame = settings.quakeTerminalCustomFrame,
-           screen.visibleFrame.intersects(customFrame) {
+           let customFrame = QuakeTerminalGeometryPolicy.normalizedCustomFrame(
+               settings.quakeTerminalCustomFrame,
+               visibleFrame: screen.visibleFrame
+           ) {
             window.setFrame(customFrame, display: false)
             window.level = .popUpMenu
             window.makeKeyAndOrderFront(nil)
@@ -536,6 +543,8 @@ final class QuakeTerminalController: NSObject, NSWindowDelegate, QuakeTerminalTa
                 }
             })
             return
+        } else if settings.quakeTerminalUseCustomFrame {
+            settings.resetQuakeTerminalCustomFrame()
         }
 
         let position = settings.quakeTerminalPosition
