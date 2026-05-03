@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Foundation
 
 private let perAppTimeout: TimeInterval = 0.5
@@ -286,7 +287,31 @@ final class AXManager {
         }
 
         let visibleWindows = SkyLight.shared.queryAllVisibleWindows()
-        let pidsWithWindows = Set(visibleWindows.map { $0.pid })
+        var pidsWithWindows = Set(visibleWindows.map { $0.pid })
+
+        // Patch: SLSWindowQueryWindows(cid, [], _) silently omits windows
+        // owned by certain Electron-based apps (notably WeChat —
+        // com.tencent.xinWeChat — verified empirically: its window is
+        // returned when queried by WID directly, but never appears in the
+        // empty-array enumeration regardless of the flags bitmap). Augment
+        // pidsWithWindows from the public CGWindowList API, which does see
+        // these apps. Filter to layer==0 (regular app windows) and
+        // alpha>0 (actually rendered) to avoid Dock / menubar / wallpaper.
+        // Additive only: apps already discovered via SLS are unaffected.
+        if let cgWindows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] {
+            for window in cgWindows {
+                guard let pidNumber = window[kCGWindowOwnerPID as String] as? Int,
+                      let layer = window[kCGWindowLayer as String] as? Int,
+                      layer == 0,
+                      let alpha = window[kCGWindowAlpha as String] as? Double,
+                      alpha > 0
+                else { continue }
+                pidsWithWindows.insert(pid_t(pidNumber))
+            }
+        }
 
         let apps = NSWorkspace.shared.runningApplications.filter {
             shouldTrack($0) && pidsWithWindows.contains($0.processIdentifier)
