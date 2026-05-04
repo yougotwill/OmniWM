@@ -670,6 +670,7 @@ final class MouseEventHandler {
                     }
                 }
                 if moveStarted {
+                    controller.niriLayoutHandler.cancelActiveAnimations(for: wsId)
                     state.moveIsInsertMode = isInsertMode
                     state.isMoving = true
                     NSCursor.closedHand.set()

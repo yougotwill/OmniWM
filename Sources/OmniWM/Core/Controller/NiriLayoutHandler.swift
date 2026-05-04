@@ -301,14 +301,70 @@ private func hasPendingNiriAnimationWork(
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
 
-        let runtime = requiredRuntime("NiriLayoutHandler.cancelActiveAnimations")
-        runtime.withNiriViewportState(for: workspaceId, source: .animation) { state in
-            state.cancelAnimation()
+        let displayIds = scrollAnimationByDisplay.compactMap { displayId, wsId in
+            wsId == workspaceId ? displayId : nil
+        }
+        guard let engine = controller.niriEngine else {
+            for displayId in displayIds {
+                controller.layoutRefreshController.stopScrollAnimation(for: displayId)
+            }
+            return
         }
 
-        for (displayId, wsId) in scrollAnimationByDisplay where wsId == workspaceId {
+        let hadEngineAnimation = engine.hasAnyWindowAnimationsRunning(in: workspaceId)
+            || engine.hasAnyColumnAnimationsRunning(in: workspaceId)
+        let runtime = requiredRuntime("NiriLayoutHandler.cancelActiveAnimations")
+        let settled = runtime.withNiriViewportState(for: workspaceId, source: .animation) { state in
+            let hadViewportAnimation = state.viewOffsetPixels.isAnimating
+            if hadViewportAnimation {
+                state.cancelAnimation()
+            }
+            return (state: state, hadViewportAnimation: hadViewportAnimation)
+        }
+
+        if hadEngineAnimation {
+            engine.cancelAllMotionAnimations(in: workspaceId)
+        }
+
+        if hadEngineAnimation || settled.hadViewportAnimation || !displayIds.isEmpty,
+           let monitor = LayoutProjectionContext.project(controller: controller).monitor(for: workspaceId)
+        {
+            applyFramesOnDemand(
+                wsId: workspaceId,
+                state: settled.state,
+                engine: engine,
+                monitor: monitor,
+                animationTime: nil
+            )
+        }
+
+        for displayId in displayIds {
             controller.layoutRefreshController.stopScrollAnimation(for: displayId)
         }
+    }
+
+    func pruneAndHasActiveScrollAnimationWork() -> Bool {
+        var hasActiveWork = false
+        var staleDisplayIds: [CGDirectDisplayID] = []
+
+        for (displayId, workspaceId) in scrollAnimationByDisplay {
+            if hasActiveAnimationWork(for: workspaceId) {
+                hasActiveWork = true
+            } else {
+                staleDisplayIds.append(displayId)
+            }
+        }
+
+        for displayId in staleDisplayIds {
+            controller?.layoutRefreshController.stopScrollAnimation(for: displayId)
+        }
+        return hasActiveWork
+    }
+
+    private func hasActiveAnimationWork(for workspaceId: WorkspaceDescriptor.ID) -> Bool {
+        guard let controller, let engine = controller.niriEngine else { return false }
+        let state = controller.workspaceManager.niriViewportState(for: workspaceId)
+        return hasPendingNiriAnimationWork(state: state, engine: engine, workspaceId: workspaceId)
     }
 
     func layoutWithNiriEngine(

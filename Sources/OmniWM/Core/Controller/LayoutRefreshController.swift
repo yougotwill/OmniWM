@@ -989,7 +989,7 @@ private let layoutShutdownRaceLog = Logger(
         return await executeRelayout(
             refresh: refresh,
             route: .immediateRelayout,
-            useScrollAnimationPath: !niriHandler.scrollAnimationByDisplay.isEmpty,
+            useScrollAnimationPath: niriHandler.pruneAndHasActiveScrollAnimationWork(),
             recoverFocus: false
         )
     }

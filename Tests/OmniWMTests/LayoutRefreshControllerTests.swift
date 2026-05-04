@@ -2920,4 +2920,110 @@ private func layoutRefreshHasNiriScrollDirective(
         #expect(controller.axManager.lastAppliedFrame(for: token.windowId) != nil)
     }
 
+    @Test @MainActor func cancelActiveAnimationsSettlesNiriMotionAndAppliesFinalFrames() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for Niri animation cancel test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 622)
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 623)
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+
+        guard let engine = controller.niriEngine,
+              let node = engine.findNode(for: token),
+              let column = engine.column(of: node)
+        else {
+            Issue.record("Expected Niri node and column before animation cancel test")
+            return
+        }
+        let originalWidth = column.cachedWidth
+        let targetWidth = max(240, originalWidth - 180)
+        column.width = .fixed(targetWidth)
+        _ = column.animateWidthTo(
+            newWidth: targetWidth,
+            clock: engine.animationClock,
+            config: engine.windowMovementAnimationConfig,
+            displayRefreshRate: engine.displayRefreshRate,
+            animated: true
+        )
+        #expect(engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+        #expect(controller.niriLayoutHandler.registerScrollAnimation(workspaceId, on: monitor.displayId))
+
+        controller.niriLayoutHandler.cancelActiveAnimations(for: workspaceId)
+
+        #expect(!engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+        #expect(!engine.hasAnyWindowAnimationsRunning(in: workspaceId))
+        #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == nil)
+        #expect(abs(column.cachedWidth - targetWidth) < 0.5)
+
+        guard let finalFrame = node.renderedFrame ?? node.frame else {
+            Issue.record("Expected final rendered frame after animation cancel")
+            return
+        }
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == finalFrame)
+    }
+
+    @Test @MainActor func immediateRelayoutAppliesFramesWhenScrollAnimationRegistrationIsStale() async throws {
+        let controller = makeLayoutPlanTestController()
+        guard let monitor = controller.workspaceManager.monitors.first,
+              let workspaceId = controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id
+        else {
+            Issue.record("Missing monitor or active workspace for stale scroll registration test")
+            return
+        }
+
+        controller.enableNiriLayout(maxWindowsPerColumn: 1)
+        await waitForLayoutPlanRefreshWork(on: controller)
+        controller.syncMonitorsToNiriEngine()
+
+        let token = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 624)
+        _ = addLayoutPlanTestWindow(on: controller, workspaceId: workspaceId, windowId: 625)
+        let initialPlans = try await controller.niriLayoutHandler.layoutWithNiriEngine(
+            activeWorkspaces: [workspaceId]
+        )
+        controller.layoutRefreshController.executeLayoutPlans(initialPlans)
+        let priorAppliedFrame = controller.axManager.lastAppliedFrame(for: token.windowId)
+
+        guard let engine = controller.niriEngine,
+              let node = engine.findNode(for: token),
+              let column = engine.column(of: node)
+        else {
+            Issue.record("Expected Niri node and column before stale registration test")
+            return
+        }
+        let targetWidth = column.cachedWidth + 180
+        column.width = .fixed(targetWidth)
+        column.cachedWidth = targetWidth
+        column.widthAnimation = nil
+        column.targetWidth = nil
+        #expect(!engine.hasAnyColumnAnimationsRunning(in: workspaceId))
+        #expect(!engine.hasAnyWindowAnimationsRunning(in: workspaceId))
+        #expect(controller.niriLayoutHandler.registerScrollAnimation(workspaceId, on: monitor.displayId))
+
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .layoutCommand,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        await controller.layoutRefreshController.waitForRefreshWorkForTests()
+
+        #expect(controller.niriLayoutHandler.scrollAnimationByDisplay[monitor.displayId] == nil)
+        guard let finalFrame = node.renderedFrame ?? node.frame else {
+            Issue.record("Expected rendered frame after stale registration relayout")
+            return
+        }
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) == finalFrame)
+        #expect(controller.axManager.lastAppliedFrame(for: token.windowId) != priorAppliedFrame)
+    }
+
 }
