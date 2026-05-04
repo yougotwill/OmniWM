@@ -157,56 +157,6 @@ struct WorkspaceRefreshInput {
     let isActiveWorkspace: Bool
 }
 
-enum NiriRemovalRevealSide: Equatable {
-    case left
-    case right
-
-    static func closestHorizontalEdge(
-        to frame: CGRect,
-        in viewport: CGRect
-    ) -> NiriRemovalRevealSide {
-        let viewportMidX = viewport.midX
-        return frame.midX <= viewportMidX ? .left : .right
-    }
-}
-
-enum NiriRemovalAnimationPolicy: Equatable {
-    case ordinary
-    case staticViewportPreserving
-
-    var shouldStartCloseAnimation: Bool {
-        self == .ordinary
-    }
-
-    var shouldStartSurvivorMoveAnimations: Bool {
-        self == .ordinary
-    }
-
-    var shouldStartColumnAnimations: Bool {
-        self == .ordinary
-    }
-
-    var shouldStartScrollAnimation: Bool {
-        self == .ordinary
-    }
-
-    var shouldDeferFrameApplication: Bool {
-        self == .ordinary
-    }
-
-    func merging(_ other: NiriRemovalAnimationPolicy) -> NiriRemovalAnimationPolicy {
-        if self == .staticViewportPreserving || other == .staticViewportPreserving {
-            return .staticViewportPreserving
-        }
-        return .ordinary
-    }
-}
-
-enum NiriRemovalRecoveryPolicy: Equatable {
-    case none
-    case strictLeftPreserveViewport
-}
-
 enum NiriRemovalDiagnosticPhase: Equatable {
     case intake
     case topologyPlanning
@@ -226,15 +176,12 @@ struct NiriRemovalAnimationDiagnostic: Equatable {
     var workspaceId: WorkspaceDescriptor.ID
     var removedNodeId: NodeId?
     var removedWindow: WindowToken? = nil
-    var recoveryTarget: WindowToken?
-    var revealSide: NiriRemovalRevealSide?
     var activeColumnBefore: Int?
     var activeColumnAfter: Int?
     var currentOffset: CGFloat?
     var targetOffset: CGFloat?
     var stationaryOffset: CGFloat?
     var viewportAction: NiriRemovalViewportAction
-    var animationPolicy: NiriRemovalAnimationPolicy
     var closeAnimation: Bool
     var survivorMoveAnimation: Bool
     var columnAnimation: Bool
@@ -279,19 +226,7 @@ struct NiriWindowRemovalSeed {
     let removedNodeIds: [NodeId]
     let oldFrames: [WindowToken: CGRect]
     var removedWindow: WindowToken?
-    let selectedRemovalAnchorNodeId: NodeId?
-    let revealSide: NiriRemovalRevealSide?
-    let shouldRecoverFocus: Bool
-    var animationPolicy: NiriRemovalAnimationPolicy = .ordinary
     var diagnosticRemovedNodeId: NodeId? = nil
-
-    var topologyRecoveryPolicy: NiriRemovalRecoveryPolicy {
-        selectedRemovalAnchorNodeId == nil ? .none : .strictLeftPreserveViewport
-    }
-
-    var suppressesCoalescedCreateMotion: Bool {
-        animationPolicy == .staticViewportPreserving && shouldRecoverFocus
-    }
 }
 
 struct NiriWorkspaceSnapshot {
@@ -389,11 +324,6 @@ enum AnimationDirective {
     case updateTabbedOverlays
 }
 
-enum LayoutFocusIntent {
-    case focusWindow(token: WindowToken)
-    case completeFocusedRemovalRecovery(workspaceId: WorkspaceDescriptor.ID, target: WindowToken?)
-}
-
 struct RefreshVisibilityEffect {
     let activeWorkspaceIds: Set<WorkspaceDescriptor.ID>
 }
@@ -422,7 +352,6 @@ struct WorkspaceLayoutPlan {
     var sessionPatch: WorkspaceSessionPatch
     var diff: WorkspaceLayoutDiff
     var animationDirectives: [AnimationDirective] = []
-    var focusIntents: [LayoutFocusIntent] = []
     var nativeFullscreenRestoreFinalizeTokens: [WindowToken] = []
     var managedRestoreMaterialStateChanges: [ManagedRestoreMaterialStateChange] = []
     var persistManagedRestoreSnapshots: Bool = true

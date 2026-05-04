@@ -94,11 +94,6 @@ enum {
     OMNIWM_NIRI_TOPOLOGY_EFFECT_REORDER_WINDOW = 6,
 };
 
-enum {
-    OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_NONE = 0,
-    OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_STRICT_LEFT_PRESERVE_VIEWPORT = 1,
-};
-
 typedef struct {
     double weight;
     double min_constraint;
@@ -267,13 +262,11 @@ typedef struct {
     uint64_t target_window_id;
     uint64_t selected_window_id;
     uint64_t focused_window_id;
-    uint64_t removal_anchor_window_id;
     int32_t active_column_index;
     int32_t insert_index;
     int32_t target_index;
     int32_t from_column_index;
     uint32_t max_windows_per_column;
-    uint32_t removal_recovery_policy;
     double gap;
     double viewport_span;
     double current_view_offset;
@@ -1739,11 +1732,9 @@ typedef struct {
     omniwm_uuid removed_node_id;
     omniwm_window_token removed_window;
     uint32_t layout_kind;
-    uint32_t niri_animation_policy;
     uint8_t has_removed_node_id;
     uint8_t has_removed_window;
     uint8_t should_recover_focus;
-    uint8_t niri_reveal_side;
     uint8_t reserved0;
     size_t old_frame_offset;
     size_t old_frame_count;

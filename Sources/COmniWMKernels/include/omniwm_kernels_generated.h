@@ -47,7 +47,7 @@ _Static_assert(sizeof(omniwm_niri_topology_window_input) == 16, "ABI drift: size
 _Static_assert(_Alignof(omniwm_niri_topology_window_input) == 8, "ABI drift: _Alignof(omniwm_niri_topology_window_input)");
 _Static_assert(sizeof(omniwm_geometry_snap_target_result) == 16, "ABI drift: sizeof(omniwm_geometry_snap_target_result)");
 _Static_assert(_Alignof(omniwm_geometry_snap_target_result) == 8, "ABI drift: _Alignof(omniwm_geometry_snap_target_result)");
-_Static_assert(sizeof(omniwm_niri_topology_input) == 160, "ABI drift: sizeof(omniwm_niri_topology_input)");
+_Static_assert(sizeof(omniwm_niri_topology_input) == 152, "ABI drift: sizeof(omniwm_niri_topology_input)");
 _Static_assert(_Alignof(omniwm_niri_topology_input) == 8, "ABI drift: _Alignof(omniwm_niri_topology_input)");
 _Static_assert(sizeof(omniwm_niri_topology_column_output) == 24, "ABI drift: sizeof(omniwm_niri_topology_column_output)");
 _Static_assert(_Alignof(omniwm_niri_topology_column_output) == 8, "ABI drift: _Alignof(omniwm_niri_topology_column_output)");
@@ -195,7 +195,7 @@ _Static_assert(sizeof(omniwm_reconcile_plan_output) == 336, "ABI drift: sizeof(o
 _Static_assert(_Alignof(omniwm_reconcile_plan_output) == 8, "ABI drift: _Alignof(omniwm_reconcile_plan_output)");
 _Static_assert(sizeof(omniwm_orchestration_old_frame_record) == 48, "ABI drift: sizeof(omniwm_orchestration_old_frame_record)");
 _Static_assert(_Alignof(omniwm_orchestration_old_frame_record) == 8, "ABI drift: _Alignof(omniwm_orchestration_old_frame_record)");
-_Static_assert(sizeof(omniwm_orchestration_window_removal_payload) == 80, "ABI drift: sizeof(omniwm_orchestration_window_removal_payload)");
+_Static_assert(sizeof(omniwm_orchestration_window_removal_payload) == 72, "ABI drift: sizeof(omniwm_orchestration_window_removal_payload)");
 _Static_assert(_Alignof(omniwm_orchestration_window_removal_payload) == 8, "ABI drift: _Alignof(omniwm_orchestration_window_removal_payload)");
 _Static_assert(sizeof(omniwm_orchestration_follow_up_refresh) == 24, "ABI drift: sizeof(omniwm_orchestration_follow_up_refresh)");
 _Static_assert(_Alignof(omniwm_orchestration_follow_up_refresh) == 8, "ABI drift: _Alignof(omniwm_orchestration_follow_up_refresh)");

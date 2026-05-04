@@ -55,21 +55,6 @@ final class AXEventHandler: CGSEventDelegate {
         var mode: TrackedWindowMode { replacementMetadata.mode }
     }
 
-    private struct FocusedRemovalActivationSuppression {
-        let refreshCycleId: RefreshCycleId
-        let workspaceId: WorkspaceDescriptor.ID
-        let suppressedActivationPid: pid_t
-        var expectedRecoveryToken: WindowToken?
-        var didRequestRecoveryFocus: Bool
-    }
-
-    private struct SameAppFocusPreemption {
-        let preemptedToken: WindowToken
-        let activatedToken: WindowToken
-        let workspaceId: WorkspaceDescriptor.ID
-        let recordedUptimeSeconds: TimeInterval
-    }
-
     private struct ManagedReplacementKey: Hashable {
         let pid: pid_t
         let workspaceId: WorkspaceDescriptor.ID
@@ -144,8 +129,6 @@ final class AXEventHandler: CGSEventDelegate {
     private static let stabilizationRetryDelay: Duration = .milliseconds(100)
     private static let createdWindowRetryLimit = 5
 
-    private static let sameAppFocusPreemptionMaxAgeSeconds: TimeInterval = 0.75
-
     private static let recentlyDestroyedWindowTTL: Duration = .seconds(2)
     private var recentlyDestroyedWindowIds: [Int: ContinuousClock.Instant] = [:]
 
@@ -161,8 +144,6 @@ final class AXEventHandler: CGSEventDelegate {
     private var pendingWindowStabilizationTasks: [WindowToken: Task<Void, Never>] = [:]
     private var pendingCreatedWindowRetryTasks: [UInt32: Task<Void, Never>] = [:]
     private var createdWindowRetryCountById: [UInt32: Int] = [:]
-    private var focusedRemovalActivationSuppression: FocusedRemovalActivationSuppression?
-    private var sameAppFocusPreemptionsByToken: [WindowToken: SameAppFocusPreemption] = [:]
     private var nextManagedReplacementEventSequence: UInt64 = 0
     var windowInfoProvider: ((UInt32) -> WindowServerInfo?)?
     var axWindowRefProvider: ((UInt32, pid_t) -> AXWindowRef?)?
@@ -194,8 +175,6 @@ final class AXEventHandler: CGSEventDelegate {
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
         resetCreatedWindowRetryState()
-        resetFocusedRemovalActivationSuppression()
-        resetSameAppFocusPreemptions()
         pendingWindowRuleReevaluationTask?.cancel()
         pendingWindowRuleReevaluationTask = nil
         pendingWindowRuleReevaluationTargets.removeAll()
@@ -312,8 +291,6 @@ final class AXEventHandler: CGSEventDelegate {
         resetNativeFullscreenReplacementState()
         resetWindowStabilizationState()
         resetCreatedWindowRetryState()
-        resetFocusedRemovalActivationSuppression()
-        resetSameAppFocusPreemptions()
         controller?.focusBridge.reset()
         pendingWindowRuleReevaluationTask?.cancel()
         pendingWindowRuleReevaluationTask = nil
@@ -680,6 +657,7 @@ final class AXEventHandler: CGSEventDelegate {
         let entry = controller.workspaceManager.entry(for: token)
         let affectedWorkspaceId = entry?.workspaceId
         let focusedTokenBeforeRemoval = controller.workspaceManager.focusedToken
+        let removedLogicalId = controller.workspaceManager.logicalWindowRegistry.lookup(token: token).liveLogicalId
         clearManagedFocusState(matching: token, workspaceId: affectedWorkspaceId)
 
         if handleNativeFullscreenDestroy(token) {
@@ -692,52 +670,15 @@ final class AXEventHandler: CGSEventDelegate {
 
         var oldFrames: [WindowToken: CGRect] = [:]
         var removedNodeId: NodeId?
-        var niriRevealSide: NiriRemovalRevealSide?
-        var niriStrictRecoveryToken: WindowToken?
         var niriViewportStateBeforeRemoval: ViewportState?
         if let wsId = affectedWorkspaceId, layoutType != .dwindle, let engine = controller.niriEngine {
             niriViewportStateBeforeRemoval = controller.workspaceManager.niriViewportState(for: wsId)
             oldFrames = engine.captureWindowFrames(in: wsId)
-            if let removedNode = engine.findNode(for: token) {
-                removedNodeId = removedNode.id
-                niriStrictRecoveryToken = strictLeftRecoveryToken(for: removedNode, workspaceId: wsId)
-                let removedFrame = removedColumnFrame(
-                    for: removedNode,
-                    oldFrames: oldFrames
-                ) ?? oldFrames[token]
-                if let removedFrame,
-                   let monitor = controller.workspaceManager.monitor(for: wsId)
-                {
-                    niriRevealSide = NiriRemovalRevealSide.closestHorizontalEdge(
-                        to: removedFrame,
-                        in: monitor.visibleFrame
-                    )
-                }
-            }
+            removedNodeId = engine.findNode(for: token)?.id
         }
-        let isSelectedNiriRemoval = affectedWorkspaceId.map { wsId in
-            layoutType != .dwindle
-                && removedNodeId != nil
-                && controller.workspaceManager.niriViewportState(for: wsId).selectedNodeId == removedNodeId
-        } ?? false
-        let sameAppFocusedPreemption = consumeSameAppFocusPreemption(
-            for: token,
-            workspaceId: affectedWorkspaceId
-        )
-        let shouldRecoverFocus = token == focusedTokenBeforeRemoval
-            || isSelectedNiriRemoval
-            || sameAppFocusedPreemption != nil
-        let niriAnimationPolicy: NiriRemovalAnimationPolicy = if shouldRecoverFocus,
-                                                                 layoutType != .dwindle,
-                                                                 removedNodeId != nil
-        {
-            .staticViewportPreserving
-        } else {
-            .ordinary
-        }
+        let shouldRecoverFocus = layoutType == .dwindle && token == focusedTokenBeforeRemoval
         var didStartCloseAnimation = false
-        if niriAnimationPolicy.shouldStartCloseAnimation,
-           let entry,
+        if let entry,
            let wsId = affectedWorkspaceId,
            let monitor = controller.workspaceManager.monitor(for: wsId),
            controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId,
@@ -768,15 +709,12 @@ final class AXEventHandler: CGSEventDelegate {
                     workspaceId: wsId,
                     removedNodeId: removedNodeId,
                     removedWindow: token,
-                    recoveryTarget: niriStrictRecoveryToken,
-                    revealSide: niriRevealSide,
                     activeColumnBefore: niriViewportStateBeforeRemoval?.activeColumnIndex,
                     activeColumnAfter: nil,
                     currentOffset: niriViewportStateBeforeRemoval?.viewOffsetPixels.current(),
                     targetOffset: niriViewportStateBeforeRemoval?.viewOffsetPixels.target(),
                     stationaryOffset: niriViewportStateBeforeRemoval?.stationary(),
                     viewportAction: .none,
-                    animationPolicy: niriAnimationPolicy,
                     closeAnimation: didStartCloseAnimation,
                     survivorMoveAnimation: false,
                     columnAnimation: false,
@@ -786,11 +724,6 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             )
         }
-        let isAffectedWorkspaceActive = affectedWorkspaceId.map { wsId in
-            controller.workspaceManager.monitor(for: wsId).map { monitor in
-                controller.workspaceManager.activeWorkspace(on: monitor.id)?.id == wsId
-            } ?? false
-        } ?? false
         controller.layoutRefreshController.discardHiddenTracking(for: token)
         guard let runtime = controller.runtime else {
             shutdownRaceLog.notice("AXEventHandler.handleCGSWindowDestroyed: WMRuntime detached during shutdown; soft-returning")
@@ -801,6 +734,9 @@ final class AXEventHandler: CGSEventDelegate {
             windowId: token.windowId,
             source: .ax
         )
+        if shouldRecoverFocus, let removedLogicalId {
+            runtime.recordFocusedManagedWindowRemoved(removedLogicalId)
+        }
         markWindowRecentlyDestroyed(windowId: token.windowId)
         controller.clearManualWindowOverride(for: token)
         _ = controller.renderKeyboardFocusBorder(
@@ -809,276 +745,16 @@ final class AXEventHandler: CGSEventDelegate {
         )
 
         if let wsId = affectedWorkspaceId {
-            let refreshCycleId = controller.layoutRefreshController.requestWindowRemoval(
+            controller.layoutRefreshController.requestWindowRemoval(
                 workspaceId: wsId,
                 layoutType: layoutType,
                 removedNodeId: removedNodeId,
                 removedWindow: token,
                 niriOldFrames: oldFrames,
-                niriRevealSide: niriRevealSide,
-                shouldRecoverFocus: shouldRecoverFocus,
-                niriAnimationPolicy: niriAnimationPolicy
+                shouldRecoverFocus: shouldRecoverFocus
             )
-            if shouldRecoverFocus,
-               layoutType != .dwindle,
-               isAffectedWorkspaceActive,
-               let refreshCycleId
-            {
-                prepareFocusedRemovalActivationSuppression(
-                    refreshCycleId: refreshCycleId,
-                    workspaceId: wsId,
-                    suppressedActivationPid: token.pid,
-                    expectedRecoveryToken: niriStrictRecoveryToken
-                )
-                if let removedLogicalId = controller.workspaceManager
-                    .logicalWindowRegistry
-                    .lookup(token: token).anyLogicalId
-                {
-                    runtime.recordFocusedManagedWindowRemoved(removedLogicalId)
-                }
-            }
         }
         scheduleWindowRuleReevaluationIfNeeded(targets: [.pid(token.pid)])
-    }
-
-    private func removedColumnFrame(
-        for node: NiriWindow,
-        oldFrames: [WindowToken: CGRect]
-    ) -> CGRect? {
-        guard let controller,
-              let engine = controller.niriEngine,
-              let column = engine.column(of: node)
-        else {
-            return oldFrames[node.token]
-        }
-
-        return column.windowNodes
-            .compactMap { oldFrames[$0.token] }
-            .reduce(nil) { partial, frame in
-                partial.map { $0.union(frame) } ?? frame
-            }
-    }
-
-    private func prepareFocusedRemovalActivationSuppression(
-        refreshCycleId: RefreshCycleId,
-        workspaceId: WorkspaceDescriptor.ID,
-        suppressedActivationPid: pid_t,
-        expectedRecoveryToken: WindowToken?
-    ) {
-        focusedRemovalActivationSuppression = FocusedRemovalActivationSuppression(
-            refreshCycleId: refreshCycleId,
-            workspaceId: workspaceId,
-            suppressedActivationPid: suppressedActivationPid,
-            expectedRecoveryToken: expectedRecoveryToken,
-            didRequestRecoveryFocus: false
-        )
-    }
-
-    private func resetFocusedRemovalActivationSuppression() {
-        focusedRemovalActivationSuppression = nil
-    }
-
-    private func resetSameAppFocusPreemptions() {
-        sameAppFocusPreemptionsByToken.removeAll()
-    }
-
-    private func resetSameAppFocusState(for pid: pid_t) {
-        sameAppFocusPreemptionsByToken = sameAppFocusPreemptionsByToken.filter { entry in
-            entry.key.pid != pid
-                && entry.value.preemptedToken.pid != pid
-                && entry.value.activatedToken.pid != pid
-        }
-    }
-
-    private func pruneExpiredSameAppFocusPreemptions(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        sameAppFocusPreemptionsByToken = sameAppFocusPreemptionsByToken.filter { entry in
-            now - entry.value.recordedUptimeSeconds <= Self.sameAppFocusPreemptionMaxAgeSeconds
-        }
-    }
-
-    private func consumeSameAppFocusPreemption(
-        for token: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID?
-    ) -> SameAppFocusPreemption? {
-        let now = ProcessInfo.processInfo.systemUptime
-        pruneExpiredSameAppFocusPreemptions(now: now)
-        guard let preemption = sameAppFocusPreemptionsByToken.removeValue(forKey: token),
-              preemption.preemptedToken == token,
-              preemption.workspaceId == workspaceId,
-              isSameAppFocusPreemptionStillCurrent(preemption),
-              now - preemption.recordedUptimeSeconds <= Self.sameAppFocusPreemptionMaxAgeSeconds
-        else {
-            return nil
-        }
-        return preemption
-    }
-
-    private func isSameAppFocusPreemptionStillCurrent(_ preemption: SameAppFocusPreemption) -> Bool {
-        guard let controller,
-              !controller.workspaceManager.isNonManagedFocusActive,
-              controller.workspaceManager.focusedToken == preemption.activatedToken,
-              let activatedEntry = controller.workspaceManager.entry(for: preemption.activatedToken),
-              activatedEntry.workspaceId == preemption.workspaceId,
-              let workspaceName = controller.workspaceManager.descriptor(for: preemption.workspaceId)?.name,
-              controller.settings.layoutType(for: workspaceName) != .dwindle
-        else {
-            return false
-        }
-        return true
-    }
-
-    private func recordSameAppFocusPreemptionIfNeeded(
-        previousFocusedToken: WindowToken?,
-        activatedToken: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID,
-        source: ActivationEventSource
-    ) {
-        sameAppFocusPreemptionsByToken.removeValue(forKey: activatedToken)
-        pruneExpiredSameAppFocusPreemptions()
-
-        guard source == .focusedWindowChanged else {
-            resetSameAppFocusPreemptions()
-            return
-        }
-        guard let previousFocusedToken else {
-            resetSameAppFocusPreemptions()
-            return
-        }
-        if previousFocusedToken == activatedToken {
-            return
-        }
-
-        guard previousFocusedToken.pid == activatedToken.pid,
-              let controller,
-              let previousEntry = controller.workspaceManager.entry(for: previousFocusedToken),
-              previousEntry.workspaceId == workspaceId,
-              let workspaceName = controller.workspaceManager.descriptor(for: workspaceId)?.name,
-              controller.settings.layoutType(for: workspaceName) != .dwindle
-        else {
-            resetSameAppFocusPreemptions()
-            return
-        }
-
-        sameAppFocusPreemptionsByToken = sameAppFocusPreemptionsByToken.filter { entry in
-            entry.key.pid == activatedToken.pid && entry.value.workspaceId == workspaceId
-        }
-
-        sameAppFocusPreemptionsByToken[previousFocusedToken] = SameAppFocusPreemption(
-            preemptedToken: previousFocusedToken,
-            activatedToken: activatedToken,
-            workspaceId: workspaceId,
-            recordedUptimeSeconds: ProcessInfo.processInfo.systemUptime
-        )
-    }
-
-    func cancelFocusedRemovalActivationSuppression(refreshCycleId: RefreshCycleId) {
-        guard focusedRemovalActivationSuppression?.refreshCycleId == refreshCycleId else { return }
-        resetFocusedRemovalActivationSuppression()
-    }
-
-    func reconcileFocusedRemovalActivationSuppression(
-        activeCycleId: RefreshCycleId?,
-        pendingCycleId: RefreshCycleId?
-    ) {
-        guard let suppression = focusedRemovalActivationSuppression else { return }
-        if suppression.refreshCycleId == activeCycleId || suppression.refreshCycleId == pendingCycleId {
-            return
-        }
-        if suppression.didRequestRecoveryFocus {
-            guard let expectedRecoveryToken = suppression.expectedRecoveryToken,
-                  let controller,
-                  controller.workspaceManager.entry(for: expectedRecoveryToken) != nil,
-                  controller.focusBridge.activeManagedRequest(for: expectedRecoveryToken) != nil
-            else {
-                resetFocusedRemovalActivationSuppression()
-                return
-            }
-            return
-        }
-        resetFocusedRemovalActivationSuppression()
-    }
-
-    private func strictLeftRecoveryToken(
-        for node: NiriWindow,
-        workspaceId: WorkspaceDescriptor.ID
-    ) -> WindowToken? {
-        guard let controller,
-              let engine = controller.niriEngine,
-              let column = engine.column(of: node),
-              let columnIndex = engine.columnIndex(of: column, in: workspaceId),
-              columnIndex > 0
-        else {
-            return nil
-        }
-
-        let leftColumn = engine.columns(in: workspaceId)[columnIndex - 1]
-        return leftColumn.activeWindow?.token ?? leftColumn.windowNodes.first?.token
-    }
-
-    func noteFocusedRemovalRecoveryFocusRequested(_ token: WindowToken) {
-        guard var suppression = focusedRemovalActivationSuppression else { return }
-        if let expectedRecoveryToken = suppression.expectedRecoveryToken,
-           expectedRecoveryToken != token
-        {
-            return
-        }
-        suppression.expectedRecoveryToken = token
-        suppression.didRequestRecoveryFocus = true
-        focusedRemovalActivationSuppression = suppression
-    }
-
-    func completeFocusedRemovalRecovery(
-        workspaceId: WorkspaceDescriptor.ID,
-        target: WindowToken?
-    ) {
-        guard let suppression = focusedRemovalActivationSuppression,
-              suppression.workspaceId == workspaceId
-        else { return }
-
-        if let target,
-           let expectedRecoveryToken = suppression.expectedRecoveryToken,
-           target != expectedRecoveryToken
-        {
-            return
-        }
-        resetFocusedRemovalActivationSuppression()
-    }
-
-    @discardableResult
-    private func completeFocusedRemovalRecoveryIfExpected(
-        token: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID
-    ) -> Bool {
-        guard let suppression = focusedRemovalActivationSuppression,
-              suppression.workspaceId == workspaceId,
-              suppression.expectedRecoveryToken == token
-        else { return false }
-
-        controller?.runtime?.recordFocusObservationSettled(token)
-
-        resetFocusedRemovalActivationSuppression()
-        return true
-    }
-
-    private func shouldIgnoreActivationDuringFocusedRemovalSuppression(
-        token: WindowToken
-    ) -> Bool {
-        guard let suppression = focusedRemovalActivationSuppression,
-              token.pid == suppression.suppressedActivationPid
-        else {
-            return false
-        }
-
-        if suppression.expectedRecoveryToken == token {
-            return false
-        }
-        return true
-    }
-
-    private func shouldIgnoreActivationDuringFocusedRemovalSuppression(
-        pid: pid_t
-    ) -> Bool {
-        focusedRemovalActivationSuppression?.suppressedActivationPid == pid
     }
 
     func handleAppActivation(
@@ -1117,9 +793,6 @@ final class AXEventHandler: CGSEventDelegate {
         let axRef = resolveFocusedAXWindowRef(pid: pid)
 
         guard let axRef else {
-            if shouldIgnoreActivationDuringFocusedRemovalSuppression(pid: pid) {
-                return
-            }
             applyActivationObservation(
                 source: source,
                 origin: origin,
@@ -1137,10 +810,6 @@ final class AXEventHandler: CGSEventDelegate {
         let token = WindowToken(pid: pid, windowId: axRef.windowId)
 
         let appFullscreen = isFullscreenProvider?(axRef) ?? AXWindowService.isFullscreen(axRef)
-
-        if shouldIgnoreActivationDuringFocusedRemovalSuppression(token: token) {
-            return
-        }
 
         if let entry = controller.workspaceManager.entry(for: token) {
             if appFullscreen {
@@ -1316,11 +985,6 @@ final class AXEventHandler: CGSEventDelegate {
         }
 
         _ = restoreManagedWindowFromNativeFullscreen(entry)
-        if shouldIgnoreActivationDuringFocusedRemovalSuppression(
-            token: entry.token
-        ) {
-            return
-        }
         let requiresNativeFullscreenRestoreRelayout =
             controller.workspaceManager.nativeFullscreenRestoreContext(for: entry.token) != nil
         applyActivationObservation(
@@ -1354,7 +1018,6 @@ final class AXEventHandler: CGSEventDelegate {
         let wsId = workspaceId
         let shouldActivateWorkspace = !isWorkspaceActive && !controller.isTransferringWindow
         let preActivationHiddenState = controller.workspaceManager.hiddenState(for: entry.token)
-        let previousFocusedToken = controller.workspaceManager.focusedToken
 
         let originEpoch = controller.focusBridge.originTransactionEpoch(forToken: entry.token)
 
@@ -1397,17 +1060,6 @@ final class AXEventHandler: CGSEventDelegate {
                 )
             }
         }
-        recordSameAppFocusPreemptionIfNeeded(
-            previousFocusedToken: previousFocusedToken,
-            activatedToken: entry.token,
-            workspaceId: wsId,
-            source: source
-        )
-        let isCompletingFocusedRemovalRecovery = completeFocusedRemovalRecoveryIfExpected(
-            token: entry.token,
-            workspaceId: wsId
-        )
-
         let target = controller.keyboardFocusTarget(for: entry.token, axRef: entry.axRef)
         controller.focusBridge.setFocusedTarget(target)
 
@@ -1455,14 +1107,7 @@ final class AXEventHandler: CGSEventDelegate {
             var state = controller.workspaceManager.niriViewportState(for: wsId)
             controller.niriLayoutHandler.activateNode(
                 node, in: wsId, state: &state,
-                options: isCompletingFocusedRemovalRecovery
-                    ? .init(
-                        ensureVisible: false,
-                        layoutRefresh: false,
-                        axFocus: false,
-                        startAnimation: false
-                    )
-                    : .init(layoutRefresh: isWorkspaceActive, axFocus: false)
+                options: .init(layoutRefresh: isWorkspaceActive, axFocus: false)
             )
             let patch = WorkspaceSessionPatch(
                 workspaceId: wsId,
@@ -2752,7 +2397,6 @@ final class AXEventHandler: CGSEventDelegate {
                     isWorkspaceActive: isWorkspaceActive
                 )
             case let .enterNonManagedFallback(pid, token, appFullscreen, source):
-                resetSameAppFocusPreemptions()
                 if let token {
                     let resolvedAXRef = observedAXRef ?? resolveFocusedAXWindowRef(pid: pid)
                     if let resolvedAXRef {
@@ -2784,7 +2428,6 @@ final class AXEventHandler: CGSEventDelegate {
             case .cancelActivationRetry:
                 break
             case let .enterOwnedApplicationFallback(pid, source):
-                resetSameAppFocusPreemptions()
                 controller.clearKeyboardFocusTarget(pid: pid)
                 controller.hideKeyboardFocusBorder(
                     source: borderReconcileSource(for: source),
@@ -2861,11 +2504,6 @@ final class AXEventHandler: CGSEventDelegate {
     func cleanupFocusStateForTerminatedApp(pid: pid_t) {
         guard let controller else { return }
 
-        if focusedRemovalActivationSuppression?.suppressedActivationPid == pid {
-            resetFocusedRemovalActivationSuppression()
-        }
-        resetSameAppFocusState(for: pid)
-
         let entries = controller.workspaceManager.entries(forPid: pid)
         for entry in entries {
             clearManagedFocusState(
@@ -2916,11 +2554,6 @@ final class AXEventHandler: CGSEventDelegate {
                 matching: token,
                 workspaceId: workspaceId
             )
-        }
-        if let workspaceId {
-            completeFocusedRemovalRecoveryIfExpected(token: token, workspaceId: workspaceId)
-        } else if focusedRemovalActivationSuppression?.expectedRecoveryToken == token {
-            resetFocusedRemovalActivationSuppression()
         }
         controller.clearKeyboardFocusTarget(
             matching: token,

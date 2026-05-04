@@ -50,9 +50,6 @@ const effect_expel_window: u32 = 4;
 const effect_consume_window: u32 = 5;
 const effect_reorder_window: u32 = 6;
 
-const removal_recovery_none: u32 = 0;
-const removal_recovery_strict_left_preserve_viewport: u32 = 1;
-
 const null_id: u64 = 0;
 const epsilon: f64 = 0.001;
 
@@ -79,13 +76,11 @@ const TopologyInput = extern struct {
     target_window_id: u64,
     selected_window_id: u64,
     focused_window_id: u64,
-    removal_anchor_window_id: u64,
     active_column_index: i32,
     insert_index: i32,
     target_index: i32,
     from_column_index: i32,
     max_windows_per_column: u32,
-    removal_recovery_policy: u32,
     gap: f64,
     viewport_span: f64,
     current_view_offset: f64,
@@ -430,10 +425,6 @@ fn asOptionalIndex(value: i32) ?usize {
     return @intCast(value);
 }
 
-fn isRemovalRecoveryPolicy(value: u32) bool {
-    return value == removal_recovery_none or value == removal_recovery_strict_left_preserve_viewport;
-}
-
 fn directionPrimaryStep(direction: u32, orientation: u32) ?i32 {
     return switch (orientation) {
         orientation_horizontal => switch (direction) {
@@ -545,31 +536,6 @@ fn fallbackSelectionOnRemoval(topology: *const Topology, removing_id: u64) u64 {
     for (topology.columns[0..topology.column_count], 0..) |candidate, index| {
         if (index == location.column or candidate.count == 0) continue;
         return topology.columnWindowSliceConst(index)[0];
-    }
-    return null_id;
-}
-
-fn strictLeftSelectionOnRemoval(topology: *const Topology, removing_id: u64, survivor_ids: []const u64) u64 {
-    const location = topology.findWindow(removing_id) orelse return null_id;
-    if (location.column == 0 or survivor_ids.len == 0) return null_id;
-
-    var column_index = location.column;
-    while (column_index > 0) {
-        column_index -= 1;
-        const previous = topology.columns[column_index];
-        if (previous.count == 0) continue;
-
-        const previous_windows = topology.columnWindowSliceConst(column_index);
-        const active_index: usize = if (previous.active < 0)
-            0
-        else
-            @min(@as(usize, @intCast(previous.active)), previous.count - 1);
-        const active_window = previous_windows[active_index];
-        if (containsId(survivor_ids, active_window)) return active_window;
-
-        for (previous_windows[0..previous.count]) |candidate| {
-            if (containsId(survivor_ids, candidate)) return candidate;
-        }
     }
     return null_id;
 }
@@ -867,16 +833,6 @@ fn syncWindows(
     const default_span = if (input.default_new_column_span > 0) input.default_new_column_span else 1;
     const existing_window_count = topology.totalWindowCount();
     const initial_column_count = topology.column_count;
-    const has_static_removal_anchor = input.removal_recovery_policy == removal_recovery_strict_left_preserve_viewport and
-        input.removal_anchor_window_id != null_id;
-    const static_removal_view_pos = if (has_static_removal_anchor)
-        columnPosition(topology, activeIndex(input, topology), input.gap) + input.current_view_offset
-    else
-        0;
-    const static_removal_recovery = if (has_static_removal_anchor)
-        strictLeftSelectionOnRemoval(topology, input.removal_anchor_window_id, desired_ids)
-    else
-        null_id;
 
     var first_removed_full_column: ?usize = null;
     var fallback: u64 = null_id;
@@ -1044,37 +1000,6 @@ fn syncWindows(
                 }
             }
         }
-    }
-
-    if (has_static_removal_anchor) {
-        const recovery_location = if (static_removal_recovery == null_id)
-            null
-        else
-            topology.findWindow(static_removal_recovery);
-        if (recovery_location) |location| {
-            result.selected_window_id = static_removal_recovery;
-            result.remembered_focus_window_id = static_removal_recovery;
-            result.fallback_window_id = static_removal_recovery;
-            result.active_column_index = @intCast(location.column);
-        } else {
-            result.selected_window_id = null_id;
-            result.remembered_focus_window_id = null_id;
-            result.fallback_window_id = null_id;
-            result.active_column_index = @intCast(@min(activeIndex(input, topology), if (topology.column_count == 0) 0 else topology.column_count - 1));
-        }
-
-        if (topology.column_count > 0) {
-            const active_column: usize = if (result.active_column_index < 0)
-                0
-            else
-                @min(@as(usize, @intCast(result.active_column_index)), topology.column_count - 1);
-            result.viewport_action = viewport_set_static;
-            result.viewport_target_offset = static_removal_view_pos - columnPosition(topology, active_column, input.gap);
-            result.viewport_offset_delta = 0;
-            result.has_restore_previous_view_offset = 0;
-        }
-        result.has_activate_prev_column_on_removal = 0;
-        result.should_clear_activate_prev_column_on_removal = 1;
     }
 
     if (initial_column_count == 0 and topology.column_count > 0 and result.effect_kind == effect_none) {
@@ -1445,9 +1370,6 @@ pub export fn omniwm_niri_topology_plan(
     const input_pointer: *const TopologyInput = @ptrCast(input_ptr);
     const result: *TopologyResult = @ptrCast(result_ptr);
     const input = input_pointer.*;
-    if (!isRemovalRecoveryPolicy(input.removal_recovery_policy)) {
-        return status_invalid_argument;
-    }
     const columns = if (column_count == 0) &[_]TopologyColumnInput{} else @as([*]const TopologyColumnInput, @ptrCast(columns_ptr))[0..column_count];
     const windows = if (window_count == 0) &[_]TopologyWindowInput{} else @as([*]const TopologyWindowInput, @ptrCast(windows_ptr))[0..window_count];
     const desired_ids = if (desired_id_count == 0) &[_]u64{} else @as([*]const u64, @ptrCast(desired_ids_ptr))[0..desired_id_count];
@@ -1600,13 +1522,11 @@ test "niri topology focus right centers overflowing edge pair in overflow mode" 
         .target_window_id = 0,
         .selected_window_id = 2,
         .focused_window_id = 0,
-        .removal_anchor_window_id = 0,
         .active_column_index = 1,
         .insert_index = 0,
         .target_index = 0,
         .from_column_index = -1,
         .max_windows_per_column = 1,
-        .removal_recovery_policy = removal_recovery_none,
         .gap = 8,
         .viewport_span = 1008,
         .current_view_offset = -508,
@@ -1673,13 +1593,11 @@ test "niri topology focus at edge preserves selected window" {
         .target_window_id = 0,
         .selected_window_id = 10,
         .focused_window_id = 0,
-        .removal_anchor_window_id = 0,
         .active_column_index = 0,
         .insert_index = 0,
         .target_index = 0,
         .from_column_index = -1,
         .max_windows_per_column = 1,
-        .removal_recovery_policy = removal_recovery_none,
         .gap = 8,
         .viewport_span = 1000,
         .current_view_offset = 0,
@@ -1742,13 +1660,11 @@ test "niri topology failed focus keeps active window index stable" {
         .target_window_id = 0,
         .selected_window_id = 10,
         .focused_window_id = 0,
-        .removal_anchor_window_id = 0,
         .active_column_index = 0,
         .insert_index = 0,
         .target_index = 0,
         .from_column_index = -1,
         .max_windows_per_column = 3,
-        .removal_recovery_policy = removal_recovery_none,
         .gap = 8,
         .viewport_span = 1000,
         .current_view_offset = 0,
@@ -1814,13 +1730,11 @@ test "niri topology combined focus at edge preserves selected window" {
         .target_window_id = 0,
         .selected_window_id = 10,
         .focused_window_id = 0,
-        .removal_anchor_window_id = 0,
         .active_column_index = 0,
         .insert_index = 0,
         .target_index = 0,
         .from_column_index = -1,
         .max_windows_per_column = 1,
-        .removal_recovery_policy = removal_recovery_none,
         .gap = 8,
         .viewport_span = 1000,
         .current_view_offset = 0,
@@ -1883,13 +1797,11 @@ test "niri topology move window consumes single column into neighbor" {
         .target_window_id = 0,
         .selected_window_id = 1,
         .focused_window_id = 0,
-        .removal_anchor_window_id = 0,
         .active_column_index = 0,
         .insert_index = 0,
         .target_index = 0,
         .from_column_index = -1,
         .max_windows_per_column = 3,
-        .removal_recovery_policy = removal_recovery_none,
         .gap = 8,
         .viewport_span = 1200,
         .current_view_offset = 0,
@@ -1942,87 +1854,4 @@ test "niri topology move window consumes single column into neighbor" {
     try std.testing.expectEqual(effect_consume_window, result.effect_kind);
     try std.testing.expectEqual(@as(u64, 1), window_outputs[0].id);
     try std.testing.expectEqual(@as(u64, 2), window_outputs[1].id);
-}
-
-test "niri topology static removal skips removed strict-left candidate" {
-    var input = TopologyInput{
-        .operation = op_sync_windows,
-        .direction = direction_right,
-        .orientation = orientation_horizontal,
-        .center_mode = center_on_overflow,
-        .subject_window_id = 0,
-        .target_window_id = 0,
-        .selected_window_id = 10,
-        .focused_window_id = 0,
-        .removal_anchor_window_id = 40,
-        .active_column_index = 3,
-        .insert_index = 0,
-        .target_index = 0,
-        .from_column_index = -1,
-        .max_windows_per_column = 1,
-        .removal_recovery_policy = removal_recovery_strict_left_preserve_viewport,
-        .gap = 10,
-        .viewport_span = 1000,
-        .current_view_offset = -30,
-        .stationary_view_offset = -30,
-        .scale = 2,
-        .default_new_column_span = 100,
-        .previous_active_position = 0,
-        .activate_prev_column_on_removal = 0,
-        .infinite_loop = 0,
-        .always_center_single_column = 0,
-        .animate = 0,
-        .has_previous_active_position = 0,
-        .has_activate_prev_column_on_removal = 0,
-        .reset_for_single_window = 0,
-        .is_active_workspace = 1,
-        .has_completed_initial_refresh = 1,
-        .viewport_is_gesture_or_animation = 0,
-    };
-    const columns = [_]TopologyColumnInput{
-        .{ .id = 1, .span = 100, .window_start_index = 0, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
-        .{ .id = 2, .span = 100, .window_start_index = 1, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
-        .{ .id = 3, .span = 100, .window_start_index = 2, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
-        .{ .id = 4, .span = 100, .window_start_index = 3, .window_count = 1, .active_window_index = 0, .is_tabbed = 0 },
-    };
-    const windows = [_]TopologyWindowInput{
-        .{ .id = 10, .sizing_mode = viewport_policy.sizing_mode_normal },
-        .{ .id = 20, .sizing_mode = viewport_policy.sizing_mode_normal },
-        .{ .id = 30, .sizing_mode = viewport_policy.sizing_mode_normal },
-        .{ .id = 40, .sizing_mode = viewport_policy.sizing_mode_normal },
-    };
-    const desired_ids = [_]u64{ 10, 20 };
-    const removed_ids = [_]u64{ 30, 40 };
-    var column_outputs: [4]TopologyColumnOutput = undefined;
-    var window_outputs: [4]TopologyWindowOutput = undefined;
-    var result: TopologyResult = undefined;
-
-    const status = omniwm_niri_topology_plan(
-        &input,
-        &columns,
-        columns.len,
-        &windows,
-        windows.len,
-        &desired_ids,
-        desired_ids.len,
-        &removed_ids,
-        removed_ids.len,
-        &column_outputs,
-        column_outputs.len,
-        &window_outputs,
-        window_outputs.len,
-        &result,
-    );
-
-    try std.testing.expectEqual(status_ok, status);
-    try std.testing.expectEqual(@as(usize, 2), result.column_count);
-    try std.testing.expectEqual(@as(usize, 2), result.window_count);
-    try std.testing.expectEqual(@as(u64, 20), result.selected_window_id);
-    try std.testing.expectEqual(@as(u64, 20), result.remembered_focus_window_id);
-    try std.testing.expectEqual(@as(u64, 20), result.fallback_window_id);
-    try std.testing.expectEqual(@as(i32, 1), result.active_column_index);
-    try std.testing.expectEqual(viewport_set_static, result.viewport_action);
-    try std.testing.expectApproxEqAbs(@as(f64, 190), result.viewport_target_offset, epsilon);
-    try std.testing.expectEqual(@as(u64, 10), window_outputs[0].id);
-    try std.testing.expectEqual(@as(u64, 20), window_outputs[1].id);
 }

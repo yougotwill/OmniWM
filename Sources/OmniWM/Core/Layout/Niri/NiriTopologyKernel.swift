@@ -56,17 +56,6 @@ enum NiriTopologyEffectKind: UInt32 {
     case reorderWindow = 6
 }
 
-private extension NiriRemovalRecoveryPolicy {
-    var niriTopologyRawValue: UInt32 {
-        switch self {
-        case .none:
-            UInt32(OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_NONE)
-        case .strictLeftPreserveViewport:
-            UInt32(OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_STRICT_LEFT_PRESERVE_VIEWPORT)
-        }
-    }
-}
-
 private extension Direction {
     var niriTopologyRawValue: UInt32 {
         switch self {
@@ -245,8 +234,6 @@ extension NiriLayoutEngine {
         insertIndex: Int = 0,
         targetIndex: Int = 0,
         fromColumnIndex: Int? = nil,
-        removalAnchorWindowId: UInt64 = 0,
-        removalRecoveryPolicy: NiriRemovalRecoveryPolicy = .none,
         previousActivePosition: CGFloat? = nil,
         resetForSingleWindow: Bool = false,
         motion: MotionSnapshot = .enabled,
@@ -264,13 +251,11 @@ extension NiriLayoutEngine {
             target_window_id: targetWindowId,
             selected_window_id: 0,
             focused_window_id: 0,
-            removal_anchor_window_id: removalAnchorWindowId,
             active_column_index: Int32(clamping: state.activeColumnIndex),
             insert_index: Int32(clamping: insertIndex),
             target_index: Int32(clamping: targetIndex),
             from_column_index: Int32(fromColumnIndex ?? -1),
             max_windows_per_column: UInt32(clamping: effectiveMaxWindowsPerColumn(in: workspaceId)),
-            removal_recovery_policy: removalRecoveryPolicy.niriTopologyRawValue,
             gap: gaps,
             viewport_span: orientation == .horizontal ? workingFrame.width : workingFrame.height,
             current_view_offset: state.viewOffsetPixels.current(),
@@ -307,8 +292,6 @@ extension NiriLayoutEngine {
         focusedToken: WindowToken? = nil,
         desiredTokens: [WindowToken] = [],
         removedNodeIds: [NodeId] = [],
-        removalAnchorNodeId: NodeId? = nil,
-        removalRecoveryPolicy: NiriRemovalRecoveryPolicy = .none,
         insertIndex: Int = 0,
         targetIndex: Int = -1,
         fromColumnIndex: Int? = nil,
@@ -328,7 +311,6 @@ extension NiriLayoutEngine {
         let selectedId = state.selectedNodeId.flatMap { snapshot.windowIdByNodeId[$0] } ?? 0
         let desiredIds = desiredTokens.compactMap { snapshot.windowIdByToken[$0] }
         let removedIds = removedNodeIds.compactMap { snapshot.windowIdByNodeId[$0] }
-        let removalAnchorId = removalAnchorNodeId.flatMap { snapshot.windowIdByNodeId[$0] } ?? 0
 
         var rawInput = makeTopologyKernelInput(
             operation: operation,
@@ -342,8 +324,6 @@ extension NiriLayoutEngine {
             insertIndex: insertIndex,
             targetIndex: targetIndex,
             fromColumnIndex: fromColumnIndex,
-            removalAnchorWindowId: removalAnchorId,
-            removalRecoveryPolicy: removalRecoveryPolicy,
             previousActivePosition: previousActivePosition,
             resetForSingleWindow: resetForSingleWindow,
             motion: motion,

@@ -95,9 +95,7 @@ private func makeOrchestrationSnapshot(
             removedNodeId: nil,
             removedWindow: removedWindow,
             niriOldFrames: [:],
-            niriRevealSide: .right,
-            shouldRecoverFocus: true,
-            niriAnimationPolicy: .staticViewportPreserving
+            shouldRecoverFocus: true
         )
     )
     let queuedRefresh = makeOrchestrationRefresh(
@@ -128,14 +126,12 @@ private func makeOrchestrationSnapshot(
     #expect(result.decision == .refreshCompleted(cycleId: 21, didComplete: false))
     #expect(restartedRefresh.kind == .windowRemoval)
     #expect(restartedRefresh.windowRemovalPayloads.count == 1)
-    #expect(restartedRefresh.windowRemovalPayloads.first?.niriRevealSide == .right)
     #expect(restartedRefresh.windowRemovalPayloads.first?.removedWindow == removedWindow)
-    #expect(restartedRefresh.windowRemovalPayloads.first?.niriAnimationPolicy == .staticViewportPreserving)
     #expect(restartedRefresh.postLayoutAttachmentIds == [5])
     #expect(result.plan.actions.contains(.startRefresh(restartedRefresh)))
 }
 
-@Test func queuedWindowRemovalPreservesStaticRemovalMetadata() {
+@Test func queuedWindowRemovalPreservesRemovalMetadata() {
     let workspaceId = WorkspaceDescriptor.ID()
     let removedWindow = WindowToken(pid: 45, windowId: 56)
     let payload = WindowRemovalPayload(
@@ -144,9 +140,7 @@ private func makeOrchestrationSnapshot(
         removedNodeId: NodeId(),
         removedWindow: removedWindow,
         niriOldFrames: [:],
-        niriRevealSide: .left,
-        shouldRecoverFocus: true,
-        niriAnimationPolicy: .staticViewportPreserving
+        shouldRecoverFocus: true
     )
     let refresh = makeOrchestrationRefresh(
         cycleId: 30,
@@ -588,7 +582,6 @@ private func makeOrchestrationSnapshot(
             layoutType: .niri,
             removedNodeId: nil,
             niriOldFrames: [:],
-            niriRevealSide: nil,
             shouldRecoverFocus: true
         )
         let result = OrchestrationCore.step(

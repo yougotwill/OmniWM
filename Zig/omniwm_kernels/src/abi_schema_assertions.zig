@@ -47,7 +47,7 @@ comptime {
     std.debug.assert(@alignOf(c.omniwm_niri_topology_window_input) == 8);
     std.debug.assert(@sizeOf(c.omniwm_geometry_snap_target_result) == 16);
     std.debug.assert(@alignOf(c.omniwm_geometry_snap_target_result) == 8);
-    std.debug.assert(@sizeOf(c.omniwm_niri_topology_input) == 160);
+    std.debug.assert(@sizeOf(c.omniwm_niri_topology_input) == 152);
     std.debug.assert(@alignOf(c.omniwm_niri_topology_input) == 8);
     std.debug.assert(@sizeOf(c.omniwm_niri_topology_column_output) == 24);
     std.debug.assert(@alignOf(c.omniwm_niri_topology_column_output) == 8);
@@ -195,7 +195,7 @@ comptime {
     std.debug.assert(@alignOf(c.omniwm_reconcile_plan_output) == 8);
     std.debug.assert(@sizeOf(c.omniwm_orchestration_old_frame_record) == 48);
     std.debug.assert(@alignOf(c.omniwm_orchestration_old_frame_record) == 8);
-    std.debug.assert(@sizeOf(c.omniwm_orchestration_window_removal_payload) == 80);
+    std.debug.assert(@sizeOf(c.omniwm_orchestration_window_removal_payload) == 72);
     std.debug.assert(@alignOf(c.omniwm_orchestration_window_removal_payload) == 8);
     std.debug.assert(@sizeOf(c.omniwm_orchestration_follow_up_refresh) == 24);
     std.debug.assert(@alignOf(c.omniwm_orchestration_follow_up_refresh) == 8);

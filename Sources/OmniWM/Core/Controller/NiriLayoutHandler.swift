@@ -14,32 +14,6 @@ private func hasPendingNiriAnimationWork(
         || engine.hasAnyColumnAnimationsRunning(in: workspaceId)
 }
 
-private func fixedViewportRemovalOldFrames(
-    _ oldFrames: [WindowToken: CGRect],
-    newFrames: [WindowToken: CGRect],
-    revealSide: NiriRemovalRevealSide?,
-    viewport: CGRect
-) -> [WindowToken: CGRect] {
-    guard let revealSide else { return oldFrames }
-
-    var adjusted = oldFrames
-    for (token, newFrame) in newFrames where newFrame.intersects(viewport) {
-        if let oldFrame = oldFrames[token], oldFrame.intersects(viewport) {
-            continue
-        }
-
-        var edgeFrame = newFrame
-        switch revealSide {
-        case .left:
-            edgeFrame.origin.x = viewport.minX - newFrame.width
-        case .right:
-            edgeFrame.origin.x = viewport.maxX
-        }
-        adjusted[token] = edgeFrame
-    }
-    return adjusted
-}
-
 @MainActor final class NiriLayoutHandler {
     weak var controller: WMController?
 
@@ -622,9 +596,6 @@ private func fixedViewportRemovalOldFrames(
         let preSyncViewPos = preSyncColumns.isEmpty
             ? CGFloat(0)
             : state.viewPosPixels(columns: preSyncColumns, gap: pass.gap)
-        let removalAnchorNodeId = snapshot.removalSeed?.selectedRemovalAnchorNodeId
-        let removalAnimationPolicy = snapshot.removalSeed?.animationPolicy ?? .ordinary
-        let suppressStaticRemovalCreateMotion = snapshot.removalSeed?.suppressesCoalescedCreateMotion ?? false
 
         let resetForSingleWindow = windowTokens.count == 1
             && pass.engine.effectiveSingleWindowAspectRatio(in: pass.wsId).ratio != nil
@@ -637,8 +608,6 @@ private func fixedViewportRemovalOldFrames(
             focusedToken: snapshot.preferredFocusToken,
             desiredTokens: windowTokens,
             removedNodeIds: snapshot.removalSeed?.removedNodeIds ?? [],
-            removalAnchorNodeId: removalAnchorNodeId,
-            removalRecoveryPolicy: snapshot.removalSeed?.topologyRecoveryPolicy ?? .none,
             resetForSingleWindow: resetForSingleWindow,
             motion: motion,
             isActiveWorkspace: snapshot.isActiveWorkspace,
@@ -653,9 +622,7 @@ private func fixedViewportRemovalOldFrames(
         }
 
         if plan.effectKind == .removeColumn,
-           plan.result.source_column_index >= 0,
-           removalAnchorNodeId == nil,
-           snapshot.removalSeed?.animationPolicy.shouldStartColumnAnimations ?? true
+           plan.result.source_column_index >= 0
         {
             var animationState = state
             _ = pass.engine.animateColumnsForRemoval(
@@ -681,15 +648,9 @@ private func fixedViewportRemovalOldFrames(
             gaps: pass.gap
         )
 
-        if removalAnimationPolicy == .staticViewportPreserving {
-            state.cancelAnimation()
-            pass.engine.cancelAllMotionAnimations(in: pass.wsId)
-        }
-
         if !existingHandleIds.isEmpty,
            plan.effectKind == .addColumn,
-           plan.result.target_column_index >= 0,
-           !suppressStaticRemovalCreateMotion
+           plan.result.target_column_index >= 0
         {
             pass.engine.animateColumnsForAddition(
                 columnIndex: Int(plan.result.target_column_index),
@@ -709,15 +670,10 @@ private func fixedViewportRemovalOldFrames(
         } else {
             nil
         }
-        let rememberedFocusToken: WindowToken? = if removalAnchorNodeId != nil {
-            selectedToken ?? plannedRememberedFocusToken
-        } else {
-            plannedRememberedFocusToken ?? selectedToken
-        }
+        let rememberedFocusToken = plannedRememberedFocusToken ?? selectedToken
         let newWindowToken: WindowToken? = if snapshot.hasCompletedInitialRefresh,
                                               snapshot.isActiveWorkspace,
-                                              plan.result.new_window_id != 0,
-                                              !suppressStaticRemovalCreateMotion
+                                              plan.result.new_window_id != 0
         {
             pass.engine.findWindow(in: plan, id: plan.result.new_window_id)?.token
         } else {
@@ -731,10 +687,6 @@ private func fixedViewportRemovalOldFrames(
         {
             let viewportAction: NiriRemovalViewportAction = if state.viewOffsetPixels.isAnimating {
                 .animated
-            } else if removalSeed.animationPolicy == .staticViewportPreserving,
-                      removalAnchorNodeId != nil
-            {
-                .staticPreserved
             } else {
                 .none
             }
@@ -744,15 +696,12 @@ private func fixedViewportRemovalOldFrames(
                     workspaceId: pass.wsId,
                     removedNodeId: removedNodeId,
                     removedWindow: removalSeed.removedWindow,
-                    recoveryTarget: rememberedFocusToken,
-                    revealSide: removalSeed.revealSide,
                     activeColumnBefore: preSyncState.activeColumnIndex,
                     activeColumnAfter: state.activeColumnIndex,
                     currentOffset: state.viewOffsetPixels.current(),
                     targetOffset: state.viewOffsetPixels.target(),
                     stationaryOffset: state.stationary(),
                     viewportAction: viewportAction,
-                    animationPolicy: removalSeed.animationPolicy,
                     closeAnimation: false,
                     survivorMoveAnimation: false,
                     columnAnimation: pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId),
@@ -765,8 +714,7 @@ private func fixedViewportRemovalOldFrames(
 
         if snapshot.hasCompletedInitialRefresh,
            snapshot.isActiveWorkspace,
-           !newTokens.isEmpty,
-           !suppressStaticRemovalCreateMotion
+           !newTokens.isEmpty
         {
             let reduceMotionScale: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.25 : 1.0
             let appearOffset = 16.0 * reduceMotionScale
@@ -863,18 +811,10 @@ private func fixedViewportRemovalOldFrames(
            !suppressAnimationDirectives
         {
             let newFrames = pass.engine.captureWindowFrames(in: pass.wsId)
-            if motion.animationsEnabled,
-               removalSeed.animationPolicy.shouldStartSurvivorMoveAnimations
-            {
-                let oldFrames = fixedViewportRemovalOldFrames(
-                    removalSeed.oldFrames,
-                    newFrames: newFrames,
-                    revealSide: removalSeed.revealSide,
-                    viewport: pass.insetFrame
-                )
+            if motion.animationsEnabled {
                 removalTriggeredSurvivorMoveAnimation = pass.engine.triggerMoveAnimations(
                     in: pass.wsId,
-                    oldFrames: oldFrames,
+                    oldFrames: removalSeed.oldFrames,
                     newFrames: newFrames,
                     motion: motion
                 )
@@ -882,7 +822,6 @@ private func fixedViewportRemovalOldFrames(
             removalHasWindowAnimations = pass.engine.hasAnyWindowAnimationsRunning(in: pass.wsId)
             removalHasColumnAnimations = pass.engine.hasAnyColumnAnimationsRunning(in: pass.wsId)
             if motion.animationsEnabled,
-               removalSeed.animationPolicy.shouldStartScrollAnimation,
                (
                    removalTriggeredSurvivorMoveAnimation
                        || removalHasWindowAnimations
@@ -929,8 +868,6 @@ private func fixedViewportRemovalOldFrames(
                 workspaceId: pass.wsId,
                 removedNodeId: removedNodeId,
                 removedWindow: removalSeed.removedWindow,
-                recoveryTarget: rememberedFocusToken,
-                revealSide: removalSeed.revealSide,
                 activeColumnBefore: nil,
                 activeColumnAfter: state.activeColumnIndex,
                 currentOffset: state.viewOffsetPixels.current(),
@@ -938,8 +875,7 @@ private func fixedViewportRemovalOldFrames(
                 stationaryOffset: state.stationary(),
                 viewportAction: state.viewOffsetPixels.isAnimating
                     ? .animated
-                    : (removalSeed.animationPolicy == .staticViewportPreserving ? .staticPreserved : .none),
-                animationPolicy: removalSeed.animationPolicy,
+                    : .none,
                 closeAnimation: false,
                 survivorMoveAnimation: removalTriggeredSurvivorMoveAnimation || removalHasWindowAnimations,
                 columnAnimation: removalHasColumnAnimations,
@@ -948,22 +884,6 @@ private func fixedViewportRemovalOldFrames(
                 skipFrameApplicationForAnimation: false
             )
             plan.niriRemovalAnimationDiagnostic = diagnostic
-        }
-        if let removalSeed = snapshot.removalSeed,
-           removalSeed.shouldRecoverFocus,
-           snapshot.isActiveWorkspace,
-           !suppressAnimationDirectives,
-           let rememberedFocusToken
-        {
-            plan.focusIntents.append(.focusWindow(token: rememberedFocusToken))
-        } else if let removalSeed = snapshot.removalSeed,
-                  removalSeed.shouldRecoverFocus,
-                  snapshot.isActiveWorkspace,
-                  !suppressAnimationDirectives
-        {
-            plan.focusIntents.append(
-                .completeFocusedRemovalRecovery(workspaceId: pass.wsId, target: nil)
-            )
         }
         plan.nativeFullscreenRestoreFinalizeTokens = nativeFullscreenRestoreFinalizeTokens(
             windows: snapshot.windows,
@@ -976,11 +896,7 @@ private func fixedViewportRemovalOldFrames(
             topologyDidApply: topologyDidApply
         )
         plan.persistManagedRestoreSnapshots = false
-        let shouldDeferFramesForRemovalPolicy = snapshot.removalSeed?
-            .animationPolicy
-            .shouldDeferFrameApplication ?? true
-        plan.skipFrameApplicationForAnimation = shouldDeferFramesForRemovalPolicy
-            && !suppressAnimationDirectives
+        plan.skipFrameApplicationForAnimation = !suppressAnimationDirectives
             && snapshot.useScrollAnimationPath
             && (
                 hasScrollAnimationRunning(in: snapshot.workspaceId)

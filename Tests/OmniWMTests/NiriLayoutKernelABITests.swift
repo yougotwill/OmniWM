@@ -142,13 +142,11 @@ private func makeNiriTopologyInput(
     subjectWindowId: UInt64 = 0,
     targetWindowId: UInt64 = 0,
     selectedWindowId: UInt64 = 0,
-    removalAnchorWindowId: UInt64 = 0,
     activeColumnIndex: Int32 = 0,
     insertIndex: Int32 = 0,
     targetIndex: Int32 = 0,
     fromColumnIndex: Int32 = -1,
     maxWindowsPerColumn: UInt32 = 3,
-    removalRecoveryPolicy: UInt32 = UInt32(OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_NONE),
     gap: Double = 8,
     viewportSpan: Double = 1000,
     currentViewOffset: Double = 0,
@@ -166,13 +164,11 @@ private func makeNiriTopologyInput(
         target_window_id: targetWindowId,
         selected_window_id: selectedWindowId,
         focused_window_id: 0,
-        removal_anchor_window_id: removalAnchorWindowId,
         active_column_index: activeColumnIndex,
         insert_index: insertIndex,
         target_index: targetIndex,
         from_column_index: fromColumnIndex,
         max_windows_per_column: maxWindowsPerColumn,
-        removal_recovery_policy: removalRecoveryPolicy,
         gap: gap,
         viewport_span: viewportSpan,
         current_view_offset: currentViewOffset,
@@ -542,82 +538,6 @@ struct NiriTopologyKernelABITests {
         #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
         #expect(output.result.fallback_window_id == 10)
         #expect(output.windows.map(\.id) == [10, 30])
-    }
-
-    @Test func syncStaticRemovalPreservesViewportAndStrictLeftRecoveryInKernel() {
-        var input = makeNiriTopologyInput(
-            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_SYNC_WINDOWS),
-            selectedWindowId: 10,
-            removalAnchorWindowId: 30,
-            activeColumnIndex: 2,
-            removalRecoveryPolicy: UInt32(
-                OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_STRICT_LEFT_PRESERVE_VIEWPORT
-            ),
-            gap: 10,
-            currentViewOffset: -20,
-            stationaryViewOffset: -20
-        )
-        let columns = [
-            makeNiriTopologyColumn(id: 1, span: 100, windowStartIndex: 0, windowCount: 1),
-            makeNiriTopologyColumn(id: 2, span: 100, windowStartIndex: 1, windowCount: 1),
-            makeNiriTopologyColumn(id: 3, span: 100, windowStartIndex: 2, windowCount: 1)
-        ]
-        let windows = [10, 20, 30].map { makeNiriTopologyWindow(id: UInt64($0)) }
-
-        let output = callNiriTopology(
-            input: &input,
-            columns: columns,
-            windows: windows,
-            desiredIds: [10, 20],
-            removedIds: [30]
-        )
-
-        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
-        #expect(output.result.selected_window_id == 20)
-        #expect(output.result.remembered_focus_window_id == 20)
-        #expect(output.result.active_column_index == 1)
-        #expect(output.result.viewport_action == UInt32(OMNIWM_NIRI_TOPOLOGY_VIEWPORT_SET_STATIC))
-        #expect(abs(output.result.viewport_target_offset - 90) < 0.001)
-        #expect(output.windows.map(\.id) == [10, 20])
-    }
-
-    @Test func syncStaticRemovalSkipsRemovedStrictLeftCandidateInKernel() {
-        var input = makeNiriTopologyInput(
-            operation: UInt32(OMNIWM_NIRI_TOPOLOGY_OP_SYNC_WINDOWS),
-            selectedWindowId: 10,
-            removalAnchorWindowId: 40,
-            activeColumnIndex: 3,
-            removalRecoveryPolicy: UInt32(
-                OMNIWM_NIRI_TOPOLOGY_REMOVAL_RECOVERY_STRICT_LEFT_PRESERVE_VIEWPORT
-            ),
-            gap: 10,
-            currentViewOffset: -30,
-            stationaryViewOffset: -30
-        )
-        let columns = [
-            makeNiriTopologyColumn(id: 1, span: 100, windowStartIndex: 0, windowCount: 1),
-            makeNiriTopologyColumn(id: 2, span: 100, windowStartIndex: 1, windowCount: 1),
-            makeNiriTopologyColumn(id: 3, span: 100, windowStartIndex: 2, windowCount: 1),
-            makeNiriTopologyColumn(id: 4, span: 100, windowStartIndex: 3, windowCount: 1)
-        ]
-        let windows = [10, 20, 30, 40].map { makeNiriTopologyWindow(id: UInt64($0)) }
-
-        let output = callNiriTopology(
-            input: &input,
-            columns: columns,
-            windows: windows,
-            desiredIds: [10, 20],
-            removedIds: [30, 40]
-        )
-
-        #expect(output.status == OMNIWM_KERNELS_STATUS_OK)
-        #expect(output.result.selected_window_id == 20)
-        #expect(output.result.remembered_focus_window_id == 20)
-        #expect(output.result.fallback_window_id == 20)
-        #expect(output.result.active_column_index == 1)
-        #expect(output.result.viewport_action == UInt32(OMNIWM_NIRI_TOPOLOGY_VIEWPORT_SET_STATIC))
-        #expect(abs(output.result.viewport_target_offset - 190) < 0.001)
-        #expect(output.windows.map(\.id) == [10, 20])
     }
 
     @Test func columnRemovalOfOnlyColumnHasNoFallback() {

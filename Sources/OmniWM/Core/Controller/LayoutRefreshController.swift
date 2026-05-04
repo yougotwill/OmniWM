@@ -300,8 +300,6 @@ private let layoutShutdownRaceLog = Logger(
             phase=\(String(describing: diagnostic.phase), privacy: .public) \
             workspace=\(diagnostic.workspaceId.uuidString, privacy: .private) \
             removedWindow=\(diagnostic.removedWindow?.windowId ?? 0, privacy: .private) \
-            recoveryWindow=\(diagnostic.recoveryTarget?.windowId ?? 0, privacy: .private) \
-            policy=\(String(describing: diagnostic.animationPolicy), privacy: .public) \
             viewport=\(String(describing: diagnostic.viewportAction), privacy: .public) \
             scroll=\(diagnostic.startNiriScroll, privacy: .public) \
             skipFrames=\(diagnostic.skipFrameApplicationForAnimation, privacy: .public)
@@ -475,7 +473,6 @@ private let layoutShutdownRaceLog = Logger(
             plan.animationDirectives,
             focusedFrame: plan.diff.focusedFrame
         )
-        applyFocusIntents(plan.focusIntents)
     }
 
     private func executeRefreshExecutionPlan(_ plan: RefreshExecutionPlan) {
@@ -728,42 +725,13 @@ private let layoutShutdownRaceLog = Logger(
         }
     }
 
-    private func applyFocusIntents(_ intents: [LayoutFocusIntent]) {
-        guard let controller else { return }
-
-        for intent in intents {
-            switch intent {
-            case let .focusWindow(token):
-                applyManagedFocus(token, on: controller)
-            case let .completeFocusedRemovalRecovery(workspaceId, target):
-                controller.axEventHandler.completeFocusedRemovalRecovery(
-                    workspaceId: workspaceId,
-                    target: target
-                )
-            }
-        }
-    }
-
     private func applyManagedFocus(_ token: WindowToken, on controller: WMController) {
-        guard let entry = controller.workspaceManager.entry(for: token) else { return }
+        guard controller.workspaceManager.entry(for: token) != nil else { return }
         guard !controller.shouldSuppressManagedFocusRecovery,
               !controller.workspaceManager.hasPendingNativeFullscreenTransition
-        else {
-            controller.axEventHandler.completeFocusedRemovalRecovery(
-                workspaceId: entry.workspaceId,
-                target: token
-            )
-            return
-        }
+        else { return }
 
-        controller.axEventHandler.noteFocusedRemovalRecoveryFocusRequested(token)
         controller.focusWindow(token, source: .focusPolicy)
-        if controller.focusBridge.activeManagedRequest(for: token) == nil {
-            controller.axEventHandler.completeFocusedRemovalRecovery(
-                workspaceId: entry.workspaceId,
-                target: token
-            )
-        }
     }
 
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
@@ -833,9 +801,7 @@ private let layoutShutdownRaceLog = Logger(
         removedNodeId: NodeId?,
         removedWindow: WindowToken? = nil,
         niriOldFrames: [WindowToken: CGRect],
-        niriRevealSide: NiriRemovalRevealSide? = nil,
         shouldRecoverFocus: Bool,
-        niriAnimationPolicy: NiriRemovalAnimationPolicy = .ordinary,
         postLayout: PostLayoutAction? = nil
     ) -> RefreshCycleId? {
         assert(RefreshReason.windowDestroyed.requestRoute == .windowRemoval, "Invalid window-removal reason")
@@ -849,9 +815,7 @@ private let layoutShutdownRaceLog = Logger(
                 removedNodeId: removedNodeId,
                 removedWindow: removedWindow,
                 niriOldFrames: niriOldFrames,
-                niriRevealSide: niriRevealSide,
-                shouldRecoverFocus: shouldRecoverFocus,
-                niriAnimationPolicy: niriAnimationPolicy
+                shouldRecoverFocus: shouldRecoverFocus
             )
         )
         guard let result = enqueueRefresh(refresh) else { return nil }
@@ -1291,7 +1255,7 @@ private let layoutShutdownRaceLog = Logger(
             }
 
             return workspacePlans.contains { plan in
-                !plan.focusIntents.isEmpty || plan.animationDirectives.contains { directive in
+                plan.animationDirectives.contains { directive in
                     if case .activateWindow = directive {
                         return true
                     }
@@ -1332,9 +1296,7 @@ private let layoutShutdownRaceLog = Logger(
                 )
             }
 
-            if payload.shouldRecoverFocus,
-               payload.layoutType == .dwindle || payload.removedNodeId == nil
-            {
+            if payload.shouldRecoverFocus, payload.layoutType == .dwindle {
                 focusedWorkspacesToRecover.insert(payload.workspaceId)
             }
         }
@@ -1395,41 +1357,12 @@ private let layoutShutdownRaceLog = Logger(
             removedNodeIds.append(removedNodeId)
         }
 
-        let payloadSuppliesRecoveryPolicy = payload.shouldRecoverFocus
-            || payload.niriAnimationPolicy == .staticViewportPreserving
-        let selectedRemovalAnchorNodeId = if payload.shouldRecoverFocus {
-            payload.removedNodeId ?? existing?.selectedRemovalAnchorNodeId
-        } else {
-            existing?.selectedRemovalAnchorNodeId
-        }
-        let diagnosticRemovedNodeId = if payloadSuppliesRecoveryPolicy {
-            payload.removedNodeId ?? existing?.diagnosticRemovedNodeId
-        } else {
-            existing?.diagnosticRemovedNodeId ?? payload.removedNodeId
-        }
-        let removedWindow = if payloadSuppliesRecoveryPolicy {
-            payload.removedWindow ?? existing?.removedWindow
-        } else {
-            existing?.removedWindow ?? payload.removedWindow
-        }
-        let revealSide = if payload.shouldRecoverFocus {
-            payload.niriRevealSide ?? existing?.revealSide
-        } else {
-            existing?.revealSide ?? payload.niriRevealSide
-        }
-
         return NiriWindowRemovalSeed(
             removedNodeIds: removedNodeIds,
             oldFrames: (existing?.oldFrames ?? [:])
                 .merging(payload.niriOldFrames) { current, _ in current },
-            removedWindow: removedWindow,
-            selectedRemovalAnchorNodeId: selectedRemovalAnchorNodeId,
-            revealSide: revealSide,
-            shouldRecoverFocus: existing?.shouldRecoverFocus == true || payload.shouldRecoverFocus,
-            animationPolicy: existing?.animationPolicy
-                .merging(payload.niriAnimationPolicy)
-                ?? payload.niriAnimationPolicy,
-            diagnosticRemovedNodeId: diagnosticRemovedNodeId
+            removedWindow: existing?.removedWindow ?? payload.removedWindow,
+            diagnosticRemovedNodeId: existing?.diagnosticRemovedNodeId ?? payload.removedNodeId
         )
     }
 
@@ -1913,16 +1846,11 @@ private let layoutShutdownRaceLog = Logger(
             storeRefreshPlanningSnapshot(snapshot)
         }
         synchronizeRefreshCycleCounter()
-        controller?.axEventHandler.reconcileFocusedRemovalActivationSuppression(
-            activeCycleId: snapshot.activeRefresh?.cycleId,
-            pendingCycleId: snapshot.pendingRefresh?.cycleId
-        )
 
         for action in actions {
             switch action {
             case let .cancelActiveRefresh(cycleId):
                 guard refreshPlanningSnapshot().activeRefresh?.cycleId == cycleId else { continue }
-                controller?.axEventHandler.cancelFocusedRemovalActivationSuppression(refreshCycleId: cycleId)
                 layoutState.activeRefreshTask?.cancel()
             case let .startRefresh(refresh):
                 startRefreshTask(refresh)

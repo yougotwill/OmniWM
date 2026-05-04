@@ -292,11 +292,9 @@ enum OrchestrationKernel {
             removed_node_id: payload.removedNodeId.map { encode(uuid: $0.uuid) } ?? zeroUUID(),
             removed_window: payload.removedWindow.map(encode(token:)) ?? zeroToken(),
             layout_kind: rawLayoutKind(payload.layoutType),
-            niri_animation_policy: rawNiriRemovalAnimationPolicy(payload.niriAnimationPolicy),
             has_removed_node_id: payload.removedNodeId == nil ? 0 : 1,
             has_removed_window: payload.removedWindow == nil ? 0 : 1,
             should_recover_focus: payload.shouldRecoverFocus ? 1 : 0,
-            niri_reveal_side: rawNiriRemovalRevealSide(payload.niriRevealSide),
             reserved0: 0,
             old_frame_offset: frameRange.offset,
             old_frame_count: frameRange.count
@@ -431,9 +429,7 @@ enum OrchestrationKernel {
             removedNodeId: payload.has_removed_node_id == 0 ? nil : NodeId(uuid: decode(uuid: payload.removed_node_id)),
             removedWindow: payload.has_removed_window == 0 ? nil : decode(token: payload.removed_window),
             niriOldFrames: Dictionary(uniqueKeysWithValues: frameRecords.map { (decode(token: $0.token), decode(rect: $0.frame)) }),
-            niriRevealSide: niriRemovalRevealSide(rawValue: payload.niri_reveal_side),
-            shouldRecoverFocus: payload.should_recover_focus != 0,
-            niriAnimationPolicy: niriRemovalAnimationPolicy(rawValue: payload.niri_animation_policy)
+            shouldRecoverFocus: payload.should_recover_focus != 0
         )
     }
 
@@ -705,46 +701,6 @@ enum OrchestrationKernel {
         case UInt32(OMNIWM_ORCHESTRATION_LAYOUT_KIND_NIRI): .niri
         case UInt32(OMNIWM_ORCHESTRATION_LAYOUT_KIND_DWINDLE): .dwindle
         default: KernelContract.require(nil as LayoutType?, "Unknown orchestration layout kind \(rawValue)")
-        }
-    }
-
-    private static func rawNiriRemovalRevealSide(_ side: NiriRemovalRevealSide?) -> UInt8 {
-        switch side {
-        case nil: UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_NONE)
-        case .some(.left): UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_LEFT)
-        case .some(.right): UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_RIGHT)
-        }
-    }
-
-    private static func niriRemovalRevealSide(rawValue: UInt8) -> NiriRemovalRevealSide? {
-        switch rawValue {
-        case UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_NONE): nil
-        case UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_LEFT): .left
-        case UInt8(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_REVEAL_SIDE_RIGHT): .right
-        default: KernelContract.require(nil as NiriRemovalRevealSide?, "Unknown Niri removal reveal side \(rawValue)")
-        }
-    }
-
-    private static func rawNiriRemovalAnimationPolicy(_ policy: NiriRemovalAnimationPolicy) -> UInt32 {
-        switch policy {
-        case .ordinary:
-            UInt32(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_ANIMATION_ORDINARY)
-        case .staticViewportPreserving:
-            UInt32(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_ANIMATION_STATIC_VIEWPORT_PRESERVING)
-        }
-    }
-
-    private static func niriRemovalAnimationPolicy(rawValue: UInt32) -> NiriRemovalAnimationPolicy {
-        switch rawValue {
-        case UInt32(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_ANIMATION_ORDINARY):
-            .ordinary
-        case UInt32(OMNIWM_ORCHESTRATION_NIRI_REMOVAL_ANIMATION_STATIC_VIEWPORT_PRESERVING):
-            .staticViewportPreserving
-        default:
-            KernelContract.require(
-                nil as NiriRemovalAnimationPolicy?,
-                "Unknown Niri removal animation policy \(rawValue)"
-            )
         }
     }
 

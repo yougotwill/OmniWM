@@ -946,7 +946,12 @@ private func waitForFocusRefresh(on controller: WMController) async {
             focusSpecificWindow: { _, _, _ in },
             raiseWindow: { _ in }
         )
-        let (controller, workspaceId, survivor) = makeFocusTestController(windowFocusOperations: operations)
+        let (controller, workspaceId, survivor) = makeFocusTestController(
+            windowFocusOperations: operations,
+            workspaceConfigurations: [
+                WorkspaceConfiguration(name: "1", monitorAssignment: .main, layoutType: .dwindle)
+            ]
+        )
         let removedWindow = makeFocusTestWindow(windowId: 502)
         let removedToken = controller.workspaceManager.addWindow(
             removedWindow,
